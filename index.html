@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cohort retention builder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root{
+    --ink:#12130f;--muted:#6f7268;--faint:#9a9d92;
+    --line:rgba(18,19,15,0.12);--bg:#f6f5ef;--card:#fff;
+    --accent:#2f6d4f;--accent-soft:#e7efe9;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55;padding:28px 16px;}
+  .wrap{max-width:960px;margin:0 auto;}
+  h1{font-size:21px;font-weight:650;margin:0 0 2px;letter-spacing:-0.015em;}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 20px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px;}
+  label.fld{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em;}
+  textarea{width:100%;min-height:130px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:12px;line-height:1.5;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fbfbf8;color:var(--ink);}
+  textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent;}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;}
+  button{font:inherit;font-size:13px;font-weight:550;padding:8px 16px;border-radius:9px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);cursor:pointer;transition:background .15s;}
+  button:hover{background:#f0efe8;}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  button.primary:hover{background:#255a41;}
+  .opts{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:12px;}
+  .opts label{display:flex;align-items:center;gap:6px;cursor:pointer;}
+  .msg{font-size:12.5px;margin-top:10px;min-height:16px;}
+  .msg.err{color:#b0322b;}
+  .msg.ok{color:var(--accent);}
+  .controls{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+  .controls .hint{font-size:12px;color:var(--muted);}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 10px;margin-bottom:16px;font-size:12px;color:var(--muted);}
+  .legend .item{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:#fff;transition:opacity .15s,background .15s;}
+  .legend .item:hover{background:#f0efe8;}
+  .legend .item.off{opacity:.38;text-decoration:line-through;}
+  .swatch{width:16px;height:3px;display:inline-block;border-radius:2px;}
+  .swatch.dash{height:0;border-top:2px dashed;}
+  .chart-box{position:relative;width:100%;height:440px;}
+  footer{font-size:12px;color:var(--faint);margin-top:14px;}
+  details{margin-top:14px;font-size:12.5px;color:var(--muted);}
+  summary{cursor:pointer;font-weight:600;}
+  details p{margin:8px 0 0;}
+  code{background:#eeede6;padding:1px 5px;border-radius:4px;font-size:11.5px;}
+  #chartCard{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Cohort retention builder</h1>
+  <p class="sub">Paste the retention query's CSV output. It rolls weekly go-live cohorts into monthly lines, splits May into early and late, and omits October. Nothing leaves your browser.</p>
+
+  <div class="card">
+    <label class="fld" for="csv">Query output (CSV)</label>
+    <textarea id="csv" placeholder="Cohort,go-lives,W1,W2,W3,W4,W5,W6,W7&#10;2025-W45,97,79.38,65.98,46.39,45.36,46.39,32.99,38.14&#10;..."></textarea>
+    <div class="opts">
+      <label><input type="checkbox" id="optSplitMay" checked> Split May &amp; June into early / late</label>
+      <label><input type="checkbox" id="optOmitOct" checked> Omit October</label>
+      <label><input type="checkbox" id="optWeighted"> Weight by go-lives</label>
+      <label><input type="checkbox" id="optZeroBlank"> Treat 0% as blank (drop immature/unloaded zeros)</label>
+    </div>
+    <div class="row">
+      <button class="primary" id="fetchBtn">Fetch latest from Metabase</button>
+      <button id="build">Build chart</button>
+      <button id="openCsv">Open CSV link</button>
+      <button id="sample">Load sample</button>
+    </div>
+    <div class="msg" id="msg"></div>
+    <div id="diag" style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7;"></div>
+    <details>
+      <summary>Expected columns</summary>
+      <p>Header must include <code>Cohort</code> (ISO week like <code>2025-W45</code> or <code>202545</code>) and week columns <code>W1</code>…<code>W7</code>. A <code>go-lives</code> count column is optional but required for the weighting option. Blank cells are fine and stay unplotted.</p>
+    </details>
+  </div>
+
+  <div class="card" id="chartCard">
+    <div class="controls">
+      <button id="showAll" type="button">Show all</button>
+      <button id="hideAll" type="button">Hide all</button>
+      <span class="hint">Click a cohort to hide or show its line</span>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="chart-box">
+      <canvas id="chart" role="img" aria-label="Line chart of retention by weeks since go-live, one line per monthly cohort.">Retention by weeks since go-live.</canvas>
+    </div>
+    <footer id="foot"></footer>
+  </div>
+</div>
+
+<script>
+const MONTH=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const WCOLS=['W1','W2','W3','W4','W5','W6','W7'];
+// stable, distinguishable palette; dashed flag for later months
+const STYLE=[
+  {c:'#185FA5'},{c:'#1D9E75'},{c:'#BA7517'},{c:'#D85A30'},{c:'#C0392B'},
+  {c:'#D4537E',d:true},{c:'#534AB7',d:true},{c:'#2E8BC0',d:true},{c:'#5F5E5A',d:true},
+  {c:'#7A6A00',d:true},{c:'#8E44AD',d:true},{c:'#16A085',d:true}
+];
+
+// ISO week (year, week) -> calendar month of that week's Monday (matches BigQuery %G-%V framing)
+function isoWeekMonday(y,w){
+  const simple=new Date(Date.UTC(y,0,1+(w-1)*7));
+  const dow=simple.getUTCDay();
+  const monday=new Date(simple);
+  const diff=(dow<=4?dow-1:dow-8); // ISO: week containing first Thursday
+  monday.setUTCDate(simple.getUTCDate()-diff);
+  return monday;
+}
+function parseCohort(raw){
+  raw=raw.trim();
+  let y,w;
+  let m=raw.match(/^(\d{4})[-_ ]?W?(\d{1,2})$/i);
+  if(m){y=+m[1];w=+m[2];}
+  else if(/^\d{6}$/.test(raw)){y=+raw.slice(0,4);w=+raw.slice(4);}
+  else return null;
+  const mon=isoWeekMonday(y,w);
+  return {y,w,my:mon.getUTCFullYear(),mm:mon.getUTCMonth()+1};
+}
+function parseCSV(text){
+  const lines=text.replace(/\r/g,'').split('\n').map(l=>l.trim()).filter(l=>l.length);
+  if(lines.length<2) throw new Error('Need a header row plus at least one data row.');
+  const header=lines[0].split(',').map(h=>h.trim());
+  const idx={};header.forEach((h,i)=>idx[h.toLowerCase()]=i);
+  if(!('cohort' in idx)) throw new Error('No "Cohort" column found in the header.');
+  const wIdx=WCOLS.map(w=>idx[w.toLowerCase()]);
+  if(wIdx.some(i=>i===undefined)) throw new Error('Missing one or more of W1..W7 columns.');
+  const glIdx=idx['go-lives'];
+  const rows=[];
+  for(let li=1;li<lines.length;li++){
+    const parts=lines[li].split(',');
+    const co=parseCohort(parts[idx.cohort]);
+    if(!co) continue;
+    const vals=wIdx.map(i=>{const v=(parts[i]||'').trim().replace('%','');return v===''?null:parseFloat(v);});
+    const gl=glIdx!==undefined?parseFloat((parts[glIdx]||'').replace(/[^0-9.]/g,''))||0:1;
+    rows.push({co,vals,gl});
+  }
+  if(!rows.length) throw new Error('No rows with a recognizable cohort value.');
+  return rows;
+}
+
+function rollup(rows,opts){
+  // group key: month, with May optionally split by ISO week (<=20 early, >=21 late)
+  const groups={}; // key -> {label, order, weeks:[{vals,gl}]}
+  for(const r of rows){
+    if(opts.omitOct && r.co.mm===10) continue;
+    let key,label,order;
+    const isMay=r.co.mm===5;
+    const isJun=r.co.mm===6;
+    if(isMay && opts.splitMay){
+      const early=r.co.w<=20;
+      key=`${r.co.my}-05-${early?'E':'L'}`;
+      label=`${early?'Early':'Late'} May ${String(r.co.my).slice(2)}`;
+      order=r.co.my*100+5+(early?0:0.5);
+    }else if(isJun && opts.splitMay){
+      // mid-month: early = W23/W24 (Jun 1–14), late = W25+ (Jun 15 onward)
+      const early=r.co.w<=24;
+      key=`${r.co.my}-06-${early?'E':'L'}`;
+      label=`${early?'Early':'Late'} Jun ${String(r.co.my).slice(2)}`;
+      order=r.co.my*100+6+(early?0:0.5);
+    }else{
+      key=`${r.co.my}-${String(r.co.mm).padStart(2,'0')}`;
+      label=`${MONTH[r.co.mm-1]} ${String(r.co.my).slice(2)}`;
+      order=r.co.my*100+r.co.mm;
+    }
+    (groups[key]=groups[key]||{label,order,weeks:[]}).weeks.push(r);
+  }
+  const out=Object.values(groups).sort((a,b)=>a.order-b.order);
+  for(const g of out){
+    g.data=WCOLS.map((_,wi)=>{
+      let num=0,den=0;
+      for(const r of g.weeks){
+        let v=r.vals[wi];
+        if(v===null||v===undefined||isNaN(v)) continue;
+        // defensive: treat an exact 0 as "no data" when enabled (immature/unloaded week signature)
+        if(opts.zeroBlank && v===0) continue;
+        const wt=opts.weighted?r.gl:1;
+        num+=v*wt;den+=wt;
+      }
+      return den?Math.round(num/den*10)/10:null;
+    });
+    // omit W5 (index 4) and W6 (index 5) for the May lines — tail not reliably mature
+    if(/May/.test(g.label)){ g.data[4]=null; g.data[5]=null; }
+    g.n=g.weeks.length;
+  }
+  return out;
+}
+
+let chart=null;
+function render(groups,opts){
+  const ds=groups.map((g,i)=>{
+    const st=STYLE[i%STYLE.length];
+    return {label:g.label,data:g.data,borderColor:st.c,backgroundColor:st.c,
+      borderWidth:2,borderDash:st.d?[6,3]:[],tension:0.3,pointRadius:2,pointHoverRadius:5,spanGaps:false};
+  });
+  if(chart) chart.destroy();
+  chart=new Chart(document.getElementById('chart'),{
+    type:'line',
+    data:{labels:WCOLS,datasets:ds},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'\u2014':c.parsed.y+'%')}}},
+      scales:{
+        y:{beginAtZero:true,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(18,19,15,0.09)'},title:{display:true,text:'Retention'}},
+        x:{ticks:{font:{size:12}},grid:{display:false},title:{display:true,text:'Weeks since go-live'}}
+      }
+    }
+  });
+  // legend
+  const L=document.getElementById('legend');L.innerHTML='';
+  ds.forEach((d,i)=>{
+    const it=document.createElement('span');it.className='item';
+    const sw=document.createElement('span');sw.className='swatch'+(d.borderDash.length?' dash':'');
+    if(d.borderDash.length)sw.style.borderColor=d.borderColor;else sw.style.background=d.borderColor;
+    it.appendChild(sw);it.appendChild(document.createTextNode(d.label));
+    it.addEventListener('click',()=>{const v=chart.isDatasetVisible(i);chart.setDatasetVisibility(i,!v);it.classList.toggle('off',v);chart.update();});
+    L.appendChild(it);
+  });
+  const setAll=v=>{ds.forEach((_,i)=>chart.setDatasetVisibility(i,v));chart.update();[...L.children].forEach(e=>e.classList.toggle('off',!v));};
+  document.getElementById('showAll').onclick=()=>setAll(true);
+  document.getElementById('hideAll').onclick=()=>setAll(false);
+  const thin=groups.filter(g=>g.n<=2).map(g=>g.label);
+  document.getElementById('foot').textContent='Hover any week to compare cohorts.'+(thin.length?' Thin data (\u22642 weeks): '+thin.join(', ')+'.':'')+(opts.weighted?' Averages weighted by go-lives.':'');
+  document.getElementById('chartCard').style.display='block';
+}
+
+function build(){
+  const msg=document.getElementById('msg');msg.className='msg';msg.textContent='';
+  const opts={splitMay:optSplitMay.checked,omitOct:optOmitOct.checked,weighted:optWeighted.checked,zeroBlank:optZeroBlank.checked};
+  try{
+    const rows=parseCSV(document.getElementById('csv').value);
+    const groups=rollup(rows,opts);
+    if(!groups.length) throw new Error('Nothing to plot after grouping.');
+    render(groups,opts);
+    // diagnostics: cohorts feeding each line, and any all-blank lines
+    const summary=groups.map(g=>{
+      const empty=g.data.every(v=>v===null);
+      const weeks=g.weeks?g.weeks.map(r=>`${r.co.y}-W${String(r.co.w).padStart(2,'0')}`).join(', '):'';
+      return {label:g.label,n:g.n,empty,weeks};
+    });
+    const emptyLines=summary.filter(s=>s.empty).map(s=>s.label);
+    let note=`Built ${groups.length} cohort lines from ${rows.length} weekly rows.`;
+    const lateMay=summary.find(s=>s.label.startsWith('Late May'));
+    if(!lateMay) note+=' No Late May line: no W21/W22 cohort rows were found in the pasted data.';
+    if(emptyLines.length) note+=' All-blank (nothing to plot): '+emptyLines.join(', ')+'.';
+    msg.className='msg ok';msg.textContent=note;
+    // detailed breakdown into the diagnostics panel
+    const diag=document.getElementById('diag');
+    diag.innerHTML='<strong>Cohorts feeding each line:</strong><br>'+
+      summary.map(s=>`${s.label} (${s.n} wk${s.n>1?'s':''}${s.empty?', EMPTY':''}): ${s.weeks}`).join('<br>');
+    const cc=document.getElementById('chartCard');
+    if(cc.scrollIntoView) cc.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }catch(e){msg.className='msg err';msg.textContent=e.message;}
+}
+document.getElementById('build').addEventListener('click',build);
+
+// ---- Metabase auto-fetch ----
+const METABASE_CSV_URL = 'https://metabase.kaip.in/public/question/9c880055-e286-4790-8cae-df8850dd0f5e.csv';
+async function fetchFromMetabase(auto){
+  const msg=document.getElementById('msg');
+  msg.className='msg';msg.textContent='Fetching latest data from Metabase\u2026';
+  try{
+    const res=await fetch(METABASE_CSV_URL,{method:'GET',mode:'cors'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const text=await res.text();
+    if(!text || text.trim().length<10) throw new Error('Empty response from Metabase.');
+    document.getElementById('csv').value=text.trim();
+    build();
+  }catch(e){
+    msg.className='msg err';
+    msg.textContent='Could not auto-fetch from Metabase ('+e.message+'). This is usually a browser CORS block on local files. '+
+      'Open the CSV link in a new tab, copy its contents into the box, and click Load data. '+
+      (auto?'(Auto-fetch runs on open; you can retry with the Fetch button.)':'');
+    // reveal the manual box prominently
+    document.getElementById('csv').focus();
+  }
+}
+document.getElementById('fetchBtn').addEventListener('click',()=>fetchFromMetabase(false));
+document.getElementById('openCsv').addEventListener('click',()=>window.open(METABASE_CSV_URL,'_blank'));
+// try once automatically on load
+window.addEventListener('load',()=>fetchFromMetabase(true));
+
+document.getElementById('sample').addEventListener('click',()=>{
+  document.getElementById('csv').value=
+`Cohort,go-lives,W1,W2,W3,W4,W5,W6,W7
+2025-W45,97,79.38,65.98,46.39,45.36,46.39,32.99,38.14
+2025-W46,109,81.65,60.55,53.21,51.38,48.62,50.46,42.20
+2025-W47,106,86.79,65.09,65.09,60.38,51.89,47.17,44.34
+2025-W48,134,75.37,65.67,55.22,51.49,48.51,47.01,38.81
+2025-W49,95,73.68,66.32,56.84,53.68,52.63,44.21,38.95
+2025-W50,93,70.97,64.52,61.29,48.39,40.86,44.09,41.94
+2025-W51,116,83.62,60.34,54.31,43.97,49.14,41.38,41.38
+2025-W52,154,78.57,62.34,53.25,44.16,44.16,32.47,37.01
+2026-W01,140,75.71,60.71,52.86,41.43,38.57,33.57,30.00
+2026-W02,123,72.36,57.72,46.34,34.15,30.89,27.64,24.39
+2026-W06,167,65.27,50.30,43.11,35.93,28.14,21.56,17.37
+2026-W10,165,60.00,35.15,28.48,20.61,17.58,15.15,13.94
+2026-W15,246,63.01,32.93,27.64,25.61,24.80,23.58,20.33
+2026-W19,267,68.91,44.94,37.08,35.58,30.71,26.22,
+2026-W20,294,73.81,43.20,37.41,33.67,26.19,,
+2026-W21,261,75.10,54.41,40.61,34.10,,,
+2026-W22,272,77.94,48.16,41.91,,,,
+2026-W23,200,78.00,48.00,,,,,`;
+  build();
+});
+</script>
+</body>
+</html>
