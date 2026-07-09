@@ -37,6 +37,6 @@ jobs:
             echo "No change in data.json — nothing to commit."
           else
             git add data.json
-            git commit -m "Auto-refresh retention snapshot [skip ci]"
+            git commit -m "Auto-refresh retention snapshot"
             git push
           fi
