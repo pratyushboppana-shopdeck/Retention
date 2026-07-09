@@ -1,0 +1,42 @@
+name: Refresh retention snapshot
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'   # every 3 hours (UTC)
+  workflow_dispatch:          # allow a manual run from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-snapshot
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch latest data from Metabase
+        env:
+          METABASE_URL: https://metabase.kaip.in
+          METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+        run: python .github/scripts/refresh.py
+
+      - name: Commit snapshot if it changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- data.json; then
+            echo "No change in data.json — nothing to commit."
+          else
+            git add data.json
+            git commit -m "Auto-refresh retention snapshot [skip ci]"
+            git push
+          fi
