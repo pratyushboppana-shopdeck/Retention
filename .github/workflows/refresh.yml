@@ -5,16 +5,23 @@ on:
     - cron: '0 */3 * * *'   # every 3 hours (UTC)
   workflow_dispatch:          # allow a manual run from the Actions tab
 
+# contents: commit the snapshot; pages/id-token: deploy in the same run
+# (a GITHUB_TOKEN commit does NOT trigger the separate deploy workflow, so we deploy here).
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
-  group: refresh-snapshot
+  group: pages
   cancel-in-progress: false
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,3 +47,11 @@ jobs:
             git commit -m "Auto-refresh retention snapshot"
             git push
           fi
+
+      # Publish the freshly-generated working tree straight to Pages.
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      - id: deployment
+        uses: actions/deploy-pages@v4
