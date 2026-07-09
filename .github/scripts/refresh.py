@@ -44,6 +44,16 @@ def main():
         print("Unexpected CSV header:", csv.splitlines()[0], file=sys.stderr)
         sys.exit(1)
 
+    # Only rewrite when the data actually changed, so identical 3-hourly polls
+    # don't create commit noise (the timestamp alone must not trigger a commit).
+    try:
+        with open(OUT) as f:
+            if json.load(f).get("csv") == csv:
+                print(f"No data change ({len(csv.splitlines())-1} rows) — leaving {OUT} untouched.")
+                return
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
     snap = {
         "source": f"Metabase card {CARD_ID} — 3K Retention Curve- base data",
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
