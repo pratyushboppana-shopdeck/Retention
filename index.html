@@ -40,7 +40,7 @@
 <body>
 <div class="wrap">
   <h1>3K retention curve</h1>
-  <p class="sub">Weekly go-live cohorts rolled into monthly retention lines (May &amp; June split early/late, October omitted). Auto-synced from Metabase every 3 hours &mdash; nothing to load.</p>
+  <p class="sub">Weekly go-live cohorts rolled into monthly retention lines (May&ndash;July split into early/late halves, October omitted; new months appear automatically). Auto-synced from Metabase every 3 hours &mdash; nothing to load.</p>
 
   <div class="card" id="loadingCard">
     <div class="state" id="state">Loading latest snapshot&hellip;</div>
@@ -64,7 +64,11 @@
 const MONTH=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WCOLS=['W1','W2','W3','W4','W5','W6','W7'];
 // fixed rollup settings (previously the checkboxes)
-const OPTS={splitMay:true,omitOct:true,weighted:false,zeroBlank:false};
+const OPTS={split:true,omitOct:true,weighted:false,zeroBlank:false};
+// months (1=Jan..12=Dec) shown as two lines: early (go-live Mon on day 1–14) + late (day 15+).
+// Any other month renders as a single whole-month line automatically, so new/future
+// months appear on their own with no code change. Add a month number here to split it.
+const SPLIT_MONTHS=[5,6,7]; // May, Jun, Jul
 // stable, distinguishable palette; dashed flag for later months
 const STYLE=[
   {c:'#185FA5'},{c:'#1D9E75'},{c:'#BA7517'},{c:'#D85A30'},{c:'#C0392B'},
@@ -89,7 +93,7 @@ function parseCohort(raw){
   else if(/^\d{6}$/.test(raw)){y=+raw.slice(0,4);w=+raw.slice(4);}
   else return null;
   const mon=isoWeekMonday(y,w);
-  return {y,w,my:mon.getUTCFullYear(),mm:mon.getUTCMonth()+1};
+  return {y,w,my:mon.getUTCFullYear(),mm:mon.getUTCMonth()+1,md:mon.getUTCDate()};
 }
 function parseCSV(text){
   const lines=text.replace(/\r/g,'').split('\n').map(l=>l.trim()).filter(l=>l.length);
@@ -114,33 +118,33 @@ function parseCSV(text){
 }
 
 function rollup(rows,opts){
-  // group key: month, with May optionally split by ISO week (<=20 early, >=21 late)
+  // Group weekly cohorts by calendar month. Months in SPLIT_MONTHS become two lines:
+  // early = go-live Monday on day 1–14, late = day 15+. Every other month (incl. any
+  // future month) falls through to a single whole-month line automatically.
   const groups={}; // key -> {label, order, weeks:[...]}
   for(const r of rows){
     if(opts.omitOct && r.co.mm===10) continue;
     let key,label,order;
-    const isMay=r.co.mm===5;
-    const isJun=r.co.mm===6;
-    if(isMay && opts.splitMay){
-      const early=r.co.w<=20;
-      key=`${r.co.my}-05-${early?'E':'L'}`;
-      label=`${early?'Early':'Late'} May ${String(r.co.my).slice(2)}`;
-      order=r.co.my*100+5+(early?0:0.5);
-    }else if(isJun && opts.splitMay){
-      // mid-month: early = W23/W24 (Jun 1–14), late = W25+ (Jun 15 onward)
-      const early=r.co.w<=24;
-      key=`${r.co.my}-06-${early?'E':'L'}`;
-      label=`${early?'Early':'Late'} Jun ${String(r.co.my).slice(2)}`;
-      order=r.co.my*100+6+(early?0:0.5);
+    const mm2=String(r.co.mm).padStart(2,'0');
+    const monName=MONTH[r.co.mm-1];
+    const yy=String(r.co.my).slice(2);
+    if(opts.split && SPLIT_MONTHS.includes(r.co.mm)){
+      const early=r.co.md<=14; // Monday in the first half of the month
+      key=`${r.co.my}-${mm2}-${early?'E':'L'}`;
+      label=`${early?'Early':'Late'} ${monName} ${yy}`;
+      order=r.co.my*100+r.co.mm+(early?0:0.5);
     }else{
-      key=`${r.co.my}-${String(r.co.mm).padStart(2,'0')}`;
-      label=`${MONTH[r.co.mm-1]} ${String(r.co.my).slice(2)}`;
+      key=`${r.co.my}-${mm2}`;
+      label=`${monName} ${yy}`;
       order=r.co.my*100+r.co.mm;
     }
     (groups[key]=groups[key]||{label,order,weeks:[]}).weeks.push(r);
   }
   const out=Object.values(groups).sort((a,b)=>a.order-b.order);
   for(const g of out){
+    // Loose maturity: a week is plotted when at least one cohort in the month has a
+    // value for it. Immature weeks arrive as blanks from the query, so they never
+    // count — the line simply extends as far as the data has matured.
     g.data=WCOLS.map((_,wi)=>{
       let num=0,den=0;
       for(const r of g.weeks){
@@ -152,8 +156,6 @@ function rollup(rows,opts){
       }
       return den?Math.round(num/den*10)/10:null;
     });
-    // omit W5 (index 4) and W6 (index 5) for the May lines — tail not reliably mature
-    if(/May/.test(g.label)){ g.data[4]=null; g.data[5]=null; }
     g.n=g.weeks.length;
   }
   return out;
