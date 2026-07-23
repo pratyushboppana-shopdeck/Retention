@@ -142,19 +142,21 @@ function rollup(rows,opts){
   }
   const out=Object.values(groups).sort((a,b)=>a.order-b.order);
   for(const g of out){
-    // Loose maturity: a week is plotted when at least one cohort in the month has a
-    // value for it. Immature weeks arrive as blanks from the query, so they never
-    // count — the line simply extends as far as the data has matured.
+    // Strict maturity: a week is plotted only once EVERY cohort in the month has
+    // matured to it. Immature weeks (reached by only some cohorts) are dropped, so a
+    // line never rests on a shrinking subset. Lines grow automatically as data matures.
     g.data=WCOLS.map((_,wi)=>{
-      let num=0,den=0;
+      let num=0,den=0,present=0;
       for(const r of g.weeks){
         let v=r.vals[wi];
         if(v===null||v===undefined||isNaN(v)) continue;
         if(opts.zeroBlank && v===0) continue;
+        present++;
         const wt=opts.weighted?r.gl:1;
         num+=v*wt;den+=wt;
       }
-      return den?Math.round(num/den*10)/10:null;
+      // require all cohorts in the group to have this week (else it's immature)
+      return (present===g.weeks.length && den)?Math.round(num/den*10)/10:null;
     });
     g.n=g.weeks.length;
   }
