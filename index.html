@@ -69,6 +69,10 @@ const OPTS={split:true,omitOct:true,weighted:false,zeroBlank:false};
 // Any other month renders as a single whole-month line automatically, so new/future
 // months appear on their own with no code change. Add a month number here to split it.
 const SPLIT_MONTHS=[5,6,7]; // May, Jun, Jul
+// a cohort joins a rolled-up line only once it has at least this many matured weeks.
+// Drops brand-new (immature) ISO-week cohorts that would otherwise cap the whole line
+// to their short tail — matches the query's "keep cohorts with >= W3 mature" gate.
+const MIN_MATURE_WEEKS=3;
 // stable, distinguishable palette; dashed flag for later months
 const STYLE=[
   {c:'#185FA5'},{c:'#1D9E75'},{c:'#BA7517'},{c:'#D85A30'},{c:'#C0392B'},
@@ -140,11 +144,15 @@ function rollup(rows,opts){
     }
     (groups[key]=groups[key]||{label,order,weeks:[]}).weeks.push(r);
   }
-  const out=Object.values(groups).sort((a,b)=>a.order-b.order);
+  const matureCount=r=>r.vals.filter(v=>v!==null&&v!==undefined&&!isNaN(v)).length;
+  let out=Object.values(groups).sort((a,b)=>a.order-b.order);
   for(const g of out){
-    // Strict maturity: a week is plotted only once EVERY cohort in the month has
-    // matured to it. Immature weeks (reached by only some cohorts) are dropped, so a
-    // line never rests on a shrinking subset. Lines grow automatically as data matures.
+    // Drop immature ISO-week cohorts (fewer than MIN_MATURE_WEEKS of data) before
+    // plotting, so a fresh cohort doesn't cap the whole line to its short tail.
+    g.dropped=g.weeks.filter(r=>matureCount(r)<MIN_MATURE_WEEKS);
+    g.weeks=g.weeks.filter(r=>matureCount(r)>=MIN_MATURE_WEEKS);
+    // Strict maturity: a week is plotted only once EVERY remaining cohort has matured
+    // to it, so a line never rests on a shrinking subset. Lines grow as data matures.
     g.data=WCOLS.map((_,wi)=>{
       let num=0,den=0,present=0;
       for(const r of g.weeks){
@@ -155,12 +163,13 @@ function rollup(rows,opts){
         const wt=opts.weighted?r.gl:1;
         num+=v*wt;den+=wt;
       }
-      // require all cohorts in the group to have this week (else it's immature)
-      return (present===g.weeks.length && den)?Math.round(num/den*10)/10:null;
+      // require all remaining cohorts to have this week (else it's immature)
+      return (g.weeks.length && present===g.weeks.length && den)?Math.round(num/den*10)/10:null;
     });
     g.n=g.weeks.length;
   }
-  return out;
+  // drop months whose every cohort was too immature to plot yet
+  return out.filter(g=>g.n>0);
 }
 
 let chart=null;
