@@ -35,12 +35,28 @@
   .state{font-size:13px;color:var(--muted);padding:40px 0;text-align:center;}
   .state.err{color:#b0322b;}
   #chartCard{display:none;}
+  #drillCard{display:none;}
+  .drill-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px;}
+  .drill-head h2{font-size:16px;margin:0;font-weight:650;letter-spacing:-0.01em;}
+  .drill-sub{font-size:12.5px;color:var(--muted);}
+  .dist{display:flex;flex-direction:column;gap:5px;margin:14px 0 16px;}
+  .brow{display:grid;grid-template-columns:210px 1fr 92px;gap:10px;align-items:center;font-size:12.5px;cursor:pointer;padding:2px 4px;border-radius:6px;}
+  .brow:hover{background:#f0efe8;}
+  .brow.sel{background:var(--accent-soft);font-weight:600;}
+  .bar{height:13px;border-radius:3px;display:inline-block;min-width:2px;vertical-align:middle;}
+  .bcount{color:var(--muted);text-align:right;}
+  .tablewrap{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px;}
+  table.sellers{width:100%;border-collapse:collapse;font-size:12px;}
+  table.sellers th,table.sellers td{text-align:left;padding:5px 9px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  table.sellers th{position:sticky;top:0;background:var(--card);color:var(--muted);font-weight:600;z-index:1;}
+  table.sellers tbody tr:hover{background:#f7f6f0;}
+  .drill-actions{display:flex;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>3K retention curve</h1>
-  <p class="sub">Weekly go-live cohorts rolled into monthly retention lines (May&ndash;July split into early/late halves, October omitted; new months appear automatically). Auto-synced from Metabase every 3 hours &mdash; nothing to load.</p>
+  <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point on a May-2026-onward line</b> to see why those sellers didn&rsquo;t retain. Auto-synced from Metabase every 3 hours.</p>
 
   <div class="card" id="loadingCard">
     <div class="state" id="state">Loading latest snapshot&hellip;</div>
@@ -57,6 +73,25 @@
       <canvas id="chart" role="img" aria-label="Line chart of retention by weeks since go-live, one line per monthly cohort.">Retention by weeks since go-live.</canvas>
     </div>
     <footer id="foot"></footer>
+  </div>
+
+  <div class="card" id="drillCard">
+    <div class="drill-head">
+      <h2 id="drillTitle"></h2>
+      <span class="drill-sub" id="drillSub"></span>
+    </div>
+    <div class="dist" id="dist"></div>
+    <div class="tablewrap">
+      <table class="sellers">
+        <thead><tr><th>#</th><th>Seller ID</th><th>Reason bucket</th><th>GC</th><th>GM</th><th>KAM</th></tr></thead>
+        <tbody id="sellerRows"></tbody>
+      </table>
+    </div>
+    <div class="drill-actions">
+      <button id="dlCsv" type="button">Download CSV</button>
+      <button id="clearFilter" type="button" style="display:none">Clear bucket filter</button>
+      <span class="drill-sub" id="drillFilter"></span>
+    </div>
   </div>
 </div>
 
@@ -174,6 +209,9 @@ function rollup(rows,opts){
 
 let chart=null;
 function render(groups,meta){
+  // each rendered line maps to the ISO-week cohorts that feed it (for drill-down)
+  groups.forEach(g=>{ g.isoWeeks=g.weeks.map(r=>r.co.y+'-W'+String(r.co.w).padStart(2,'0')); });
+  window.GROUPS=groups;
   const ds=groups.map((g,i)=>{
     const st=STYLE[i%STYLE.length];
     return {label:g.label,data:g.data,borderColor:st.c,backgroundColor:st.c,
@@ -186,6 +224,7 @@ function render(groups,meta){
     options:{
       responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
+      onClick:(e)=>{const el=chart.getElementsAtEventForMode(e,'nearest',{intersect:false},true);if(!el.length)return;const di=el[0].datasetIndex,ix=el[0].index;if(chart.data.datasets[di].data[ix]==null)return;drill(di,ix);},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')}}},
       scales:{
         y:{beginAtZero:true,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(18,19,15,0.09)'},title:{display:true,text:'Retention'}},
@@ -231,6 +270,8 @@ async function load(){
     const snap=await res.json();
     const csv=typeof snap==='string'?snap:snap.csv;
     if(!csv) throw new Error('Snapshot missing CSV payload.');
+    window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
+    window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
     const groups=rollup(parseCSV(csv),OPTS);
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
     render(groups,snap);
@@ -238,6 +279,64 @@ async function load(){
     fail('Could not load the retention snapshot ('+e.message+'). It refreshes automatically every 3 hours; try reloading shortly.');
   }
 }
+// ===== Drill-down: click a point -> not-retained sellers for that (cohort, week) =====
+const BUCKET_COLORS=['#C0392B','#8E44AD','#BA7517','#185FA5','#1D9E75','#6f7268','#9a9d92'];
+let CURDRILL=null;
+function esc(s){return (s==null?'':(''+s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function drill(gi,wk){
+  const g=(window.GROUPS||[])[gi]; if(!g) return;
+  const card=document.getElementById('drillCard');
+  const weeks=new Set(g.isoWeeks||[]);
+  const cohort=(window.DIAG||[]).filter(d=>weeks.has(d.w));
+  document.getElementById('drillTitle').textContent=g.label+' — not retained at W'+(wk+1);
+  card.style.display='block';
+  if(!cohort.length){
+    document.getElementById('drillSub').textContent='Seller-level diagnosis is available for May-2026-onward cohorts only.';
+    document.getElementById('dist').innerHTML=''; document.getElementById('sellerRows').innerHTML='';
+    document.getElementById('drillFilter').textContent=''; document.getElementById('clearFilter').style.display='none';
+    CURDRILL=null; card.scrollIntoView({behavior:'smooth',block:'nearest'}); return;
+  }
+  const notret=cohort.filter(d=>(d.sp[wk]||0)<3000);
+  const notPct=(100*notret.length/cohort.length).toFixed(1);
+  document.getElementById('drillSub').textContent=notret.length+' of '+cohort.length+' sellers dropped ('+notPct+'% not retained · '+(100-notPct).toFixed(1)+'% retained).';
+  const B=window.BUCKETS;
+  const dist=B.map((name,bi)=>({name,bi,n:notret.filter(d=>d.b===bi).length})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+  const max=Math.max(1,...dist.map(x=>x.n));
+  const distEl=document.getElementById('dist'); distEl.innerHTML='';
+  dist.forEach(x=>{
+    const row=document.createElement('div'); row.className='brow'; row.dataset.bi=x.bi;
+    row.innerHTML='<span>'+esc(x.name)+'</span><span><span class="bar" style="width:'+(100*x.n/max)+'%;background:'+BUCKET_COLORS[x.bi%BUCKET_COLORS.length]+'"></span></span>'+
+      '<span class="bcount">'+x.n+' ('+(100*x.n/notret.length).toFixed(1)+'%)</span>';
+    row.addEventListener('click',()=>setFilter(x.bi));
+    distEl.appendChild(row);
+  });
+  CURDRILL={label:g.label,wk,notret,filter:null};
+  renderRows(); card.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function setFilter(bi){ if(!CURDRILL) return; CURDRILL.filter=(CURDRILL.filter===bi?null:bi); renderRows(); }
+function renderRows(){
+  const B=window.BUCKETS, tb=document.getElementById('sellerRows'); tb.innerHTML='';
+  let rows=CURDRILL.notret; if(CURDRILL.filter!=null) rows=rows.filter(d=>d.b===CURDRILL.filter);
+  const frag=document.createDocumentFragment();
+  rows.forEach((d,i)=>{ const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+(i+1)+'</td><td>'+esc(d.s)+'</td><td>'+esc(B[d.b])+'</td><td>'+esc(d.gc)+'</td><td>'+esc(d.gm)+'</td><td>'+esc(d.kam)+'</td>';
+    frag.appendChild(tr); });
+  tb.appendChild(frag);
+  [...document.getElementById('dist').children].forEach(el=>el.classList.toggle('sel',+el.dataset.bi===CURDRILL.filter));
+  const fEl=document.getElementById('drillFilter'), clr=document.getElementById('clearFilter');
+  if(CURDRILL.filter!=null){ fEl.textContent='Showing '+rows.length+' × '+B[CURDRILL.filter]; clr.style.display=''; }
+  else { fEl.textContent='Showing all '+rows.length+' not-retained sellers'; clr.style.display='none'; }
+}
+document.getElementById('clearFilter').addEventListener('click',()=>{ if(CURDRILL){CURDRILL.filter=null;renderRows();} });
+document.getElementById('dlCsv').addEventListener('click',()=>{
+  if(!CURDRILL) return; const B=window.BUCKETS;
+  let rows=CURDRILL.notret; if(CURDRILL.filter!=null) rows=rows.filter(d=>d.b===CURDRILL.filter);
+  const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const csv=['seller_id,reason_bucket,GC,GM,KAM'].concat(rows.map(d=>[d.s,B[d.b],d.gc,d.gm,d.kam].map(q).join(','))).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)+'.csv').replace(/[^a-z0-9]+/gi,'_'); a.click();
+});
+
 window.addEventListener('load',load);
 // keep a long-lived tab fresh without a manual reload (snapshot changes at most every 3h)
 setInterval(load,30*60*1000);
