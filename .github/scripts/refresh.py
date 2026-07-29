@@ -92,25 +92,23 @@ fb AS (
   WHERE f.breakdown_key IS NULL AND DATE(f.spend_date,'Asia/Kolkata')>=DATE '2026-04-15'
     AND DATE_DIFF(DATE(f.spend_date,'Asia/Kolkata'),g.golive_date,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1
 ),
+-- Ad-account block: a blocking ticket created <= W3 that is NOT resolved by W3.
+-- Resolution = status 'completed' AND completed within W3. status 'pending'/'closed' = unresolved
+-- (per business rule). The FB fb_ad_account_block_history (card 12049) is NOT used as a driver
+-- here: it flags DISABLED even for sellers actively spending (stale/secondary-account noise).
 adtix AS (
   SELECT g.seller_id,1 ad_impact FROM golive g JOIN nushop.workboard_tasks t ON t.seller_id=g.seller_id
-  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2026-04-01'
+  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2026-03-01'
     AND t.sub_type IN ('ad_account_suspension','ad_account_blocked','business_manager_verification','business_manager_restricted','pixel_inactive','page_restricted','ad_account_hacked','business_manager_access','account_restricted','account_permanently_restricted','page_unpublished','ad_account_has_limit')
-    AND DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)<=2
-    AND (t.completed_at IS NULL OR DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)>=3) GROUP BY 1
+    AND DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)<=3
+    AND (t.status!='completed' OR DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)>3) GROUP BY 1
 ),
 paytix AS (
   SELECT g.seller_id,1 pay_impact FROM golive g JOIN nushop.workboard_tasks t ON t.seller_id=g.seller_id
-  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2026-04-01'
-    AND t.sub_type IN ('add_funds','payment_failed','change_payment_method','payment_processing','transactions_failure')
-    AND DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)<=2
-    AND (t.completed_at IS NULL OR DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)>=3) GROUP BY 1
-),
-fbdis AS (
-  SELECT g.seller_id, MAX(1) disabled,
-    MAX(IF(h.reason='RISK_PAYMENT' OR LOWER(h.detailed_reason_text) LIKE '%payment%',1,0)) dis_payment
-  FROM golive g JOIN fb_marketings.fb_ad_account_block_history h ON h.seller_id=g.seller_id
-  WHERE h.ad_account_issues='DISABLED' AND DATE_DIFF(DATE(h.created_at,'Asia/Kolkata'),g.golive_date,ISOWEEK) BETWEEN 0 AND 3 GROUP BY 1
+  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2026-03-01'
+    AND t.sub_type IN ('payment_failed','transactions_failure','change_payment_method')
+    AND DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)<=3
+    AND (t.status!='completed' OR DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)>3) GROUP BY 1
 ),
 mgr AS (SELECT seller_id, MAX(gc_name) gc, MAX(gm_name) gm, MAX(kam_name) kam FROM `blitzscale-prod-project.analytics.seller_console_metrics_summary` GROUP BY 1),
 base AS (
@@ -121,16 +119,15 @@ base AS (
     COALESCE(o.n_orders_02,0) orders02, COALESCE(o.gmv02,0) gmv02,
     SAFE_DIVIDE(fb.fb_sp,o.gmv02) sgmv, SAFE_DIVIDE(sw.rto03,sw.ord03) rto_rate,
     COALESCE(a.ad_impact,0) ad_impact, COALESCE(p.pay_impact,0) pay_impact,
-    COALESCE(d.disabled,0) disabled, COALESCE(d.dis_payment,0) dis_payment,
     COALESCE(NULLIF(m.gc,''),'-') gc, COALESCE(NULLIF(m.gm,''),'-') gm, COALESCE(NULLIF(m.kam,''),'-') kam
   FROM golive g LEFT JOIN sw USING(seller_id) LEFT JOIN ord o USING(seller_id) LEFT JOIN fb USING(seller_id)
-  LEFT JOIN adtix a USING(seller_id) LEFT JOIN paytix p USING(seller_id) LEFT JOIN fbdis d USING(seller_id) LEFT JOIN mgr m USING(seller_id)
+  LEFT JOIN adtix a USING(seller_id) LEFT JOIN paytix p USING(seller_id) LEFT JOIN mgr m USING(seller_id)
 ),
 med AS (SELECT APPROX_QUANTILES(sgmv,2)[OFFSET(1)] m_sgmv, APPROX_QUANTILES(rto_rate,2)[OFFSET(1)] m_rto FROM base WHERE w3_mature=1 AND retained_w3=0)
 SELECT b.seller_id, b.gw AS golive_iso_week, b.sp1,b.sp2,b.sp3,b.sp4,b.sp5,b.sp6,b.sp7,
   CASE
-    WHEN (b.disabled=1 AND b.dis_payment=0) OR b.ad_impact=1 THEN 'Ad-account / platform block'
-    WHEN b.dis_payment=1 OR b.pay_impact=1 THEN 'Payment / funding block'
+    WHEN b.ad_impact=1 THEN 'Ad-account / platform block'
+    WHEN b.pay_impact=1 THEN 'Payment / funding block'
     WHEN b.orders02=0 AND b.gmv02<=0 THEN 'No activation / no demand'
     WHEN b.sgmv > med.m_sgmv THEN 'Poor ad performance'
     WHEN b.rto_rate > med.m_rto THEN 'Fulfilment / RTO'
