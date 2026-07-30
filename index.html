@@ -106,6 +106,11 @@
     <div class="reason-head">
       <div><b>Reason mix by go-live ISO week</b> <span class="hint">— each reason as a % of that week&rsquo;s go-lives (by W3 outcome)</span></div>
     </div>
+    <div class="controls">
+      <button id="reasonShowAll" type="button">Show all</button>
+      <button id="reasonHideAll" type="button">Hide all</button>
+      <span class="hint">Click a reason below to toggle its line</span>
+    </div>
     <div class="legend" id="reasonToggles"></div>
     <div class="chart-box" style="height:380px"><canvas id="reasonChart" role="img" aria-label="Line chart of each reason as a share of go-lives by go-live ISO week."></canvas></div>
     <footer id="reasonFoot"></footer>
@@ -395,6 +400,9 @@ function buildReasonTrend(rows,diag){
     it.addEventListener('click',()=>{const v=reasonChart.isDatasetVisible(i);reasonChart.setDatasetVisibility(i,!v);it.classList.toggle('off',v);reasonChart.update();});
     T.appendChild(it);
   });
+  const setAllReason=v=>{datasets.forEach((_,i)=>reasonChart.setDatasetVisibility(i,v));reasonChart.update();[...T.children].forEach(e=>e.classList.toggle('off',!v));};
+  document.getElementById('reasonShowAll').onclick=()=>setAllReason(true);
+  document.getElementById('reasonHideAll').onclick=()=>setAllReason(false);
   // ---- matrix: reason rows x ISO-week columns, heat-shaded ----
   const M=document.getElementById('reasonMatrix');
   let h='<thead><tr><th>Reason \\ ISO week</th>'+weeks.map(w=>'<th>'+w.replace('2026-','&rsquo;26-').replace('2025-','&rsquo;25-')+'</th>').join('')+'</tr></thead><tbody>';
