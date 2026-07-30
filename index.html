@@ -35,6 +35,16 @@
   .state{font-size:13px;color:var(--muted);padding:40px 0;text-align:center;}
   .state.err{color:#b0322b;}
   #chartCard{display:none;}
+  #reasonCard{display:none;}
+  .reason-head{margin-bottom:12px;font-size:14px;}
+  .reason-head b{font-size:14px;}
+  #reasonToggles .item .swatch{width:12px;height:12px;border-radius:3px;}
+  table.matrix{border-collapse:collapse;font-size:10.5px;}
+  table.matrix th,table.matrix td{padding:3px 6px;border:1px solid var(--line);text-align:center;white-space:nowrap;min-width:34px;}
+  table.matrix th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--card);z-index:1;}
+  table.matrix td.rn,table.matrix th:first-child{position:sticky;left:0;background:var(--card);text-align:left;font-weight:600;z-index:2;}
+  table.matrix td.rn{white-space:nowrap;}
+  table.matrix td.rn .defdot{display:inline-block;margin-right:6px;vertical-align:middle;}
   #drillCard{display:none;}
   .drill-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px;}
   .drill-head h2{font-size:16px;margin:0;font-weight:650;letter-spacing:-0.01em;}
@@ -51,12 +61,29 @@
   table.sellers th{position:sticky;top:0;background:var(--card);color:var(--muted);font-weight:600;z-index:1;}
   table.sellers tbody tr:hover{background:#f7f6f0;}
   .drill-actions{display:flex;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap;}
+  .drill-h3{font-size:13px;font-weight:650;margin:20px 0 8px;letter-spacing:-0.01em;}
+  details.defs{margin:4px 0 6px;font-size:12.5px;}
+  details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
+  details.defs>summary:hover{text-decoration:underline;}
+  .defbox{margin:10px 0 4px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:#fbfbf8;}
+  .defrow{display:grid;grid-template-columns:190px 1fr;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line);}
+  .defrow:last-child{border-bottom:0;}
+  .defname{font-weight:600;display:flex;align-items:center;gap:7px;}
+  .defdot{width:10px;height:10px;border-radius:3px;flex:none;}
+  .defrule{color:var(--muted);}
+  .defrule code{background:#eeede6;padding:0 4px;border-radius:3px;}
+  table.wow{width:100%;border-collapse:collapse;font-size:11.5px;}
+  table.wow th,table.wow td{padding:4px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;}
+  table.wow th:first-child,table.wow td:first-child{text-align:left;position:sticky;left:0;background:var(--card);}
+  table.wow th{color:var(--muted);font-weight:600;border-bottom:2px solid var(--line);}
+  table.wow tr.selwk td{background:var(--accent-soft);font-weight:600;}
+  table.wow td.z{color:var(--faint);}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>3K retention curve</h1>
-  <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point on a May-2026-onward line</b> to see why those sellers didn&rsquo;t retain. Auto-synced from Metabase every 3 hours.</p>
+  <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point</b> to see why those sellers didn&rsquo;t retain that week. Auto-synced from Metabase once daily (~10&nbsp;AM IST).</p>
 
   <div class="card" id="loadingCard">
     <div class="state" id="state">Loading latest snapshot&hellip;</div>
@@ -75,12 +102,30 @@
     <footer id="foot"></footer>
   </div>
 
+  <div class="card" id="reasonCard">
+    <div class="reason-head">
+      <div><b>Reason mix by go-live ISO week</b> <span class="hint">— each reason as a % of that week&rsquo;s go-lives (by W3 outcome)</span></div>
+    </div>
+    <div class="legend" id="reasonToggles"></div>
+    <div class="chart-box" style="height:380px"><canvas id="reasonChart" role="img" aria-label="Line chart of each reason as a share of go-lives by go-live ISO week."></canvas></div>
+    <footer id="reasonFoot"></footer>
+    <div class="drill-h3">Matrix &mdash; reason (rows) &times; ISO year-week (columns), % of go-lives</div>
+    <div class="tablewrap" style="max-height:none"><table class="matrix" id="reasonMatrix"></table></div>
+  </div>
+
   <div class="card" id="drillCard">
     <div class="drill-head">
       <h2 id="drillTitle"></h2>
       <span class="drill-sub" id="drillSub"></span>
     </div>
     <div class="dist" id="dist"></div>
+    <details class="defs" id="bucketDefs">
+      <summary>How these buckets are defined &amp; calculated</summary>
+      <div class="defbox" id="defsBody"></div>
+    </details>
+    <div class="drill-h3">Week-on-week reason mix &mdash; <span id="wowCohort"></span></div>
+    <div class="tablewrap"><table class="wow" id="wowTable"></table></div>
+    <div class="drill-h3">Not-retained sellers <span id="selWkLbl"></span></div>
     <div class="tablewrap">
       <table class="sellers">
         <thead><tr><th>#</th><th>Seller ID</th><th>Reason bucket</th><th>GC</th><th>GM</th><th>KAM</th></tr></thead>
@@ -272,17 +317,96 @@ async function load(){
     if(!csv) throw new Error('Snapshot missing CSV payload.');
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
-    const groups=rollup(parseCSV(csv),OPTS);
+    const rows=parseCSV(csv);
+    const groups=rollup(rows,OPTS);
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
     render(groups,snap);
+    buildReasonTrend(rows,window.DIAG);
   }catch(e){
     fail('Could not load the retention snapshot ('+e.message+'). It refreshes automatically every 3 hours; try reloading shortly.');
   }
 }
 // ===== Drill-down: click a point -> not-retained sellers for that (cohort, week) =====
 const BUCKET_COLORS=['#C0392B','#8E44AD','#BA7517','#185FA5','#1D9E75','#6f7268','#9a9d92'];
+const BUCKET_SHORT=['Ad block','Payment','No activ.','Poor perf.','RTO','Elective','Other'];
+// plain-English meaning (d) + how it is computed (r); ordered = precedence (first match wins)
+const BUCKET_DEFS=[
+  {n:'Ad-account / platform block', d:'Meta blocked the ad account (or a Business-Manager / page / pixel block) — the seller physically could not spend.', r:'A blocking ticket (card 11610: <code>ad_account_blocked</code>, <code>ad_account_suspension</code>, <code>business_manager_*</code>, <code>page_restricted</code>, <code>pixel_inactive</code>, …) created on/before W3 and <b>not resolved by W3</b> — ticket status <code>pending</code>/<code>closed</code>, or <code>completed</code> only after W3.'},
+  {n:'Payment / funding block', d:'A payment failed / the account could not be funded, blocking spend.', r:'An unresolved payment ticket (<code>payment_failed</code>, <code>transactions_failure</code>, <code>change_payment_method</code>) on/before W3, same resolution rule. Routine <code>add_funds</code> top-ups are excluded (not a block).'},
+  {n:'No activation / no demand', d:'Ads ran but produced no sales at all — a product / market-fit problem.', r:'Zero orders <b>and</b> zero GMV across W0–W2 (orderitems basis, card 11435).'},
+  {n:'Poor ad performance', d:'Ads ran and sold, but inefficiently — marketing cost too high relative to sales.', r:'Spend-to-GMV ratio over W0–W2 <b>above the median</b> of all not-retained sellers (worse-than-typical efficiency).'},
+  {n:'Fulfilment / RTO', d:'Orders came but too many were returned-to-origin (RTO), breaking the economics.', r:'RTO rate over W0–W3 (RTOs ÷ orders, card 12206) <b>above the median</b> of all not-retained sellers.'},
+  {n:'Elective pause / no refill', d:'Account worked, orders came, no block or fulfilment issue — the seller simply stopped / didn’t top up after the offer period.', r:'Had orders in W0–W2 and matched none of the buckets above.'},
+  {n:'Other / unclassified', d:'None of the above signals were present.', r:'Fallback bucket (rare).'}
+];
+function renderDefs(){
+  const el=document.getElementById('defsBody'); if(!el) return;
+  el.innerHTML='<div class="defrule" style="margin-bottom:9px">Each not-retained seller is placed in the <b>first</b> bucket it matches, top&#8594;bottom — so involuntary blocks outrank elective pauses. “Median” cut-offs use the median across all not-retained sellers.</div>'+
+    BUCKET_DEFS.map((x,i)=>'<div class="defrow"><div class="defname"><span class="defdot" style="background:'+BUCKET_COLORS[i]+'"></span>'+esc(x.n)+'</div><div class="defrule"><b>'+x.d+'</b><br>'+x.r+'</div></div>').join('');
+}
 let CURDRILL=null;
 function esc(s){return (s==null?'':(''+s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function buildWoW(g,cohort,wk){
+  const B=window.BUCKETS, T=document.getElementById('wowTable');
+  document.getElementById('wowCohort').textContent=g.label;
+  const matured=[]; for(let k=0;k<7;k++){ if(g.data[k]!=null) matured.push(k); }
+  let h='<thead><tr><th>Rel. week</th><th>Not&nbsp;ret.</th>'+B.map((n,i)=>'<th title="'+esc(n)+'">'+BUCKET_SHORT[i]+'</th>').join('')+'</tr></thead><tbody>';
+  matured.forEach(k=>{
+    const nr=cohort.filter(d=>(d.sp[k]||0)<3000);
+    const counts=B.map((_,bi)=>nr.filter(d=>d.b===bi).length);
+    h+='<tr'+(k===wk?' class="selwk"':'')+'><td>W'+(k+1)+'</td><td>'+nr.length+'</td>'+
+       counts.map(c=>'<td'+(c?'':' class="z"')+'>'+(c||'·')+'</td>').join('')+'</tr>';
+  });
+  h+='</tbody>'; T.innerHTML=h;
+}
+// ===== Reason-mix trend: stacked share of go-lives by go-live ISO week =====
+let reasonChart=null;
+function isoStr(co){return co.y+'-W'+String(co.w).padStart(2,'0');}
+function hx(hex,a){const n=parseInt(hex.slice(1),16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';}
+function buildReasonTrend(rows,diag){
+  const card=document.getElementById('reasonCard');
+  if(!diag||!diag.length){ card.style.display='none'; return; }
+  const B=window.BUCKETS;
+  // mature ISO-week cohorts (W3 elapsed => W3 not null), October excluded, chronological
+  const mature=rows.filter(r=>r.vals[2]!=null && r.co.mm!==10).sort((a,b)=>(a.co.y*100+a.co.w)-(b.co.y*100+b.co.w));
+  const weeks=mature.map(r=>isoStr(r.co)); const wset=new Set(weeks);
+  const byWk={}; weeks.forEach(w=>byWk[w]={tot:0,ret:0,b:new Array(B.length).fill(0)});
+  diag.forEach(d=>{ if(!wset.has(d.w))return; const o=byWk[d.w]; o.tot++; if((d.sp[2]||0)>=3000)o.ret++; else o.b[d.b]++; });
+  const pct=(n,t)=>t?Math.round(1000*n/t)/10:0;
+  // shared series: Retained (hidden by default so reason lines are readable) + one per bucket
+  const series=[{label:'Retained at W3',color:'#9a9d92',hidden:true,val:w=>pct(byWk[w].ret,byWk[w].tot)}]
+    .concat(B.map((name,bi)=>({label:name,color:BUCKET_COLORS[bi%BUCKET_COLORS.length],hidden:false,val:w=>pct(byWk[w].b[bi],byWk[w].tot)})));
+  // ---- line chart with toggles ----
+  const datasets=series.map(s=>({label:s.label,data:weeks.map(s.val),borderColor:s.color,backgroundColor:s.color,
+    borderWidth:2,tension:0.3,pointRadius:1.5,pointHoverRadius:4,spanGaps:true,hidden:s.hidden}));
+  if(reasonChart) reasonChart.destroy();
+  reasonChart=new Chart(document.getElementById('reasonChart'),{
+    type:'line', data:{labels:weeks,datasets},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'% of go-lives')}}},
+      scales:{x:{grid:{display:false},ticks:{font:{size:9},maxRotation:90,minRotation:90}},
+        y:{beginAtZero:true,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(18,19,15,0.09)'},title:{display:true,text:'% of go-lives'}}}}
+  });
+  const T=document.getElementById('reasonToggles');T.innerHTML='';
+  datasets.forEach((d,i)=>{
+    const it=document.createElement('span');it.className='item'+(d.hidden?' off':'');
+    const sw=document.createElement('span');sw.className='swatch';sw.style.background=d.borderColor;
+    it.appendChild(sw);it.appendChild(document.createTextNode(d.label));
+    it.addEventListener('click',()=>{const v=reasonChart.isDatasetVisible(i);reasonChart.setDatasetVisibility(i,!v);it.classList.toggle('off',v);reasonChart.update();});
+    T.appendChild(it);
+  });
+  // ---- matrix: reason rows x ISO-week columns, heat-shaded ----
+  const M=document.getElementById('reasonMatrix');
+  let h='<thead><tr><th>Reason \\ ISO week</th>'+weeks.map(w=>'<th>'+w.replace('2026-','&rsquo;26-').replace('2025-','&rsquo;25-')+'</th>').join('')+'</tr></thead><tbody>';
+  series.forEach(s=>{
+    const vals=weeks.map(s.val); const mx=Math.max(1,...vals);
+    h+='<tr><td class="rn"><span class="defdot" style="background:'+s.color+'"></span>'+esc(s.label)+'</td>'+
+      vals.map(v=>'<td style="background:'+hx(s.color,v>0?0.12+0.72*v/mx:0)+'">'+(v>=1?Math.round(v):(v>0?'·':''))+'</td>').join('')+'</tr>';
+  });
+  h+='</tbody>'; M.innerHTML=h;
+  document.getElementById('reasonFoot').textContent='Mature cohorts only (W3 elapsed). Each reason = % of that ISO week’s go-lives. Toggle lines above; “Retained” is hidden by default. Matrix cells are heat-shaded within each row.';
+  card.style.display='block';
+}
 function drill(gi,wk){
   const g=(window.GROUPS||[])[gi]; if(!g) return;
   const card=document.getElementById('drillCard');
@@ -291,8 +415,9 @@ function drill(gi,wk){
   document.getElementById('drillTitle').textContent=g.label+' — not retained at W'+(wk+1);
   card.style.display='block';
   if(!cohort.length){
-    document.getElementById('drillSub').textContent='Seller-level diagnosis is available for May-2026-onward cohorts only.';
+    document.getElementById('drillSub').textContent='No seller-level diagnosis for this cohort.';
     document.getElementById('dist').innerHTML=''; document.getElementById('sellerRows').innerHTML='';
+    document.getElementById('wowTable').innerHTML=''; document.getElementById('wowCohort').textContent=g.label;
     document.getElementById('drillFilter').textContent=''; document.getElementById('clearFilter').style.display='none';
     CURDRILL=null; card.scrollIntoView({behavior:'smooth',block:'nearest'}); return;
   }
@@ -310,6 +435,8 @@ function drill(gi,wk){
     row.addEventListener('click',()=>setFilter(x.bi));
     distEl.appendChild(row);
   });
+  buildWoW(g,cohort,wk);
+  document.getElementById('selWkLbl').textContent='at W'+(wk+1)+' — '+g.label;
   CURDRILL={label:g.label,wk,notret,filter:null};
   renderRows(); card.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
@@ -337,6 +464,7 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
   a.download=('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)+'.csv').replace(/[^a-z0-9]+/gi,'_'); a.click();
 });
 
+renderDefs(); // static bucket definitions are available immediately
 window.addEventListener('load',load);
 // keep a long-lived tab fresh without a manual reload (snapshot changes at most every 3h)
 setInterval(load,30*60*1000);

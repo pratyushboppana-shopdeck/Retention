@@ -3,7 +3,7 @@
 
 Produces two datasets on the canonical go-live >1000 base:
   * curve  -> per weekly-cohort W1..W7 3K-retention (feeds the chart)
-  * diag   -> per-seller diagnosis for May-2026-onward cohorts (feeds the drill-down):
+  * diag   -> per-seller diagnosis for all charted cohorts (Nov-2025 onward; feeds the drill-down):
               weekly spend sp1..sp7, reason bucket, and current GC/GM/KAM (card 7753)
 Reason buckets follow the agreed framework (cards 11435/11610/12049/12206), precedence
 1->7, median cutoffs for performance & RTO. Only rewrites data.json when the data changes.
@@ -62,7 +62,7 @@ WITH golive AS (
   SELECT seller_id, MIN(start_date) AS golive_date, FORMAT_DATE('%G-W%V', MIN(start_date)) AS gw
   FROM nushop.gc_view_3 WHERE marketing_spend > 1000 AND team_mapping='HIT'
   GROUP BY seller_id
-  HAVING DATE_TRUNC(MIN(start_date),ISOWEEK) >= DATE '2026-05-04'
+  HAVING MIN(start_date) >= DATE '2025-11-01'
      AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)
 ),
 sw AS (
@@ -82,14 +82,14 @@ ord AS (
   SELECT g.seller_id, COUNT(*) n_orders_02,
     SUM(oi.selling_price*oi.quantity+oi.cod_charge+oi.delivery_fees-oi.total_discount) gmv02
   FROM golive g JOIN nushop.orderitems oi ON oi.seller_id=g.seller_id
-  WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2026-04-15'
+  WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-15'
     AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid') AND oi.awb_no!='None' AND oi.in_house_status!='awb_expired'
     AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'),g.golive_date,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1
 ),
 fb AS (
   SELECT g.seller_id, SUM(f.spend) fb_sp, SUM(f.impressions) imp, SUM(f.clicks) clk
   FROM golive g JOIN fb_marketings.fb_marketing_insights f ON f.seller_id=g.seller_id
-  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date,'Asia/Kolkata')>=DATE '2026-04-15'
+  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date,'Asia/Kolkata')>=DATE '2025-10-15'
     AND DATE_DIFF(DATE(f.spend_date,'Asia/Kolkata'),g.golive_date,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1
 ),
 -- Ad-account block: a blocking ticket created <= W3 that is NOT resolved by W3.
@@ -98,14 +98,14 @@ fb AS (
 -- here: it flags DISABLED even for sellers actively spending (stale/secondary-account noise).
 adtix AS (
   SELECT g.seller_id,1 ad_impact FROM golive g JOIN nushop.workboard_tasks t ON t.seller_id=g.seller_id
-  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2026-03-01'
+  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2025-09-01'
     AND t.sub_type IN ('ad_account_suspension','ad_account_blocked','business_manager_verification','business_manager_restricted','pixel_inactive','page_restricted','ad_account_hacked','business_manager_access','account_restricted','account_permanently_restricted','page_unpublished','ad_account_has_limit')
     AND DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)<=3
     AND (t.status!='completed' OR DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)>3) GROUP BY 1
 ),
 paytix AS (
   SELECT g.seller_id,1 pay_impact FROM golive g JOIN nushop.workboard_tasks t ON t.seller_id=g.seller_id
-  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2026-03-01'
+  WHERE t.source='crm_initiated' AND t.created_by IS NOT NULL AND DATE(t.created_at)>=DATE '2025-09-01'
     AND t.sub_type IN ('payment_failed','transactions_failure','change_payment_method')
     AND DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)<=3
     AND (t.status!='completed' OR DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)>3) GROUP BY 1
