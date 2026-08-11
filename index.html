@@ -62,6 +62,28 @@
   table.sellers tbody tr:hover{background:#f7f6f0;}
   .drill-actions{display:flex;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap;}
   .drill-h3{font-size:13px;font-weight:650;margin:20px 0 8px;letter-spacing:-0.01em;}
+  .tabs{display:flex;gap:6px;margin:2px 0 16px;}
+  .tab{font:inherit;font-size:13px;font-weight:600;padding:7px 14px;border-radius:9px 9px 0 0;border:1px solid var(--line);border-bottom:none;background:#efeee7;color:var(--muted);cursor:pointer;}
+  .tab.active{background:var(--card);color:var(--ink);box-shadow:0 -1px 0 var(--accent) inset;}
+  #gcgmCard{display:none;}
+  .gcgm-filters{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:14px;background:#fbfbf8;}
+  .fl-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0;}
+  .fl-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;min-width:96px;}
+  .mbtn{font:inherit;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;}
+  .mbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .wkchip{font-size:11px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:#fff;cursor:pointer;user-select:none;}
+  .wkchip.on{background:var(--accent-soft);border-color:var(--accent);font-weight:600;}
+  .wkwrap{display:flex;flex-wrap:wrap;gap:4px;max-height:66px;overflow:auto;}
+  .gcgm-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:720px){.gcgm-cols{grid-template-columns:1fr;}}
+  .gcgm-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;font-weight:650;font-size:13px;}
+  .gcgm-head select{font:inherit;font-size:12px;max-width:150px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff;}
+  table.rank{width:100%;border-collapse:collapse;font-size:12px;}
+  table.rank th,table.rank td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  table.rank th{position:sticky;top:0;background:var(--card);color:var(--muted);font-weight:600;text-align:left;z-index:1;}
+  table.rank td.num,table.rank th.num{text-align:right;}
+  table.rank .rbar{height:12px;border-radius:3px;display:inline-block;vertical-align:middle;min-width:2px;}
+  .gcgm-detail{font-size:11.5px;color:var(--muted);margin-top:8px;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
   details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
   details.defs>summary:hover{text-decoration:underline;}
@@ -84,6 +106,35 @@
 <div class="wrap">
   <h1>3K retention curve</h1>
   <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point</b> to see why those sellers didn&rsquo;t retain that week. Auto-synced from Metabase once daily (~10&nbsp;AM IST).</p>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" type="button" data-view="curve">Retention curve</button>
+    <button class="tab" type="button" data-view="gcgm">GC &amp; GM retention</button>
+  </div>
+
+  <div class="card" id="gcgmCard">
+    <div class="gcgm-filters">
+      <div class="fl-row"><span class="fl-label">Go-live month</span><span id="gcgmMonths"></span>
+        <button class="mbtn" id="gcgmAll" type="button">All weeks</button><button class="mbtn" id="gcgmClear" type="button">Clear</button></div>
+      <div class="fl-row"><span class="fl-label">Go-live weeks</span><div class="wkwrap" id="gcgmWeeks"></div></div>
+      <div class="fl-row"><span class="fl-label">Retention week</span>
+        <select id="gcgmMetric"></select>
+        <label style="font-size:12px;color:var(--muted)"><input type="checkbox" id="gcgmMinN" checked> hide &lt;5 go-lives</label>
+        <span class="hint" id="gcgmSummary"></span></div>
+    </div>
+    <div class="gcgm-cols">
+      <div class="gcgm-panel">
+        <div class="gcgm-head"><span>By go-live GC — low retention first</span><select id="gcSel"></select></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
+        <div class="gcgm-detail" id="gcDetail"></div>
+      </div>
+      <div class="gcgm-panel">
+        <div class="gcgm-head"><span>By go-live GM — low retention first</span><select id="gmSel"></select></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
+        <div class="gcgm-detail" id="gmDetail"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="card" id="loadingCard">
     <div class="state" id="state">Loading latest snapshot&hellip;</div>
@@ -322,6 +373,7 @@ async function load(){
     if(!csv) throw new Error('Snapshot missing CSV payload.');
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
+    GCGM=snap.gcgm||null; gcgmInit=false;
     const rows=parseCSV(csv);
     const groups=rollup(rows,OPTS);
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
@@ -471,6 +523,105 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   a.download=('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)+'.csv').replace(/[^a-z0-9]+/gi,'_'); a.click();
 });
+
+// ===== GC & GM retention view =====
+let GCGM=null, gcgmInit=false;
+const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All'};
+const MONTH2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function wkMonthKey(w){const co=parseCohort(w); return co?co.my*100+co.mm:0;}
+function wkMonthLabel(w){const co=parseCohort(w); return co?MONTH2[co.mm-1]+' '+String(co.my).slice(2):w;}
+function retColor(p){return p<0.35?'#C0392B':(p<0.50?'#BA7517':'#2f6d4f');}
+function setView(v){
+  document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
+  const gc=v==='gcgm';
+  ['chartCard','reasonCard'].forEach(id=>document.getElementById(id).style.display=gc?'none':'block');
+  document.getElementById('drillCard').style.display=(!gc&&CURDRILL)?'block':'none';
+  document.getElementById('gcgmCard').style.display=gc?'block':'none';
+  if(gc) buildGcgm();
+}
+document.querySelectorAll('#tabs .tab').forEach(t=>t.addEventListener('click',()=>setView(t.dataset.view)));
+function buildGcgm(){
+  const card=document.getElementById('gcgmCard');
+  if(!GCGM){ document.getElementById('gcgmSummary').textContent='No GC/GM data in snapshot.'; return; }
+  if(!gcgmInit){ setupGcgmFilters(); gcgmInit=true; }
+  renderGcgm();
+}
+function setupGcgmFilters(){
+  const weeks=Object.keys(GCGM.weeks).sort();
+  // month buttons
+  const months=[...new Set(weeks.map(wkMonthKey))].sort();
+  const mEl=document.getElementById('gcgmMonths'); mEl.innerHTML='';
+  months.forEach(mk=>{const anyw=weeks.find(w=>wkMonthKey(w)===mk);
+    const b=document.createElement('button'); b.className='mbtn'; b.type='button'; b.textContent=wkMonthLabel(anyw); b.dataset.mk=mk;
+    b.addEventListener('click',()=>{const wks=weeks.filter(w=>wkMonthKey(w)===mk); const allOn=wks.every(w=>gcgmSel.weeks.has(w));
+      wks.forEach(w=>allOn?gcgmSel.weeks.delete(w):gcgmSel.weeks.add(w)); renderGcgm();});
+    mEl.appendChild(b);});
+  // week chips
+  const wEl=document.getElementById('gcgmWeeks'); wEl.innerHTML='';
+  weeks.forEach(w=>{const c=document.createElement('span'); c.className='wkchip'; c.textContent=w.replace('2026-','’ ').replace('’ ','’26-').replace('2025-','’25-'); c.dataset.w=w;
+    c.title=w+' (W3 '+(GCGM.weeks[w]>3?'mature':'not yet mature')+')';
+    c.addEventListener('click',()=>{gcgmSel.weeks.has(w)?gcgmSel.weeks.delete(w):gcgmSel.weeks.add(w); renderGcgm();});
+    wEl.appendChild(c);});
+  // metric selector
+  const ms=document.getElementById('gcgmMetric'); ms.innerHTML='';
+  for(let k=1;k<=7;k++){const o=document.createElement('option'); o.value=k; o.textContent='W'+k; if(k===3)o.selected=true; ms.appendChild(o);}
+  ms.addEventListener('change',()=>{gcgmSel.metric=+ms.value; renderGcgm();});
+  document.getElementById('gcgmMinN').addEventListener('change',renderGcgm);
+  document.getElementById('gcgmAll').addEventListener('click',()=>{weeks.forEach(w=>gcgmSel.weeks.add(w)); renderGcgm();});
+  document.getElementById('gcgmClear').addEventListener('click',()=>{gcgmSel.weeks.clear(); renderGcgm();});
+  document.getElementById('gcSel').addEventListener('change',e=>{gcgmSel.gc=e.target.value; renderGcgm();});
+  document.getElementById('gmSel').addEventListener('change',e=>{gcgmSel.gm=e.target.value; renderGcgm();});
+  // default: latest month whose every week is already W3-mature (a complete month)
+  const byMonth={}; weeks.forEach(w=>{(byMonth[wkMonthKey(w)]=byMonth[wkMonthKey(w)]||[]).push(w);});
+  const fullMature=Object.keys(byMonth).map(Number).filter(k=>byMonth[k].every(w=>GCGM.weeks[w]>3)).sort((a,b)=>a-b);
+  const defMk=fullMature[fullMature.length-1];
+  (byMonth[defMk]||[]).forEach(w=>gcgmSel.weeks.add(w));
+}
+function aggRole(rows){ // rows: [gw,name,n,r1..r7]; returns map name->{n,ret} over mature selected weeks
+  const m=gcgmSel.metric, need=gcgmSel.metric;
+  const acc={};
+  rows.forEach(r=>{const gw=r[0]; if(!gcgmSel.weeks.has(gw)) return; if(GCGM.weeks[gw]<=need) return; // W_metric must be mature
+    const name=r[1]; (acc[name]=acc[name]||{n:0,ret:0,rr:[0,0,0,0,0,0,0],mn:0}); acc[name].n+=r[2]; acc[name].ret+=r[2+m];
+    for(let k=0;k<7;k++) acc[name].rr[k]+=r[3+k]; acc[name].mn+=r[2];});
+  return acc;
+}
+function renderRank(rows, tbodyId, detailId, sel, selEl){
+  const acc=aggRole(rows);
+  const minN=document.getElementById('gcgmMinN').checked;
+  let list=Object.entries(acc).map(([name,a])=>({name,n:a.n,p:a.n?a.ret/a.n:0,rr:a.rr,mn:a.mn}));
+  // dropdown options (all names, alphabetic)
+  const cur=selEl.value||'All';
+  selEl.innerHTML='<option>All</option>'+list.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option>${esc(x.name)}</option>`).join('');
+  selEl.value=[...selEl.options].some(o=>o.value===cur)?cur:'All';
+  const selName=selEl.value;
+  let shown=list;
+  if(minN && selName==='All') shown=shown.filter(x=>x.n>=5);
+  if(selName!=='All') shown=list.filter(x=>x.name===selName);
+  shown.sort((a,b)=>a.p-b.p || b.n-a.n);
+  const tb=document.getElementById(tbodyId); tb.innerHTML='';
+  shown.forEach((x,i)=>{const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${i+1}</td><td>${esc(x.name)}</td><td class="num">${x.n}</td><td class="num">${(100*x.p).toFixed(0)}%</td>`+
+      `<td><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></td>`;
+    tb.appendChild(tr);});
+  // detail: W1-W7 for the selected one
+  const det=document.getElementById(detailId);
+  if(selName!=='All' && shown[0]){const x=shown[0];
+    det.innerHTML='W1&ndash;W7 retention: '+x.rr.map((c,k)=>'W'+(k+1)+' '+(x.mn?(100*c/x.mn).toFixed(0):'0')+'%').join(' &middot; ')+' &nbsp;(n='+x.mn+')';
+  } else det.textContent='';
+  return {n_people:list.length, tot:list.reduce((s,x)=>s+x.n,0), ret:list.reduce((s,x)=>s+x.p*x.n,0)};
+}
+function renderGcgm(){
+  if(!GCGM) return;
+  // reflect selection state on chips + month buttons
+  document.querySelectorAll('#gcgmWeeks .wkchip').forEach(c=>c.classList.toggle('on',gcgmSel.weeks.has(c.dataset.w)));
+  const weeks=Object.keys(GCGM.weeks);
+  document.querySelectorAll('#gcgmMonths .mbtn').forEach(b=>{const wks=weeks.filter(w=>wkMonthKey(w)==+b.dataset.mk); b.classList.toggle('on',wks.length&&wks.every(w=>gcgmSel.weeks.has(w)));});
+  const gcAgg=renderRank(GCGM.gc,'gcRows','gcDetail','gc',document.getElementById('gcSel'));
+  const gmAgg=renderRank(GCGM.gm,'gmRows','gmDetail','gm',document.getElementById('gmSel'));
+  const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
+  const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
+  document.getElementById('gcgmSummary').textContent=`${nWk} mature week(s) selected · ${gcAgg.tot} go-lives (GC-attributed) · overall W${gcgmSel.metric} retention ${overall}%`;
+}
 
 renderDefs(); // static bucket definitions are available immediately
 window.addEventListener('load',load);

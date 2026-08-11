@@ -176,6 +176,66 @@ def parse_diag(csv_text):
     return out
 
 
+# Go-live GC/GM (point-in-time, card 11381 attribution) x W1-W7 3K retention (>1000 base),
+# aggregated per (go-live ISO week, role, person). Feeds the "GC & GM retention" tab.
+GCGM_SQL = r"""
+WITH
+total_spend AS (
+  SELECT seller_id, DATE(date) spend_date, spend/1.18 spend FROM `nushop.marketing_spends`
+    WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 9000 DAY) AND DATE(date) <= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND marketing_channel!='whatsapp'
+  UNION ALL SELECT seller_id, spend_date, spend FROM `nushop.google_marketing_insights_master` WHERE breakdown_key IS NULL AND spend_date >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+),
+daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
+go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
+sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2026-01-01'),
+ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
+   IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
+   IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
+  FROM nushop.changeslogs WHERE createdat >= TIMESTAMP('2025-07-01') AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
+ev2 AS (SELECT * FROM ev WHERE prev_id IS NOT NULL OR new_id IS NOT NULL),
+cutoffs AS (SELECT seller_id, TIMESTAMP(go_live_date,'Asia/Kolkata') cutoff, TIMESTAMP(DATE_ADD(go_live_date,INTERVAL 1 DAY),'Asia/Kolkata') grace_end FROM sellers),
+ce AS (SELECT c.seller_id evt_key, c.cutoff, c.grace_end, e.role, e.prev_id, e.new_id, e.createdat FROM cutoffs c JOIN ev2 e USING(seller_id)),
+b AS (SELECT evt_key, role, new_id person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat DESC, new_id IS NULL) rn FROM ce WHERE createdat < cutoff) WHERE rn=1),
+b_held AS (SELECT evt_key, role, new_id person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat DESC) rn FROM ce WHERE createdat<cutoff AND new_id IS NOT NULL) WHERE rn=1),
+a AS (SELECT evt_key, role, COALESCE(prev_id, IF(createdat<grace_end,new_id,NULL)) person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat ASC, prev_id IS NULL) rn FROM ce WHERE createdat>=cutoff) WHERE rn=1),
+resolved AS (SELECT k.evt_key, k.role, COALESCE(b.person_id, IF(b.evt_key IS NULL, a.person_id, NULL), bh.person_id) person_id
+  FROM (SELECT DISTINCT evt_key, role FROM ce UNION DISTINCT SELECT seller_id, r FROM cutoffs CROSS JOIN UNNEST(['GC','GM']) r) k
+  LEFT JOIN b USING(evt_key,role) LEFT JOIN b_held bh USING(evt_key,role) LEFT JOIN a USING(evt_key,role)),
+gl AS (SELECT s.seller_id, gc.person_id golive_gc_id, gm.person_id golive_gm_id FROM sellers s
+  LEFT JOIN resolved gc ON gc.evt_key=s.seller_id AND gc.role='GC' LEFT JOIN resolved gm ON gm.evt_key=s.seller_id AND gm.role='GM'),
+mygl AS (SELECT seller_id, MIN(start_date) gd, FORMAT_DATE('%G-W%V',MIN(start_date)) gw FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1 HAVING MIN(start_date)>=DATE '2026-01-01'),
+wk AS (SELECT m.seller_id, m.gw, DATE_DIFF(CURRENT_DATE(), m.gd, ISOWEEK) we,
+   SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=1,v.marketing_spend,0)) s1, SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=2,v.marketing_spend,0)) s2,
+   SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=3,v.marketing_spend,0)) s3, SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=4,v.marketing_spend,0)) s4,
+   SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=5,v.marketing_spend,0)) s5, SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=6,v.marketing_spend,0)) s6,
+   SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=7,v.marketing_spend,0)) s7
+   FROM mygl m JOIN nushop.gc_view_3 v ON v.seller_id=m.seller_id GROUP BY 1,2,3),
+enr AS (SELECT w.gw, w.we, IF(w.s1>=3000,1,0) r1,IF(w.s2>=3000,1,0) r2,IF(w.s3>=3000,1,0) r3,IF(w.s4>=3000,1,0) r4,IF(w.s5>=3000,1,0) r5,IF(w.s6>=3000,1,0) r6,IF(w.s7>=3000,1,0) r7,
+   NULLIF(TRIM(CONCAT(COALESCE(u1.first_name,''),' ',COALESCE(u1.last_name,''))),'') gc,
+   NULLIF(TRIM(CONCAT(COALESCE(u2.first_name,''),' ',COALESCE(u2.last_name,''))),'') gm
+   FROM wk w LEFT JOIN gl ON gl.seller_id=w.seller_id LEFT JOIN nushop.users u1 ON gl.golive_gc_id=u1._id LEFT JOIN nushop.users u2 ON gl.golive_gm_id=u2._id)
+SELECT gw, MAX(we) we, 'GC' role, gc name, COUNT(*) n, SUM(r1) r1,SUM(r2) r2,SUM(r3) r3,SUM(r4) r4,SUM(r5) r5,SUM(r6) r6,SUM(r7) r7 FROM enr WHERE gc IS NOT NULL GROUP BY gw,gc
+UNION ALL
+SELECT gw, MAX(we) we, 'GM' role, gm name, COUNT(*) n, SUM(r1),SUM(r2),SUM(r3),SUM(r4),SUM(r5),SUM(r6),SUM(r7) FROM enr WHERE gm IS NOT NULL GROUP BY gw,gm
+ORDER BY role, gw, name
+"""
+
+
+def parse_gcgm(csv_text):
+    rows = list(csvmod.DictReader(io.StringIO(csv_text)))
+    weeks, gc, gm = {}, [], []
+    for r in rows:
+        gw = r["gw"]
+        try:
+            weeks[gw] = int(r["we"])
+        except (TypeError, ValueError):
+            continue
+        rec = [gw, (r["name"] or "").strip(), int(r["n"])] + [int(r["r%d" % k]) for k in range(1, 8)]
+        (gc if r["role"] == "GC" else gm).append(rec)
+    return {"weeks": weeks, "gc": gc, "gm": gm}
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -184,13 +244,15 @@ def main():
     diag = parse_diag(run_csv(session, DIAG_SQL))
     if not diag:
         print("Diagnosis query returned no rows", file=sys.stderr); sys.exit(1)
+    gcgm = parse_gcgm(run_csv(session, GCGM_SQL))
 
-    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag}
+    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
             old = json.load(f)
-        if old.get("csv") == payload["csv"] and old.get("diagnosis") == payload["diagnosis"] and old.get("buckets") == payload["buckets"]:
+        if (old.get("csv") == payload["csv"] and old.get("diagnosis") == payload["diagnosis"]
+                and old.get("buckets") == payload["buckets"] and old.get("gcgm") == payload["gcgm"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -200,7 +262,8 @@ def main():
            **payload}
     with open(OUT, "w") as f:
         json.dump(out, f, separators=(",", ":")); f.write("\n")
-    print(f"Wrote {OUT}: {len(curve_csv.splitlines())-1} curve cohorts, {len(diag)} diagnosis sellers.")
+    print(f"Wrote {OUT}: {len(curve_csv.splitlines())-1} curve cohorts, {len(diag)} diagnosis sellers, "
+          f"{len(gcgm['gc'])+len(gcgm['gm'])} GC/GM rows.")
 
 
 if __name__ == "__main__":
