@@ -8,30 +8,31 @@
 <style>
   :root{
     --ink:#12130f;--muted:#6f7268;--faint:#9a9d92;
-    --line:rgba(18,19,15,0.12);--bg:#f6f5ef;--card:#fff;
-    --accent:#2f6d4f;
+    --line:rgba(18,19,15,0.10);--bg:#f6f5ef;--card:#fff;
+    --accent:#2f6d4f;--accent-soft:#e7efe9;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);
     font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    line-height:1.55;padding:28px 16px;}
-  .wrap{max-width:960px;margin:0 auto;}
-  h1{font-size:21px;font-weight:650;margin:0 0 2px;letter-spacing:-0.015em;}
-  .sub{font-size:13px;color:var(--muted);margin:0 0 20px;}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px;}
-  button{font:inherit;font-size:13px;font-weight:550;padding:8px 16px;border-radius:9px;border:1px solid var(--line);
-    background:#fff;color:var(--ink);cursor:pointer;transition:background .15s;}
-  button:hover{background:#f0efe8;}
-  .controls{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
-  .controls .hint{font-size:12px;color:var(--muted);}
-  .legend{display:flex;flex-wrap:wrap;gap:8px 10px;margin-bottom:16px;font-size:12px;color:var(--muted);}
-  .legend .item{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:#fff;transition:opacity .15s,background .15s;}
-  .legend .item:hover{background:#f0efe8;}
-  .legend .item.off{opacity:.38;text-decoration:line-through;}
-  .swatch{width:16px;height:3px;display:inline-block;border-radius:2px;}
-  .swatch.dash{height:0;border-top:2px dashed;}
-  .chart-box{position:relative;width:100%;height:460px;}
-  footer{font-size:12px;color:var(--faint);margin-top:14px;}
+    line-height:1.55;padding:34px 18px 48px;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1000px;margin:0 auto;}
+  h1{font-size:25px;font-weight:660;margin:0 0 5px;letter-spacing:-0.022em;}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 18px;max-width:76ch;line-height:1.6;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;margin-bottom:20px;
+    box-shadow:0 1px 2px rgba(18,19,15,.04),0 8px 24px -14px rgba(18,19,15,.14);}
+  button{font:inherit;font-size:12.5px;font-weight:560;padding:7px 14px;border-radius:9px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);cursor:pointer;transition:background .15s,border-color .15s;}
+  button:hover{background:#f4f3ec;border-color:rgba(18,19,15,.18);}
+  .controls{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+  .controls .hint{font-size:12px;color:var(--faint);}
+  .legend{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;font-size:12px;color:var(--muted);}
+  .legend .item{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;padding:4px 11px 4px 8px;border-radius:999px;
+    border:1px solid var(--line);background:#fff;transition:opacity .15s,background .15s,border-color .15s,transform .12s;}
+  .legend .item:hover{background:#faf9f4;border-color:var(--dot,rgba(18,19,15,.25));transform:translateY(-1px);}
+  .legend .item.off{opacity:.34;text-decoration:line-through;}
+  .swatch{width:9px;height:9px;display:inline-block;border-radius:50%;}
+  .chart-box{position:relative;width:100%;height:470px;}
+  footer{font-size:12px;color:var(--faint);margin-top:16px;line-height:1.6;}
   .state{font-size:13px;color:var(--muted);padding:40px 0;text-align:center;}
   .state.err{color:#b0322b;}
   #chartCard{display:none;}
@@ -62,9 +63,10 @@
   table.sellers tbody tr:hover{background:#f7f6f0;}
   .drill-actions{display:flex;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap;}
   .drill-h3{font-size:13px;font-weight:650;margin:20px 0 8px;letter-spacing:-0.01em;}
-  .tabs{display:flex;gap:6px;margin:2px 0 16px;}
-  .tab{font:inherit;font-size:13px;font-weight:600;padding:7px 14px;border-radius:9px 9px 0 0;border:1px solid var(--line);border-bottom:none;background:#efeee7;color:var(--muted);cursor:pointer;}
-  .tab.active{background:var(--card);color:var(--ink);box-shadow:0 -1px 0 var(--accent) inset;}
+  .tabs{display:inline-flex;gap:3px;margin:4px 0 18px;padding:3px;background:#ecebe3;border-radius:11px;}
+  .tab{font:inherit;font-size:12.5px;font-weight:600;padding:6px 15px;border-radius:9px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:background .18s,color .18s,box-shadow .18s;}
+  .tab:hover{color:var(--ink);}
+  .tab.active{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(18,19,15,.10),0 0 0 1px rgba(18,19,15,.05);}
   #gcgmCard{display:none;}
   .gcgm-filters{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:14px;background:#fbfbf8;}
   .fl-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0;}
@@ -84,6 +86,16 @@
   table.rank td.num,table.rank th.num{text-align:right;}
   table.rank .rbar{height:12px;border-radius:3px;display:inline-block;vertical-align:middle;min-width:2px;}
   .gcgm-detail{font-size:11.5px;color:var(--muted);margin-top:8px;}
+  table.rank tbody tr{cursor:pointer;}
+  table.rank tbody tr:hover{background:#f7f6f0;}
+  table.rank tbody tr.sel{background:var(--accent-soft);}
+  #spTable td.ops{white-space:normal;max-width:430px;line-height:1.7;}
+  .ptag{display:inline-block;font-size:10.5px;padding:1px 6px;margin:1px 3px 1px 0;border-radius:5px;border:1px solid var(--line);background:#fbfbf8;}
+  .ptag.pend{background:#fdf0e8;border-color:#e8c3a8;}
+  .ptag b{font-weight:600;}
+  .ptag .who{color:var(--muted);}
+  .sostag{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:5px;background:#f6e3e0;border:1px solid #e0b6b0;}
+  #sellerPanel{margin-top:22px;border-top:1px solid var(--line);padding-top:6px;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
   details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
   details.defs>summary:hover{text-decoration:underline;}
@@ -134,6 +146,21 @@
         <div class="gcgm-detail" id="gmDetail"></div>
       </div>
     </div>
+
+    <div id="sellerPanel" style="display:none">
+      <div class="drill-h3" id="spTitle"></div>
+      <div class="dist" id="spDist"></div>
+      <div class="tablewrap" style="max-height:420px">
+        <table class="sellers" id="spTable">
+          <thead><tr><th>#</th><th>Seller ID</th><th>Go-live wk</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
+          <tbody id="spRows"></tbody>
+        </table>
+      </div>
+      <div class="drill-actions">
+        <button id="spCsv" type="button">Download CSV</button>
+        <span class="drill-sub" id="spNote"></span>
+      </div>
+    </div>
   </div>
 
   <div class="card" id="loadingCard">
@@ -165,6 +192,10 @@
     <div class="legend" id="reasonToggles"></div>
     <div class="chart-box" style="height:380px"><canvas id="reasonChart" role="img" aria-label="Line chart of each reason as a share of go-lives by go-live ISO week."></canvas></div>
     <footer id="reasonFoot"></footer>
+    <details class="defs" id="bucketDefs">
+      <summary>How these buckets are defined &amp; calculated</summary>
+      <div class="defbox" id="defsBody"></div>
+    </details>
     <div class="drill-h3">Matrix &mdash; reason (rows) &times; ISO year-week (columns), % of go-lives</div>
     <div class="tablewrap" style="max-height:none"><table class="matrix" id="reasonMatrix"></table></div>
   </div>
@@ -175,10 +206,6 @@
       <span class="drill-sub" id="drillSub"></span>
     </div>
     <div class="dist" id="dist"></div>
-    <details class="defs" id="bucketDefs">
-      <summary>How these buckets are defined &amp; calculated</summary>
-      <div class="defbox" id="defsBody"></div>
-    </details>
     <div class="drill-h3">Week-on-week reason mix &mdash; <span id="wowCohort"></span></div>
     <div class="tablewrap"><table class="wow" id="wowTable"></table></div>
     <div class="drill-h3">Not-retained sellers <span id="selWkLbl"></span></div>
@@ -209,12 +236,16 @@ const SPLIT_MONTHS=[5,6,7]; // May, Jun, Jul
 // Drops brand-new (immature) ISO-week cohorts that would otherwise cap the whole line
 // to their short tail — matches the query's "keep cohorts with >= W3 mature" gate.
 const MIN_MATURE_WEEKS=3;
-// stable, distinguishable palette; dashed flag for later months
-const STYLE=[
-  {c:'#185FA5'},{c:'#1D9E75'},{c:'#BA7517'},{c:'#D85A30'},{c:'#C0392B'},
-  {c:'#D4537E',d:true},{c:'#534AB7',d:true},{c:'#2E8BC0',d:true},{c:'#5F5E5A',d:true},
-  {c:'#7A6A00',d:true},{c:'#8E44AD',d:true},{c:'#16A085',d:true}
-];
+// Recency ramp: oldest cohorts = soft/cool slate, newest = deep green then warm amber.
+// Colour therefore encodes TIME — the chart reads as a timeline and the newest line pops.
+const RAMP=['#C2C7CB','#9FB0C4','#7C9BC4','#5D8FBE','#3F86AE','#2E8497','#2C8579','#2F8358','#3C7F3E','#5E7C2F','#877A2B','#AE7429','#C96B27','#D95A25'];
+function rampColor(i,n){
+  if(n<=1) return RAMP[RAMP.length-1];
+  const t=i/(n-1), x=t*(RAMP.length-1), lo=Math.floor(x), hi=Math.min(RAMP.length-1,lo+1), f=x-lo;
+  const h2r=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const A=h2r(RAMP[lo]),B=h2r(RAMP[hi]);
+  return 'rgb('+A.map((a,k)=>Math.round(a+(B[k]-a)*f)).join(',')+')';
+}
 
 // ISO week (year, week) -> calendar month of that week's Monday (matches BigQuery %G-%V framing)
 function isoWeekMonday(y,w){
@@ -313,10 +344,15 @@ function render(groups,meta){
   // each rendered line maps to the ISO-week cohorts that feed it (for drill-down)
   groups.forEach(g=>{ g.isoWeeks=g.weeks.map(r=>r.co.y+'-W'+String(r.co.w).padStart(2,'0')); });
   window.GROUPS=groups;
+  const N=groups.length;
   const ds=groups.map((g,i)=>{
-    const st=STYLE[i%STYLE.length];
-    return {label:g.label,data:g.data,borderColor:st.c,backgroundColor:st.c,
-      borderWidth:2,borderDash:st.d?[6,3]:[],tension:0.3,pointRadius:2,pointHoverRadius:5,spanGaps:false};
+    const c=rampColor(i,N), newest=i===N-1;
+    g.color=c;
+    return {label:g.label,data:g.data,borderColor:c,backgroundColor:c,
+      borderWidth:newest?2.8:1.8, borderDash:[], tension:0.35,
+      pointRadius:newest?2.6:1.8, pointHoverRadius:6, pointBackgroundColor:'#fff',
+      pointBorderColor:c, pointBorderWidth:newest?2.2:1.6, pointHoverBorderWidth:2.6,
+      spanGaps:false, order:N-i};
   });
   if(chart) chart.destroy();
   chart=new Chart(document.getElementById('chart'),{
@@ -324,12 +360,30 @@ function render(groups,meta){
     data:{labels:WCOLS,datasets:ds},
     options:{
       responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:6,right:8}},
       interaction:{mode:'index',intersect:false},
       onClick:(e)=>{const el=chart.getElementsAtEventForMode(e,'nearest',{intersect:false},true);if(!el.length)return;const di=el[0].datasetIndex,ix=el[0].index;if(chart.data.datasets[di].data[ix]==null)return;drill(di,ix);},
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')}}},
+      plugins:{legend:{display:false},
+        tooltip:{
+          backgroundColor:'rgba(255,255,255,0.97)', titleColor:'#12130f', bodyColor:'#3d4038',
+          borderColor:'rgba(18,19,15,0.12)', borderWidth:1, cornerRadius:10,
+          padding:{top:10,bottom:10,left:12,right:12}, titleFont:{size:12,weight:'600'}, bodyFont:{size:12},
+          boxWidth:8, boxHeight:8, boxPadding:5, usePointStyle:true, displayColors:true,
+          itemSort:(a,b)=>(b.parsed.y??-1)-(a.parsed.y??-1),
+          callbacks:{
+            title:items=>'Week '+(items[0]?.label||'').replace('W','')+' since go-live',
+            label:c=>'  '+c.dataset.label+'   '+(c.parsed.y==null?'—':c.parsed.y.toFixed(1)+'%')
+          }
+        }},
       scales:{
-        y:{beginAtZero:true,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(18,19,15,0.09)'},title:{display:true,text:'Retention'}},
-        x:{ticks:{font:{size:12}},grid:{display:false},title:{display:true,text:'Weeks since go-live'}}
+        y:{beginAtZero:true,border:{display:false},
+           ticks:{callback:v=>v+'%',font:{size:11},color:'#8b8e84',padding:8},
+           grid:{color:'rgba(18,19,15,0.055)',drawTicks:false},
+           title:{display:true,text:'Retention',color:'#8b8e84',font:{size:11,weight:'600'}}},
+        x:{border:{display:false},
+           ticks:{font:{size:11.5},color:'#8b8e84',padding:6},
+           grid:{display:false},
+           title:{display:true,text:'Weeks since go-live',color:'#8b8e84',font:{size:11,weight:'600'}}}
       }
     }
   });
@@ -337,9 +391,12 @@ function render(groups,meta){
   const L=document.getElementById('legend');L.innerHTML='';
   ds.forEach((d,i)=>{
     const it=document.createElement('span');it.className='item';
-    const sw=document.createElement('span');sw.className='swatch'+(d.borderDash.length?' dash':'');
-    if(d.borderDash.length)sw.style.borderColor=d.borderColor;else sw.style.background=d.borderColor;
+    it.style.setProperty('--dot',d.borderColor);
+    const sw=document.createElement('span');sw.className='swatch';sw.style.background=d.borderColor;
     it.appendChild(sw);it.appendChild(document.createTextNode(d.label));
+    // hover a legend chip -> spotlight that line
+    it.addEventListener('mouseenter',()=>{ds.forEach((x,k)=>{chart.data.datasets[k].borderColor=(k===i)?x.borderColor:'rgba(18,19,15,0.10)';chart.data.datasets[k].pointBorderColor=(k===i)?x.borderColor:'rgba(18,19,15,0.10)';});chart.update('none');});
+    it.addEventListener('mouseleave',()=>{ds.forEach((x,k)=>{chart.data.datasets[k].borderColor=x.backgroundColor;chart.data.datasets[k].pointBorderColor=x.backgroundColor;});chart.update('none');});
     it.addEventListener('click',()=>{const v=chart.isDatasetVisible(i);chart.setDatasetVisibility(i,!v);it.classList.toggle('off',v);chart.update();});
     L.appendChild(it);
   });
@@ -374,6 +431,15 @@ async function load(){
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
     GCGM=snap.gcgm||null; gcgmInit=false;
+    // per-seller go-live GC/GM + open pointers (card 10550 tasks + SOS), last 3 months
+    GCGMS=null;
+    if(snap.gcgmSellers&&Array.isArray(snap.gcgmSellers.rows)){
+      const nm=snap.gcgmSellers.names||[], by={};
+      snap.gcgmSellers.rows.forEach(r=>{by[r[0]]={gc:r[1]>=0?nm[r[1]]:null,gm:r[2]>=0?nm[r[2]]:null,
+        nOpen:r[3],nPend:r[4],ops:r[5]||'',nSos:r[6],sos:r[7]||'',nAll:r[8]||0};});
+      GCGMS=by;
+    }
+    DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
     const rows=parseCSV(csv);
     const groups=rollup(rows,OPTS);
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
@@ -525,7 +591,7 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
 });
 
 // ===== GC & GM retention view =====
-let GCGM=null, gcgmInit=false;
+let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={};
 const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All'};
 const MONTH2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function wkMonthKey(w){const co=parseCohort(w); return co?co.my*100+co.mm:0;}
@@ -569,8 +635,10 @@ function setupGcgmFilters(){
   document.getElementById('gcgmMinN').addEventListener('change',renderGcgm);
   document.getElementById('gcgmAll').addEventListener('click',()=>{weeks.forEach(w=>gcgmSel.weeks.add(w)); renderGcgm();});
   document.getElementById('gcgmClear').addEventListener('click',()=>{gcgmSel.weeks.clear(); renderGcgm();});
-  document.getElementById('gcSel').addEventListener('change',e=>{gcgmSel.gc=e.target.value; renderGcgm();});
-  document.getElementById('gmSel').addEventListener('change',e=>{gcgmSel.gm=e.target.value; renderGcgm();});
+  document.getElementById('gcSel').addEventListener('change',e=>{gcgmSel.gc=e.target.value;
+    if(e.target.value!=='All'){document.getElementById('gmSel').value='All'; gcgmSel.gm='All';} renderGcgm();});
+  document.getElementById('gmSel').addEventListener('change',e=>{gcgmSel.gm=e.target.value;
+    if(e.target.value!=='All'){document.getElementById('gcSel').value='All'; gcgmSel.gc='All';} renderGcgm();});
   // default: latest month whose every week is already W3-mature (a complete month)
   const byMonth={}; weeks.forEach(w=>{(byMonth[wkMonthKey(w)]=byMonth[wkMonthKey(w)]||[]).push(w);});
   const fullMature=Object.keys(byMonth).map(Number).filter(k=>byMonth[k].every(w=>GCGM.weeks[w]>3)).sort((a,b)=>a-b);
@@ -594,14 +662,22 @@ function renderRank(rows, tbodyId, detailId, sel, selEl){
   selEl.innerHTML='<option>All</option>'+list.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option>${esc(x.name)}</option>`).join('');
   selEl.value=[...selEl.options].some(o=>o.value===cur)?cur:'All';
   const selName=selEl.value;
-  let shown=list;
-  if(minN && selName==='All') shown=shown.filter(x=>x.n>=5);
-  if(selName!=='All') shown=list.filter(x=>x.name===selName);
+  // keep the full ranking visible even when one person is selected (just highlight them)
+  let shown=list.filter(x=>x.n>=(minN?5:1) || x.name===selName);
   shown.sort((a,b)=>a.p-b.p || b.n-a.n);
   const tb=document.getElementById(tbodyId); tb.innerHTML='';
   shown.forEach((x,i)=>{const tr=document.createElement('tr');
+    if(x.name===selName) tr.className='sel';
     tr.innerHTML=`<td>${i+1}</td><td>${esc(x.name)}</td><td class="num">${x.n}</td><td class="num">${(100*x.p).toFixed(0)}%</td>`+
       `<td><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></td>`;
+    // click a row = select that person (shows their not-retained sellers below)
+    // clicking a row selects that person; GC and GM are alternate views, so pick one at a time
+    tr.addEventListener('click',()=>{const isGc=selEl.id==='gcSel';
+      const val=(selEl.value===x.name)?'All':x.name;
+      selEl.value=val; gcgmSel[isGc?'gc':'gm']=val;
+      const other=document.getElementById(isGc?'gmSel':'gcSel');
+      if(val!=='All'){ other.value='All'; gcgmSel[isGc?'gm':'gc']='All'; }
+      renderGcgm();});
     tb.appendChild(tr);});
   // detail: W1-W7 for the selected one
   const det=document.getElementById(detailId);
@@ -621,7 +697,62 @@ function renderGcgm(){
   const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
   document.getElementById('gcgmSummary').textContent=`${nWk} mature week(s) selected · ${gcAgg.tot} go-lives (GC-attributed) · overall W${gcgmSel.metric} retention ${overall}%`;
+  renderSellerPanel();
 }
+// ---- selected GC/GM -> their not-retained sellers: reason coding + open pointers ----
+function fmtOps(ops){
+  if(!ops) return '<span style="color:var(--faint)">—</span>';
+  return ops.split(';').filter(Boolean).map(p=>{
+    const [sub,st,who,age]=p.split('|');
+    const short=(sub||'').replace(/_/g,' ').replace(/^report /,'').slice(0,30)+((sub||'').length>30?'…':'');
+    return `<span class="ptag${st==='pending'?' pend':''}" title="${esc(sub)} · ${esc(st)} · with ${esc(who)} · ${esc(age)}d old">`+
+      `<b>${esc(short)}</b><span class="who"> ${esc(who)}·${esc(age)}d</span></span>`;
+  }).join('');
+}
+let SPROWS=[];
+function renderSellerPanel(){
+  const panel=document.getElementById('sellerPanel');
+  const gcName=document.getElementById('gcSel').value, gmName=document.getElementById('gmSel').value;
+  const picked=[]; if(gcName&&gcName!=='All')picked.push('GC '+gcName); if(gmName&&gmName!=='All')picked.push('GM '+gmName);
+  if(!picked.length||!GCGMS){ panel.style.display='none'; SPROWS=[]; return; }
+  const m=gcgmSel.metric;
+  const out=[];
+  for(const sid in GCGMS){
+    const g=GCGMS[sid];
+    if(gcName!=='All' && g.gc!==gcName) continue;
+    if(gmName!=='All' && g.gm!==gmName) continue;
+    const d=DIAGBY[sid]; if(!d) continue;                       // needs spend/bucket detail
+    if(!gcgmSel.weeks.has(d.w)) continue;                        // selected go-live weeks only
+    if(!(GCGM.weeks[d.w]>m)) continue;                           // that week must be mature
+    if((d.sp[m-1]||0)>=3000) continue;                           // keep only NOT-retained at Wm
+    out.push({sid,w:d.w,b:d.b,...g});
+  }
+  out.sort((a,b)=>(b.nPend-a.nPend)||(b.nOpen-a.nOpen)||a.w.localeCompare(b.w));
+  SPROWS=out;
+  const B=window.BUCKETS||[];
+  document.getElementById('spTitle').innerHTML=`Not-retained at W${m} &mdash; ${esc(picked.join(' + '))} <span class="drill-sub">(${out.length} seller${out.length===1?'':'s'})</span>`;
+  // reason distribution for this person
+  const dist=B.map((n,bi)=>({n,bi,c:out.filter(x=>x.b===bi).length})).filter(x=>x.c>0).sort((a,b)=>b.c-a.c);
+  const mx=Math.max(1,...dist.map(x=>x.c));
+  document.getElementById('spDist').innerHTML=dist.map(x=>
+    `<div class="brow"><span>${esc(x.n)}</span><span><span class="bar" style="width:${100*x.c/mx}%;background:${BUCKET_COLORS[x.bi%BUCKET_COLORS.length]}"></span></span>`+
+    `<span class="bcount">${x.c} (${(100*x.c/out.length).toFixed(0)}%)</span></div>`).join('');
+  document.getElementById('spRows').innerHTML=out.map((x,i)=>
+    `<tr><td>${i+1}</td><td>${esc(x.sid)}</td><td>${esc(x.w)}</td><td>${esc(B[x.b]||'—')}</td>`+
+    `<td class="ops">${x.nOpen?`<b>${x.nPend}</b> pending / ${x.nOpen} blocking${x.nAll>x.nOpen?` <span style="color:var(--faint)">(+${x.nAll-x.nOpen} internal)</span>`:''}<br>`:''}${fmtOps(x.ops)}</td>`+
+    `<td>${x.nSos?`<span class="sostag" title="${esc(x.sos)}">SOS ×${x.nSos}</span>`:'—'}</td></tr>`).join('');
+  const withOpen=out.filter(x=>x.nPend>0).length;
+  document.getElementById('spNote').textContent=`${withOpen} of ${out.length} have a PENDING blocker — a dependency on us. Open pointers = unresolved tasks (card 10550; status pending/closed) raised from go-live onward, limited to blocking types (ad-account, BM, page, pixel, access, payment, catalogue, shipping, escalations…); internal cadence/automation tasks are counted but not listed.`;
+  panel.style.display='block';
+}
+document.getElementById('spCsv').addEventListener('click',()=>{
+  if(!SPROWS.length) return; const B=window.BUCKETS||[];
+  const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const csv=['seller_id,golive_week,reason_bucket,golive_gc,golive_gm,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
+    .concat(SPROWS.map(x=>[x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='not_retained_sellers.csv'; a.click();
+});
 
 renderDefs(); // static bucket definitions are available immediately
 window.addEventListener('load',load);
