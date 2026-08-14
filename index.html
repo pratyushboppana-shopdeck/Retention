@@ -7,9 +7,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root{
-    --ink:#12130f;--muted:#6f7268;--faint:#9a9d92;
+    --ink:#12130f;--muted:#54574e;--faint:#6f7268;
     --line:rgba(18,19,15,0.10);--bg:#f6f5ef;--card:#fff;
-    --accent:#2f6d4f;--accent-soft:#e7efe9;
+    --accent:#2b6349;--accent-soft:#e7efe9;
+    --axis:#41443c;      /* axis ticks — dark enough to read on the cream ground */
+    --axis-title:#262822;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);
@@ -41,15 +43,15 @@
   @media(max-width:1100px){.cards-2col{grid-template-columns:1fr;}}
   .cards-2col>.card{margin-bottom:0;}
   .compo{border:1px solid var(--line);border-radius:11px;padding:11px 12px;background:#fbfbf8;}
-  .compo-h{font-size:10.5px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;}
-  .compo-t{width:100%;border-collapse:collapse;font-size:11.5px;}
+  .compo-h{font-size:11px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;}
+  .compo-t{width:100%;border-collapse:collapse;font-size:12px;}
   .compo-t td{padding:4px 0;border-bottom:1px solid rgba(18,19,15,0.07);vertical-align:top;}
   .compo-t tr:last-child td{border-bottom:0;}
   .compo-t .cname{font-weight:600;white-space:nowrap;}
   .compo-t .cdot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;}
-  .compo-t .cwk{color:var(--muted);font-size:10.5px;line-height:1.5;}
+  .compo-t .cwk{color:var(--faint);font-size:11px;line-height:1.5;}
   .compo-t .cgl{text-align:right;color:var(--muted);white-space:nowrap;padding-left:8px;}
-  .compo-note{font-size:10.5px;color:var(--faint);margin-top:8px;line-height:1.5;}
+  .compo-note{font-size:11px;color:var(--faint);margin-top:8px;line-height:1.5;}
   footer{font-size:12px;color:var(--faint);margin-top:16px;line-height:1.6;}
   .state{font-size:13px;color:var(--muted);padding:40px 0;text-align:center;}
   .state.err{color:#b0322b;}
@@ -58,9 +60,9 @@
   .reason-head{margin-bottom:12px;font-size:14px;}
   .reason-head b{font-size:14px;}
   #reasonToggles .item .swatch{width:12px;height:12px;border-radius:3px;}
-  table.matrix{border-collapse:collapse;font-size:10.5px;}
+  table.matrix{border-collapse:collapse;font-size:11px;}
   table.matrix th,table.matrix td{padding:3px 6px;border:1px solid var(--line);text-align:center;white-space:nowrap;min-width:34px;}
-  table.matrix th{color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--card);z-index:1;}
+  table.matrix th{color:#3c3f37;font-weight:650;position:sticky;top:0;background:var(--card);z-index:1;}
   table.matrix td.rn,table.matrix th:first-child{position:sticky;left:0;background:var(--card);text-align:left;font-weight:600;z-index:2;}
   table.matrix td.rn{white-space:nowrap;}
   table.matrix td.rn .defdot{display:inline-block;margin-right:6px;vertical-align:middle;}
@@ -75,9 +77,9 @@
   .bar{height:13px;border-radius:3px;display:inline-block;min-width:2px;vertical-align:middle;}
   .bcount{color:var(--muted);text-align:right;}
   .tablewrap{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px;}
-  table.sellers{width:100%;border-collapse:collapse;font-size:12px;}
+  table.sellers{width:100%;border-collapse:collapse;font-size:12.5px;}
   table.sellers th,table.sellers td{text-align:left;padding:5px 9px;border-bottom:1px solid var(--line);white-space:nowrap;}
-  table.sellers th{position:sticky;top:0;background:var(--card);color:var(--muted);font-weight:600;z-index:1;}
+  table.sellers th{position:sticky;top:0;background:var(--card);color:#3c3f37;font-weight:650;z-index:1;}
   table.sellers tbody tr:hover{background:#f7f6f0;}
   .drill-actions{display:flex;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap;}
   .drill-h3{font-size:13px;font-weight:650;margin:20px 0 8px;letter-spacing:-0.01em;}
@@ -88,31 +90,31 @@
   #gcgmCard{display:none;}
   .gcgm-filters{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:14px;background:#fbfbf8;}
   .fl-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0;}
-  .fl-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;min-width:96px;}
+  .fl-label{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;min-width:96px;}
   .mbtn{font:inherit;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;}
   .mbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);}
-  .wkchip{font-size:11px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:#fff;cursor:pointer;user-select:none;}
+  .wkchip{font-size:11.5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:#fff;cursor:pointer;user-select:none;}
   .wkchip.on{background:var(--accent-soft);border-color:var(--accent);font-weight:600;}
   .wkwrap{display:flex;flex-wrap:wrap;gap:4px;max-height:96px;overflow:auto;}
   .gcgm-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
   @media(max-width:720px){.gcgm-cols{grid-template-columns:1fr;}}
   .gcgm-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;font-weight:650;font-size:13px;}
   .gcgm-head select{font:inherit;font-size:12px;max-width:150px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff;}
-  table.rank{width:100%;border-collapse:collapse;font-size:12px;}
+  table.rank{width:100%;border-collapse:collapse;font-size:12.5px;}
   table.rank th,table.rank td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
-  table.rank th{position:sticky;top:0;background:var(--card);color:var(--muted);font-weight:600;text-align:left;z-index:1;}
+  table.rank th{position:sticky;top:0;background:var(--card);color:#3c3f37;font-weight:650;text-align:left;z-index:1;}
   table.rank td.num,table.rank th.num{text-align:right;}
   table.rank .rbar{height:12px;border-radius:3px;display:inline-block;vertical-align:middle;min-width:2px;}
-  .gcgm-detail{font-size:11.5px;color:var(--muted);margin-top:8px;}
+  .gcgm-detail{font-size:12px;color:var(--muted);margin-top:8px;}
   table.rank tbody tr{cursor:pointer;}
   table.rank tbody tr:hover{background:#f7f6f0;}
   table.rank tbody tr.sel{background:var(--accent-soft);}
   #spTable td.ops{white-space:normal;max-width:430px;line-height:1.7;}
-  .ptag{display:inline-block;font-size:10.5px;padding:1px 6px;margin:1px 3px 1px 0;border-radius:5px;border:1px solid var(--line);background:#fbfbf8;}
+  .ptag{display:inline-block;font-size:11px;padding:1px 6px;margin:1px 3px 1px 0;border-radius:5px;border:1px solid var(--line);background:#fbfbf8;}
   .ptag.pend{background:#fdf0e8;border-color:#e8c3a8;}
   .ptag b{font-weight:600;}
   .ptag .who{color:var(--muted);}
-  .sostag{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:5px;background:#f6e3e0;border:1px solid #e0b6b0;}
+  .sostag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:5px;background:#f6e3e0;border:1px solid #e0b6b0;}
   #sellerPanel{margin-top:22px;border-top:1px solid var(--line);padding-top:6px;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
   details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
@@ -124,12 +126,12 @@
   .defdot{width:10px;height:10px;border-radius:3px;flex:none;}
   .defrule{color:var(--muted);}
   .defrule code{background:#eeede6;padding:0 4px;border-radius:3px;}
-  table.wow{width:100%;border-collapse:collapse;font-size:11.5px;}
+  table.wow{width:100%;border-collapse:collapse;font-size:12px;}
   table.wow th,table.wow td{padding:4px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;}
   table.wow th:first-child,table.wow td:first-child{text-align:left;position:sticky;left:0;background:var(--card);}
-  table.wow th{color:var(--muted);font-weight:600;border-bottom:2px solid var(--line);}
+  table.wow th{color:#3c3f37;font-weight:650;border-bottom:2px solid var(--line);}
   table.wow tr.selwk td{background:var(--accent-soft);font-weight:600;}
-  table.wow td.z{color:var(--faint);}
+  table.wow td.z{color:#8d9086;}
 </style>
 </head>
 <body>
@@ -258,6 +260,9 @@
 <script>
 const MONTH=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WCOLS=['W1','W2','W3','W4','W5','W6','W7'];
+// chart text colours (kept in sync with the CSS tokens --axis / --axis-title)
+const AXIS='#41443c', AXIS_TITLE='#262822';
+if(window.Chart){ Chart.defaults.color=AXIS; Chart.defaults.font.family='ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif'; }
 // fixed rollup settings (previously the checkboxes)
 const OPTS={split:true,omitOct:true,weighted:false,zeroBlank:false};
 // months (1=Jan..12=Dec) shown as two lines: early (go-live Mon on day 1–14) + late (day 15+).
@@ -270,7 +275,8 @@ const SPLIT_MONTHS=[5,6,7]; // May, Jun, Jul
 const MIN_MATURE_WEEKS=3;
 // Recency ramp: oldest cohorts = soft/cool slate, newest = deep green then warm amber.
 // Colour therefore encodes TIME — the chart reads as a timeline and the newest line pops.
-const RAMP=['#C2C7CB','#9FB0C4','#7C9BC4','#5D8FBE','#3F86AE','#2E8497','#2C8579','#2F8358','#3C7F3E','#5E7C2F','#877A2B','#AE7429','#C96B27','#D95A25'];
+// oldest -> newest. Kept dark enough that even the oldest line reads clearly on white.
+const RAMP=['#8B96A3','#75879F','#5E7DA6','#4A79A8','#357296','#276F85','#256F66','#2A6E4A','#356B36','#535F28','#6E5C22','#8E5B20','#A9521D','#BE441B'];
 function rampColor(i,n){
   if(n<=1) return RAMP[RAMP.length-1];
   const t=i/(n-1), x=t*(RAMP.length-1), lo=Math.floor(x), hi=Math.min(RAMP.length-1,lo+1), f=x-lo;
@@ -429,13 +435,13 @@ function render(groups,meta){
         }},
       scales:{
         y:{beginAtZero:true,border:{display:false},
-           ticks:{callback:v=>v+'%',font:{size:11},color:'#8b8e84',padding:8},
-           grid:{color:'rgba(18,19,15,0.055)',drawTicks:false},
-           title:{display:true,text:'Retention',color:'#8b8e84',font:{size:11,weight:'600'}}},
+           ticks:{callback:v=>v+'%',font:{size:12,weight:'500'},color:AXIS,padding:8},
+           grid:{color:'rgba(18,19,15,0.075)',drawTicks:false},
+           title:{display:true,text:'Retention',color:AXIS_TITLE,font:{size:12,weight:'700'}}},
         x:{border:{display:false},
-           ticks:{font:{size:11.5},color:'#8b8e84',padding:6},
+           ticks:{font:{size:12.5,weight:'500'},color:AXIS,padding:6},
            grid:{display:false},
-           title:{display:true,text:'Weeks since go-live',color:'#8b8e84',font:{size:11,weight:'600'}}}
+           title:{display:true,text:'Weeks since go-live',color:AXIS_TITLE,font:{size:12,weight:'700'}}}
       }
     }
   });
@@ -560,8 +566,12 @@ function buildReasonTrend(rows,diag){
     type:'line', data:{labels:weeks,datasets},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'% of go-lives')}}},
-      scales:{x:{grid:{display:false},ticks:{font:{size:9},maxRotation:90,minRotation:90}},
-        y:{beginAtZero:true,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(18,19,15,0.09)'},title:{display:true,text:'% of go-lives'}}}}
+      scales:{x:{grid:{display:false},border:{display:false},
+          ticks:{font:{size:10.5,weight:'500'},color:AXIS,maxRotation:90,minRotation:90}},
+        y:{beginAtZero:true,border:{display:false},
+          ticks:{callback:v=>v+'%',font:{size:12,weight:'500'},color:AXIS,padding:6},
+          grid:{color:'rgba(18,19,15,0.075)',drawTicks:false},
+          title:{display:true,text:'% of go-lives',color:AXIS_TITLE,font:{size:12,weight:'700'}}}}}
   });
   const T=document.getElementById('reasonToggles');T.innerHTML='';
   datasets.forEach((d,i)=>{
@@ -580,7 +590,13 @@ function buildReasonTrend(rows,diag){
   series.forEach(s=>{
     const vals=weeks.map(s.val); const mx=Math.max(1,...vals);
     h+='<tr><td class="rn"><span class="defdot" style="background:'+s.color+'"></span>'+esc(s.label)+'</td>'+
-      vals.map(v=>'<td style="background:'+hx(s.color,v>0?0.12+0.72*v/mx:0)+'">'+(v>=1?Math.round(v):(v>0?'·':''))+'</td>').join('')+'</tr>';
+      vals.map(v=>{
+        const a=v>0?0.12+0.72*v/mx:0;
+        // flip to white text once the fill gets dark, so numbers stay legible
+        const fg=a>0.52?'#fff':'#23251f';
+        return '<td style="background:'+hx(s.color,a)+';color:'+fg+';font-weight:'+(a>0.4?'650':'500')+'">'+
+          (v>=1?Math.round(v):(v>0?'·':''))+'</td>';
+      }).join('')+'</tr>';
   });
   h+='</tbody>'; M.innerHTML=h;
   document.getElementById('reasonFoot').textContent='Mature cohorts only (W3 elapsed). Each reason = % of that ISO week’s go-lives. Toggle lines above; “Retained” is hidden by default. Matrix cells are heat-shaded within each row.';
