@@ -32,6 +32,18 @@
   .legend .item.off{opacity:.34;text-decoration:line-through;}
   .swatch{width:9px;height:9px;display:inline-block;border-radius:50%;}
   .chart-box{position:relative;width:100%;height:470px;}
+  .curve-layout{display:grid;grid-template-columns:1fr 232px;gap:18px;align-items:start;}
+  @media(max-width:820px){.curve-layout{grid-template-columns:1fr;}}
+  .compo{border:1px solid var(--line);border-radius:11px;padding:11px 12px;background:#fbfbf8;}
+  .compo-h{font-size:10.5px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;}
+  .compo-t{width:100%;border-collapse:collapse;font-size:11.5px;}
+  .compo-t td{padding:4px 0;border-bottom:1px solid rgba(18,19,15,0.07);vertical-align:top;}
+  .compo-t tr:last-child td{border-bottom:0;}
+  .compo-t .cname{font-weight:600;white-space:nowrap;}
+  .compo-t .cdot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;}
+  .compo-t .cwk{color:var(--muted);font-size:10.5px;line-height:1.5;}
+  .compo-t .cgl{text-align:right;color:var(--muted);white-space:nowrap;padding-left:8px;}
+  .compo-note{font-size:10.5px;color:var(--faint);margin-top:8px;line-height:1.5;}
   footer{font-size:12px;color:var(--faint);margin-top:16px;line-height:1.6;}
   .state{font-size:13px;color:var(--muted);padding:40px 0;text-align:center;}
   .state.err{color:#b0322b;}
@@ -174,8 +186,15 @@
       <span class="hint">Click a cohort to hide or show its line</span>
     </div>
     <div class="legend" id="legend"></div>
-    <div class="chart-box">
-      <canvas id="chart" role="img" aria-label="Line chart of retention by weeks since go-live, one line per monthly cohort.">Retention by weeks since go-live.</canvas>
+    <div class="curve-layout">
+      <div class="chart-box">
+        <canvas id="chart" role="img" aria-label="Line chart of retention by weeks since go-live, one line per monthly cohort.">Retention by weeks since go-live.</canvas>
+      </div>
+      <aside class="compo">
+        <div class="compo-h">Cohort composition</div>
+        <table class="compo-t"><tbody id="compoRows"></tbody></table>
+        <div class="compo-note" id="compoNote"></div>
+      </aside>
     </div>
     <footer id="foot"></footer>
   </div>
@@ -313,10 +332,12 @@ function rollup(rows,opts){
   }
   const matureCount=r=>r.vals.filter(v=>v!==null&&v!==undefined&&!isNaN(v)).length;
   let out=Object.values(groups).sort((a,b)=>a.order-b.order);
+  HELD_WEEKS=[];   // ISO weeks held back for maturity (incl. months not plotted at all yet)
   for(const g of out){
     // Drop immature ISO-week cohorts (fewer than MIN_MATURE_WEEKS of data) before
     // plotting, so a fresh cohort doesn't cap the whole line to its short tail.
     g.dropped=g.weeks.filter(r=>matureCount(r)<MIN_MATURE_WEEKS);
+    g.dropped.forEach(r=>HELD_WEEKS.push(r.co.y+'-W'+String(r.co.w).padStart(2,'0')));
     g.weeks=g.weeks.filter(r=>matureCount(r)>=MIN_MATURE_WEEKS);
     // Strict maturity: a week is plotted only once EVERY remaining cohort has matured
     // to it, so a line never rests on a shrinking subset. Lines grow as data matures.
@@ -337,6 +358,24 @@ function rollup(rows,opts){
   }
   // drop months whose every cohort was too immature to plot yet
   return out.filter(g=>g.n>0);
+}
+
+// Which ISO year-weeks feed each plotted line (+ go-lives), shown beside the chart.
+let HELD_WEEKS=[];
+function buildCompo(groups,ds){
+  const tb=document.getElementById('compoRows'); if(!tb) return;
+  const wkNum=s=>'W'+s.slice(-2);
+  tb.innerHTML=groups.map((g,i)=>{
+    const gl=g.weeks.reduce((s,r)=>s+(r.gl||0),0);
+    return `<tr><td class="cname"><span class="cdot" style="background:${ds[i].borderColor}"></span>${esc(g.label)}`+
+      `<div class="cwk">${g.isoWeeks.map(wkNum).join(', ')}</div></td>`+
+      `<td class="cgl">${gl.toLocaleString()}<div class="cwk">go-lives</div></td></tr>`;
+  }).join('');
+  // any ISO weeks held back because they aren't 3 weeks mature yet
+  const held=(HELD_WEEKS||[]).slice().sort();
+  const note=document.getElementById('compoNote');
+  note.innerHTML='ISO week = the week of the seller&rsquo;s go-live (Monday). '+
+    (held.length?`Held back until ${MIN_MATURE_WEEKS} weeks mature: <b>${held.map(wkNum).join(', ')}</b>.`:'All mature ISO weeks are plotted.');
 }
 
 let chart=null;
@@ -403,6 +442,7 @@ function render(groups,meta){
   const setAll=v=>{ds.forEach((_,i)=>chart.setDatasetVisibility(i,v));chart.update();[...L.children].forEach(e=>e.classList.toggle('off',!v));};
   document.getElementById('showAll').onclick=()=>setAll(true);
   document.getElementById('hideAll').onclick=()=>setAll(false);
+  buildCompo(groups,ds);
   const thin=groups.filter(g=>g.n<=2).map(g=>g.label);
   let foot='Hover any week to compare cohorts.'+(thin.length?' Thin data (≤2 weeks): '+thin.join(', ')+'.':'');
   if(meta&&meta.generated_at){
