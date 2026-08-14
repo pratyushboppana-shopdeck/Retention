@@ -88,6 +88,16 @@
   .tab:hover{color:var(--ink);}
   .tab.active{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(18,19,15,.10),0 0 0 1px rgba(18,19,15,.05);}
   #gcgmCard{display:none;}
+  #tsCard,#unCard{display:none;}
+  .gcgm-filters select{font:inherit;font-size:12.5px;padding:3px 7px;border-radius:7px;border:1px solid var(--line);background:#fff;}
+  table.rank th[data-k]{cursor:pointer;user-select:none;}
+  table.rank th[data-k]:hover{color:var(--accent);}
+  table.rank th.sorted{color:var(--accent);}
+  table.rank th.sorted::after{content:' \25BE';font-size:9px;}
+  table.rank th.sorted.asc::after{content:' \25B4';}
+  table.rank tfoot td{padding:6px 8px;border-top:2px solid var(--line);font-weight:650;background:#fbfbf8;}
+  table.rank tfoot td.num{text-align:right;}
+  .pill{display:inline-block;min-width:38px;padding:1px 6px;border-radius:5px;font-weight:650;font-size:11.5px;}
   .gcgm-filters{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:14px;background:#fbfbf8;}
   .fl-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0;}
   .fl-label{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;min-width:96px;}
@@ -142,6 +152,8 @@
   <div class="tabs" id="tabs">
     <button class="tab active" type="button" data-view="curve">Retention curve</button>
     <button class="tab" type="button" data-view="gcgm">GC &amp; GM retention</button>
+    <button class="tab" type="button" data-view="tssop">TS SOP metrics</button>
+    <button class="tab" type="button" data-view="unassign">Go-lives vs unassignments</button>
   </div>
 
   <div class="card" id="gcgmCard">
@@ -181,6 +193,76 @@
         <span class="drill-sub" id="spNote"></span>
       </div>
     </div>
+  </div>
+
+  <!-- ============ TS SOP metrics (card 12960) ============ -->
+  <div class="card" id="tsCard">
+    <div class="gcgm-filters">
+      <div class="fl-row"><span class="fl-label">Month</span><span id="tsMonths"></span>
+        <button class="mbtn" id="tsAll" type="button">All weeks</button><button class="mbtn" id="tsClear" type="button">Clear</button></div>
+      <div class="fl-row"><span class="fl-label">Completion week</span><div class="wkwrap" id="tsWeeks"></div></div>
+      <div class="fl-row"><span class="fl-label">View by</span>
+        <button class="mbtn on" id="tsByGc" type="button">GC (assignee)</button>
+        <button class="mbtn" id="tsByGm" type="button">GM (rollup)</button>
+        <span class="fl-label" style="min-width:44px;margin-left:10px">Role</span>
+        <select id="tsBucket"></select>
+        <label style="font-size:12.5px;color:var(--muted)"><input type="checkbox" id="tsMinN" checked> hide &lt;5 tasks</label>
+      </div>
+      <div class="fl-row"><span class="hint" id="tsSummary"></span></div>
+    </div>
+    <div class="tablewrap" style="max-height:560px"><table class="rank" id="tsTable">
+      <thead><tr>
+        <th data-k="name">Name</th>
+        <th class="num" data-k="tasks">Tasks</th>
+        <th class="num" data-k="completed">Done</th>
+        <th class="num" data-k="adh">Task adh.</th>
+        <th class="num" data-k="sla">SLA adh.</th>
+        <th class="num" data-k="attempted">Calls</th>
+        <th class="num" data-k="conn">Conn.</th>
+        <th class="num" data-k="connpct">Conn.&nbsp;%</th>
+        <th class="num" data-k="scored">Scored</th>
+        <th class="num" data-k="quality">Quality</th>
+        <th class="num" data-k="acc">Accuracy</th>
+        <th class="num" data-k="sat">Satisf.</th>
+        <th class="num" data-k="ton">Tonality</th>
+        <th class="num" data-k="dur">Avg dur.</th>
+      </tr></thead><tbody id="tsRows"></tbody><tfoot id="tsFoot"></tfoot>
+    </table></div>
+    <div class="drill-actions"><button id="tsCsv" type="button">Download CSV</button>
+      <span class="drill-sub">Click a column header to sort. TS SOP = <code>troubleshoot_action / troubleshoot_sop</code> tasks; week = task completion week. Quality scores are 0&ndash;100 (&minus;1 &ldquo;not evaluated&rdquo; excluded).</span></div>
+  </div>
+
+  <!-- ============ Go-lives vs unassignments (card 12438) ============ -->
+  <div class="card" id="unCard">
+    <div class="gcgm-filters">
+      <div class="fl-row"><span class="fl-label">Month</span><span id="unMonths"></span>
+        <button class="mbtn" id="unAll" type="button">All weeks</button><button class="mbtn" id="unClear" type="button">Clear</button></div>
+      <div class="fl-row"><span class="fl-label">Go-live weeks</span><div class="wkwrap" id="unWeeks"></div></div>
+      <div class="fl-row"><span class="fl-label">Attribute to</span>
+        <button class="mbtn on" id="unByGc" type="button">GC</button>
+        <button class="mbtn" id="unByGm" type="button">GM</button>
+        <span class="fl-label" style="min-width:52px;margin-left:10px">Period</span>
+        <button class="mbtn on" id="unPerWk" type="button">Year-week</button>
+        <button class="mbtn" id="unPerMo" type="button">Month</button>
+        <span class="hint" id="unSummary" style="margin-left:10px"></span>
+      </div>
+    </div>
+    <div class="drill-2col">
+      <div>
+        <div class="drill-h3" style="margin-top:0">By period</div>
+        <div class="tablewrap" style="max-height:460px"><table class="rank" id="unPeriodTable">
+          <thead><tr><th>Period</th><th class="num">Go-lives</th><th class="num">Unassignments</th><th class="num">Unassign / go-live</th></tr></thead>
+          <tbody id="unPeriodRows"></tbody><tfoot id="unPeriodFoot"></tfoot></table></div>
+      </div>
+      <div>
+        <div class="drill-h3" style="margin-top:0">By <span id="unRoleLbl">GC</span> &mdash; most unassignments first <span class="drill-sub">(click a header to re-sort)</span></div>
+        <div class="tablewrap" style="max-height:460px"><table class="rank" id="unPersonTable">
+          <thead><tr><th>#</th><th id="unPersonHdr" data-uk="name">GC</th><th class="num" data-uk="golive">Go-lives</th><th class="num" data-uk="unassign">Unassign.</th><th class="num" data-uk="ratio">Ratio</th></tr></thead>
+          <tbody id="unPersonRows"></tbody><tfoot id="unPersonFoot"></tfoot></table></div>
+      </div>
+    </div>
+    <div class="drill-actions"><button id="unCsv" type="button">Download CSV</button>
+      <span class="drill-sub">Go-lives counted in the seller&rsquo;s go-live week and attributed to the <b>go-live</b> GC/GM; unassignments counted in the unassignment week and attributed to the <b>outgoing</b> GC/GM (point-in-time, card 12438). Ratio is a mix indicator, not a per-cohort rate &mdash; the two events can fall in different weeks and a person can unassign sellers who went live under someone else. <b>*</b> = fewer than 10 go-lives attributed, so the ratio is not meaningful. Revival/pool GCs (who receive sellers <i>after</i> a pause) legitimately show many unassignments with ~0 go-lives &mdash; they sit at the top of the default sort by design, not as a performance signal.</span></div>
   </div>
 
   <div class="card" id="loadingCard">
@@ -499,6 +581,8 @@ async function load(){
       GCGMS=by;
     }
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
+    TSSOP=snap.tsSop||null; tsInit=false;
+    UNAS=snap.unassign||null; unInit=false;
     const rows=parseCSV(csv);
     const groups=rollup(rows,OPTS);
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
@@ -668,12 +752,217 @@ function wkMonthLabel(w){const co=parseCohort(w); return co?MONTH2[co.mm-1]+' '+
 function retColor(p){return p<0.35?'#C0392B':(p<0.50?'#BA7517':'#2f6d4f');}
 function setView(v){
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
-  const gc=v==='gcgm';
-  ['chartCard','reasonCard'].forEach(id=>document.getElementById(id).style.display=gc?'none':'block');
-  document.getElementById('drillCard').style.display=(!gc&&CURDRILL)?'block':'none';
-  document.getElementById('gcgmCard').style.display=gc?'block':'none';
-  if(gc) buildGcgm();
+  const curve=v==='curve';
+  ['chartCard','reasonCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
+  document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
+  document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
+  document.getElementById('tsCard').style.display=v==='tssop'?'block':'none';
+  document.getElementById('unCard').style.display=v==='unassign'?'block':'none';
+  if(v==='gcgm') buildGcgm();
+  if(v==='tssop') buildTs();
+  if(v==='unassign') buildUn();
 }
+// ---- shared week/month filter widget used by the newer tabs ----
+function makeWeekFilter(o){
+  const sel=new Set();
+  const weeks=o.weeks.slice().sort();
+  const mEl=document.getElementById(o.monthsId), wEl=document.getElementById(o.weeksId);
+  const mk=w=>{const c=parseCohort(w);return c?c.my*100+c.mm:0;};
+  const lbl=w=>{const c=parseCohort(w);return c?MONTH[c.mm-1]+' '+String(c.my).slice(2):w;};
+  const byMonth={}; weeks.forEach(w=>{(byMonth[mk(w)]=byMonth[mk(w)]||[]).push(w);});
+  const months=Object.keys(byMonth).map(Number).sort((a,b)=>a-b);
+  mEl.innerHTML='';
+  months.forEach(m=>{const b=document.createElement('button');b.className='mbtn';b.type='button';
+    b.textContent=lbl(byMonth[m][0]);b.dataset.m=m;
+    b.addEventListener('click',()=>{const ws=byMonth[m], on=ws.every(w=>sel.has(w));
+      ws.forEach(w=>on?sel.delete(w):sel.add(w)); paint(); o.onChange();});
+    mEl.appendChild(b);});
+  wEl.innerHTML='';
+  weeks.forEach(w=>{const c=document.createElement('span');c.className='wkchip';c.dataset.w=w;
+    c.textContent=w.replace('2026-','’26-').replace('2025-','’25-');
+    c.addEventListener('click',()=>{sel.has(w)?sel.delete(w):sel.add(w);paint();o.onChange();});
+    wEl.appendChild(c);});
+  function paint(){
+    [...wEl.children].forEach(c=>c.classList.toggle('on',sel.has(c.dataset.w)));
+    [...mEl.children].forEach(b=>{const ws=byMonth[+b.dataset.m];b.classList.toggle('on',ws.length&&ws.every(w=>sel.has(w)));});
+  }
+  document.getElementById(o.allId).addEventListener('click',()=>{weeks.forEach(w=>sel.add(w));paint();o.onChange();});
+  document.getElementById(o.clearId).addEventListener('click',()=>{sel.clear();paint();o.onChange();});
+  // default: latest month
+  (byMonth[months[months.length-1]]||[]).forEach(w=>sel.add(w));
+  paint();
+  return {sel, weeks, monthOf:mk, monthLabel:lbl, paint};
+}
+function fmtPct(x){return x==null?'—':(100*x).toFixed(0)+'%';}
+function fmtNum(x){return x==null?'—':(Math.round(x*10)/10).toLocaleString();}
+function scoreColor(v){return v==null?'':(v>=75?'#dff0e5':(v>=60?'#fdf3e0':'#f8dfdb'));}
+
+// ================= TAB: TS SOP metrics (card 12960) =================
+let TSSOP=null, tsInit=false, tsF=null;
+const tsSt={by:'gc', bucket:'gc', sort:'adh', asc:true};
+function buildTs(){
+  if(!TSSOP){document.getElementById('tsSummary').textContent='No TS SOP data in snapshot.';return;}
+  if(!tsInit){
+    tsF=makeWeekFilter({weeks:[...new Set(TSSOP.rows.map(r=>r[3]))],monthsId:'tsMonths',weeksId:'tsWeeks',
+      allId:'tsAll',clearId:'tsClear',onChange:renderTs});
+    const buckets=[...new Set(TSSOP.rows.map(r=>r[2]))].sort();
+    const bs=document.getElementById('tsBucket');
+    bs.innerHTML='<option value="all">All roles</option>'+buckets.map(b=>`<option value="${b}"${b==='gc'?' selected':''}>${b}</option>`).join('');
+    bs.addEventListener('change',e=>{tsSt.bucket=e.target.value;renderTs();});
+    document.getElementById('tsByGc').addEventListener('click',()=>{tsSt.by='gc';renderTs();});
+    document.getElementById('tsByGm').addEventListener('click',()=>{tsSt.by='gm';renderTs();});
+    document.getElementById('tsMinN').addEventListener('change',renderTs);
+    document.querySelectorAll('#tsTable th[data-k]').forEach(th=>th.addEventListener('click',()=>{
+      const k=th.dataset.k; if(tsSt.sort===k) tsSt.asc=!tsSt.asc; else {tsSt.sort=k;tsSt.asc=(k==='name');}
+      renderTs();}));
+    tsInit=true;
+  }
+  renderTs();
+}
+function tsAgg(){
+  const N=TSSOP.names, acc={};
+  TSSOP.rows.forEach(r=>{
+    if(!tsF.sel.has(r[3])) return;
+    if(tsSt.bucket!=='all' && r[2]!==tsSt.bucket) return;
+    const key=N[tsSt.by==='gc'?r[0]:r[1]];
+    const a=acc[key]||(acc[key]={name:key,tasks:0,completed:0,sla:0,attempted:0,conn:0,scored:0,dur:0,
+      accS:0,accN:0,satS:0,satN:0,tonS:0,tonN:0,people:new Set()});
+    a.tasks+=r[4];a.completed+=r[5];a.sla+=r[6];a.attempted+=r[7];a.conn+=r[8];a.scored+=r[9];a.dur+=r[10];
+    a.accS+=r[11];a.accN+=r[12];a.satS+=r[13];a.satN+=r[14];a.tonS+=r[15];a.tonN+=r[16];
+    a.people.add(N[r[0]]);
+  });
+  return Object.values(acc).map(a=>({...a,
+    adh:a.tasks?a.completed/a.tasks:null, slaPct:a.tasks?a.sla/a.tasks:null,
+    connpct:a.attempted?a.conn/a.attempted:null,
+    quality:(a.accN+a.satN+a.tonN)?(a.accS+a.satS+a.tonS)/(a.accN+a.satN+a.tonN):null,
+    accAvg:a.accN?a.accS/a.accN:null, satAvg:a.satN?a.satS/a.satN:null, tonAvg:a.tonN?a.tonS/a.tonN:null,
+    durAvg:a.conn?a.dur/a.conn:null, nPeople:a.people.size}));
+}
+let TSVIEW=[];
+function renderTs(){
+  let list=tsAgg();
+  if(document.getElementById('tsMinN').checked) list=list.filter(x=>x.tasks>=5);
+  const K={name:x=>x.name.toLowerCase(),tasks:x=>x.tasks,completed:x=>x.completed,adh:x=>x.adh,sla:x=>x.slaPct,
+    attempted:x=>x.attempted,conn:x=>x.conn,connpct:x=>x.connpct,scored:x=>x.scored,quality:x=>x.quality,
+    acc:x=>x.accAvg,sat:x=>x.satAvg,ton:x=>x.tonAvg,dur:x=>x.durAvg}[tsSt.sort]||(x=>x.adh);
+  list.sort((a,b)=>{const av=K(a),bv=K(b);
+    if(av==null&&bv==null)return 0; if(av==null)return 1; if(bv==null)return -1;
+    return tsSt.asc?(av>bv?1:av<bv?-1:0):(av<bv?1:av>bv?-1:0);});
+  TSVIEW=list;
+  document.querySelectorAll('#tsTable th[data-k]').forEach(th=>{
+    th.classList.toggle('sorted',th.dataset.k===tsSt.sort); th.classList.toggle('asc',th.dataset.k===tsSt.sort&&tsSt.asc);});
+  document.getElementById('tsByGc').classList.toggle('on',tsSt.by==='gc');
+  document.getElementById('tsByGm').classList.toggle('on',tsSt.by==='gm');
+  document.getElementById('tsRows').innerHTML=list.map((x,i)=>{
+    const dm=x.durAvg==null?'—':Math.floor(x.durAvg/60)+'m '+String(Math.round(x.durAvg%60)).padStart(2,'0')+'s';
+    return `<tr><td>${esc(x.name)}${tsSt.by==='gm'?` <span style="color:var(--faint)">(${x.nPeople})</span>`:''}</td>`+
+      `<td class="num">${x.tasks}</td><td class="num">${x.completed}</td>`+
+      `<td class="num"><span class="pill" style="background:${scoreColor(x.adh==null?null:100*x.adh)}">${fmtPct(x.adh)}</span></td>`+
+      `<td class="num"><span class="pill" style="background:${scoreColor(x.slaPct==null?null:100*x.slaPct)}">${fmtPct(x.slaPct)}</span></td>`+
+      `<td class="num">${x.attempted}</td><td class="num">${x.conn}</td><td class="num">${fmtPct(x.connpct)}</td>`+
+      `<td class="num">${x.scored}</td>`+
+      `<td class="num"><span class="pill" style="background:${scoreColor(x.quality)}">${fmtNum(x.quality)}</span></td>`+
+      `<td class="num">${fmtNum(x.accAvg)}</td><td class="num">${fmtNum(x.satAvg)}</td><td class="num">${fmtNum(x.tonAvg)}</td>`+
+      `<td class="num">${dm}</td></tr>`;}).join('');
+  // totals
+  const T=list.reduce((s,x)=>{['tasks','completed','sla','attempted','conn','scored','dur','accS','accN','satS','satN','tonS','tonN']
+    .forEach(k=>s[k]=(s[k]||0)+x[k]);return s;},{});
+  const q=(T.accN+T.satN+T.tonN)?(T.accS+T.satS+T.tonS)/(T.accN+T.satN+T.tonN):null;
+  const dur=T.conn?T.dur/T.conn:null;
+  document.getElementById('tsFoot').innerHTML=`<tr><td>TOTAL — ${list.length} ${tsSt.by==='gc'?'people':'GMs'}</td>`+
+    `<td class="num">${T.tasks||0}</td><td class="num">${T.completed||0}</td>`+
+    `<td class="num">${fmtPct(T.tasks?T.completed/T.tasks:null)}</td><td class="num">${fmtPct(T.tasks?T.sla/T.tasks:null)}</td>`+
+    `<td class="num">${T.attempted||0}</td><td class="num">${T.conn||0}</td><td class="num">${fmtPct(T.attempted?T.conn/T.attempted:null)}</td>`+
+    `<td class="num">${T.scored||0}</td><td class="num">${fmtNum(q)}</td>`+
+    `<td class="num">${fmtNum(T.accN?T.accS/T.accN:null)}</td><td class="num">${fmtNum(T.satN?T.satS/T.satN:null)}</td>`+
+    `<td class="num">${fmtNum(T.tonN?T.tonS/T.tonN:null)}</td>`+
+    `<td class="num">${dur==null?'—':Math.floor(dur/60)+'m '+String(Math.round(dur%60)).padStart(2,'0')+'s'}</td></tr>`;
+  document.getElementById('tsSummary').textContent=`${tsF.sel.size} week(s) selected · role ${tsSt.bucket} · ${list.length} ${tsSt.by==='gc'?'assignees':'GMs'} · ${T.tasks||0} TS SOP tasks`;
+}
+document.getElementById('tsCsv').addEventListener('click',()=>{
+  if(!TSVIEW.length) return; const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const csv=[`${tsSt.by==='gc'?'assignee':'gm'},tasks,completed,task_adherence_pct,sla_adherence_pct,calls_attempted,calls_connected,connect_pct,calls_scored,avg_quality,avg_accuracy,avg_satisfaction,avg_tonality,avg_duration_sec`]
+    .concat(TSVIEW.map(x=>[x.name,x.tasks,x.completed,x.adh==null?'':(100*x.adh).toFixed(1),x.slaPct==null?'':(100*x.slaPct).toFixed(1),
+      x.attempted,x.conn,x.connpct==null?'':(100*x.connpct).toFixed(1),x.scored,
+      x.quality==null?'':x.quality.toFixed(1),x.accAvg==null?'':x.accAvg.toFixed(1),
+      x.satAvg==null?'':x.satAvg.toFixed(1),x.tonAvg==null?'':x.tonAvg.toFixed(1),
+      x.durAvg==null?'':x.durAvg.toFixed(0)].map(q).join(','))).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='ts_sop_metrics.csv';a.click();
+});
+
+// ================= TAB: Go-lives vs unassignments (card 12438) =================
+let UNAS=null, unInit=false, unF=null;
+const unSt={role:'GC', period:'week', sort:'unassign', asc:false};
+function buildUn(){
+  if(!UNAS){document.getElementById('unSummary').textContent='No unassignment data in snapshot.';return;}
+  if(!unInit){
+    unF=makeWeekFilter({weeks:[...new Set(UNAS.rows.map(r=>r[0]))],monthsId:'unMonths',weeksId:'unWeeks',
+      allId:'unAll',clearId:'unClear',onChange:renderUn});
+    document.getElementById('unByGc').addEventListener('click',()=>{unSt.role='GC';renderUn();});
+    document.getElementById('unByGm').addEventListener('click',()=>{unSt.role='GM';renderUn();});
+    document.getElementById('unPerWk').addEventListener('click',()=>{unSt.period='week';renderUn();});
+    document.getElementById('unPerMo').addEventListener('click',()=>{unSt.period='month';renderUn();});
+    document.querySelectorAll('#unPersonTable th[data-uk]').forEach(th=>th.addEventListener('click',()=>{
+      const k=th.dataset.uk; if(unSt.sort===k) unSt.asc=!unSt.asc; else {unSt.sort=k; unSt.asc=(k==='name');}
+      renderUn();}));
+    unInit=true;
+  }
+  renderUn();
+}
+let UNVIEW=[];
+function renderUn(){
+  const N=UNAS.names;
+  ['unByGc','unByGm'].forEach(id=>document.getElementById(id).classList.toggle('on',
+    (id==='unByGc')===(unSt.role==='GC')));
+  ['unPerWk','unPerMo'].forEach(id=>document.getElementById(id).classList.toggle('on',
+    (id==='unPerWk')===(unSt.period==='week')));
+  document.getElementById('unRoleLbl').textContent=unSt.role;
+  document.getElementById('unPersonHdr').textContent=unSt.role;
+  const byPeriod={}, byPerson={};
+  UNAS.rows.forEach(r=>{
+    const [wk,role,kind,pi,n]=r;
+    if(role!==unSt.role) return;
+    if(!unF.sel.has(wk)) return;
+    const per=unSt.period==='week'?wk:unF.monthLabel(wk);
+    (byPeriod[per]=byPeriod[per]||{per,golive:0,unassign:0,ord:unSt.period==='week'?wk:String(unF.monthOf(wk))})[kind]+=n;
+    const nm=N[pi];
+    (byPerson[nm]=byPerson[nm]||{name:nm,golive:0,unassign:0})[kind]+=n;
+  });
+  const pers=Object.values(byPeriod).sort((a,b)=>a.ord<b.ord?-1:a.ord>b.ord?1:0);
+  const ratio=x=>x.golive?x.unassign/x.golive:null;
+  document.getElementById('unPeriodRows').innerHTML=pers.map(p=>
+    `<tr><td>${esc(p.per)}</td><td class="num">${p.golive.toLocaleString()}</td><td class="num">${p.unassign.toLocaleString()}</td>`+
+    `<td class="num">${fmtPct(ratio(p))}</td></tr>`).join('');
+  const tg=pers.reduce((s,p)=>s+p.golive,0), tu=pers.reduce((s,p)=>s+p.unassign,0);
+  document.getElementById('unPeriodFoot').innerHTML=`<tr><td>TOTAL</td><td class="num">${tg.toLocaleString()}</td><td class="num">${tu.toLocaleString()}</td><td class="num">${fmtPct(tg?tu/tg:null)}</td></tr>`;
+  let people=Object.values(byPerson);
+  // Default = most unassignments (unambiguous). Ratio sorting is guarded: a person can
+  // unassign sellers who went live under someone else, so a tiny go-live count makes the
+  // ratio meaningless — those rows sort last instead of dominating the top.
+  const RK={name:x=>x.name.toLowerCase(),golive:x=>x.golive,unassign:x=>x.unassign,
+    ratio:x=>(x.golive>=10?ratio(x):null)}[unSt.sort]||(x=>x.unassign);
+  people.sort((a,b)=>{const av=RK(a),bv=RK(b);
+    if(av==null&&bv==null) return b.unassign-a.unassign;
+    if(av==null) return 1; if(bv==null) return -1;
+    return unSt.asc?(av>bv?1:av<bv?-1:0):(av<bv?1:av>bv?-1:0);});
+  document.querySelectorAll('#unPersonTable th[data-uk]').forEach(th=>{
+    th.classList.toggle('sorted',th.dataset.uk===unSt.sort); th.classList.toggle('asc',th.dataset.uk===unSt.sort&&unSt.asc);});
+  UNVIEW=people;
+  document.getElementById('unPersonRows').innerHTML=people.map((x,i)=>
+    `<tr><td>${i+1}</td><td>${esc(x.name)}</td><td class="num">${x.golive.toLocaleString()}</td>`+
+    `<td class="num">${x.unassign.toLocaleString()}</td>`+
+    `<td class="num">${x.golive<10?`<span style="color:var(--faint)" title="Only ${x.golive} go-lives attributed — ratio not meaningful">${fmtPct(ratio(x))}*</span>`:`<span class="pill" style="background:${ratio(x)>=0.8?'#f8dfdb':(ratio(x)>=0.5?'#fdf3e0':'#dff0e5')}">${fmtPct(ratio(x))}</span>`}</td></tr>`).join('');
+  document.getElementById('unPersonFoot').innerHTML=`<tr><td></td><td>TOTAL — ${people.length} ${unSt.role}s</td><td class="num">${tg.toLocaleString()}</td><td class="num">${tu.toLocaleString()}</td><td class="num">${fmtPct(tg?tu/tg:null)}</td></tr>`;
+  document.getElementById('unSummary').textContent=`${unF.sel.size} week(s) · ${tg.toLocaleString()} go-lives · ${tu.toLocaleString()} unassignments`;
+}
+document.getElementById('unCsv').addEventListener('click',()=>{
+  if(!UNVIEW.length) return; const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const csv=[`${unSt.role.toLowerCase()},go_lives,unassignments,unassign_per_golive_pct`]
+    .concat(UNVIEW.map(x=>[x.name,x.golive,x.unassign,x.golive?(100*x.unassign/x.golive).toFixed(1):''].map(q).join(','))).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='golives_vs_unassignments.csv';a.click();
+});
 document.querySelectorAll('#tabs .tab').forEach(t=>t.addEventListener('click',()=>setView(t.dataset.view)));
 function buildGcgm(){
   const card=document.getElementById('gcgmCard');

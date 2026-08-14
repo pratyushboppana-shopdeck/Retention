@@ -345,6 +345,171 @@ def parse_gcgms(csv_text):
     return {"names": names, "rows": out}
 
 
+# TS SOP task + call metrics per (assignee, ISO week), with GM rollup key (card 12960).
+# Rows carry SUMS so any week/person aggregation in the UI stays exact.
+TSSOP_SQL = r"""
+WITH gm_map AS (
+  SELECT poc_id, gm_id, gm_name FROM (
+    SELECT poc_id, gm_id, gm_name, ROW_NUMBER() OVER (PARTITION BY poc_id ORDER BY COUNT(*) DESC, gm_id) rn FROM (
+      SELECT gc_id poc_id, gm_id, gm_name FROM `blitzscale-prod-project.analytics.seller_console_metrics_summary` WHERE gc_id IS NOT NULL AND gm_id IS NOT NULL
+      UNION ALL SELECT kam_id, gm_id, gm_name FROM `blitzscale-prod-project.analytics.seller_console_metrics_summary` WHERE kam_id IS NOT NULL AND gm_id IS NOT NULL
+      UNION ALL SELECT key_account_executive_id, gm_id, gm_name FROM `blitzscale-prod-project.analytics.seller_console_metrics_summary` WHERE key_account_executive_id IS NOT NULL AND gm_id IS NOT NULL
+    ) GROUP BY poc_id, gm_id, gm_name) WHERE rn=1),
+enriched AS (
+  SELECT t.id, t.assignee, CONCAT(u.first_name,' ',u.last_name) AS assignee_name,
+    FORMAT_DATE('%G-W%V', DATE(DATETIME(t.completion_date,'Asia/Kolkata'))) AS year_week,
+    CASE WHEN t.status='completed' THEN 1 ELSE 0 END AS is_completed,
+    CASE WHEN t.status='completed' AND t.completed_at IS NOT NULL AND t.completion_date IS NOT NULL
+      AND DATETIME(t.completed_at,'Asia/Kolkata') <= DATETIME(t.completion_date,'Asia/Kolkata') THEN 1 ELSE 0 END AS is_sla_met,
+    CASE
+      WHEN LOWER(u.role) LIKE '%growth-consultant%' THEN
+        CASE WHEN t.assignee IN ('665808d287d33ad7792197ac','64bab294f16a3b0012bfd92d','6989b58ffd2a43b9aa331060','6953c1772582b77a1cce9104','6953c18e6c33c17b98290e6e') THEN 'hc_gc'
+             WHEN t.assignee IN ('67c6bb3a5433937ca56affab','625029514d863202de34887e','6a041aaf34455a21f5fd5e44') THEN 'revival_gc'
+             ELSE 'gc' END
+      WHEN LOWER(u.role) LIKE '%key-account-manager%' THEN 'kam'
+      WHEN LOWER(u.role) LIKE '%growth-manager%' THEN 'gm'
+      WHEN LOWER(u.role) LIKE '%category-lead%' THEN 'cl'
+      WHEN LOWER(u.role) LIKE '%marketing-operations%' OR LOWER(u.role) LIKE '%markops%' THEN 'markops'
+      WHEN LOWER(u.role) LIKE '%growth-lead%' THEN 'gl'
+      WHEN u.role IS NULL THEN 'unknown' ELSE 'other' END AS assignee_bucket
+  FROM nushop.workboard_tasks t LEFT JOIN nushop.users u ON t.assignee=u._id
+  WHERE DATE(t.created_at) >= '2026-01-01' AND t.source='troubleshoot_action' AND t.sub_type='troubleshoot_sop'),
+call_agg AS (
+  SELECT e.assignee, e.year_week,
+    COUNT(*) calls_attempted, COUNTIF(d.duration>0) calls_connected,
+    COUNTIF(q.acc IS NOT NULL OR q.sat IS NOT NULL OR q.ton IS NOT NULL) calls_scored,
+    SUM(IF(d.duration>0,d.duration,0)) dur_sum,
+    SUM(q.acc) acc_sum, COUNTIF(q.acc IS NOT NULL) acc_n,
+    SUM(q.sat) sat_sum, COUNTIF(q.sat IS NOT NULL) sat_n,
+    SUM(q.ton) ton_sum, COUNTIF(q.ton IS NOT NULL) ton_n
+  FROM enriched e
+  JOIN nushop.exotel_calls c ON c.entity_id=e.id AND c.entity='workboard' AND c.created_at >= TIMESTAMP('2025-12-25')
+  JOIN nushop.exotel_call_details d ON d.sid=c.exotel_call_sid AND d.created_at >= TIMESTAMP('2025-12-25')
+  CROSS JOIN UNNEST([STRUCT(
+    NULLIF(SAFE_CAST(JSON_VALUE(d.call_quality_score,'$.accuracy_of_answers') AS FLOAT64),-1) AS acc,
+    NULLIF(SAFE_CAST(JSON_VALUE(d.call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) AS sat,
+    NULLIF(SAFE_CAST(JSON_VALUE(d.call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) AS ton)]) q
+  GROUP BY 1,2)
+SELECT e.assignee_name, COALESCE(g.gm_name,'(no GM mapped)') gm_name, e.assignee_bucket, e.year_week,
+  COUNT(*) tasks, SUM(e.is_completed) completed, SUM(e.is_sla_met) sla_met,
+  COALESCE(ANY_VALUE(ca.calls_attempted),0) attempted, COALESCE(ANY_VALUE(ca.calls_connected),0) connected,
+  COALESCE(ANY_VALUE(ca.calls_scored),0) scored, COALESCE(ANY_VALUE(ca.dur_sum),0) dur_sum,
+  COALESCE(ANY_VALUE(ca.acc_sum),0) acc_sum, COALESCE(ANY_VALUE(ca.acc_n),0) acc_n,
+  COALESCE(ANY_VALUE(ca.sat_sum),0) sat_sum, COALESCE(ANY_VALUE(ca.sat_n),0) sat_n,
+  COALESCE(ANY_VALUE(ca.ton_sum),0) ton_sum, COALESCE(ANY_VALUE(ca.ton_n),0) ton_n
+FROM enriched e
+LEFT JOIN call_agg ca ON ca.assignee=e.assignee AND ca.year_week=e.year_week
+LEFT JOIN gm_map g ON g.poc_id=e.assignee
+WHERE e.year_week IS NOT NULL
+  AND CAST(REPLACE(e.year_week,'-W','') AS INT64) <= CAST(FORMAT_DATE('%G%V', CURRENT_DATE('Asia/Kolkata')) AS INT64)
+GROUP BY 1,2,3,4 ORDER BY 3,1,4
+"""
+
+# Go-lives and unassignments per (ISO week, role, person) — point-in-time GC/GM (card 12438).
+UNASSIGN_SQL = r"""
+WITH
+total_spend AS (
+  SELECT seller_id, DATE(date) spend_date, spend/1.18 spend FROM `nushop.marketing_spends`
+    WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 9000 DAY) AND DATE(date) <= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND marketing_channel!='whatsapp'
+  UNION ALL SELECT seller_id, spend_date, spend FROM `nushop.google_marketing_insights_master` WHERE breakdown_key IS NULL AND spend_date >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+),
+daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
+go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
+sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2026-01-01'),
+unassign AS (
+  SELECT seller_id, id revival_task_id, DATE(created_at,'Asia/Kolkata') unassignment_date,
+    ROW_NUMBER() OVER (PARTITION BY seller_id ORDER BY created_at) cycle_no
+  FROM nushop.workboard_tasks
+  WHERE type='seller_revival' AND sub_type='seller_revival_primary_task' AND DATE(created_at,'Asia/Kolkata') <= CURRENT_DATE()),
+ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
+   IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
+   IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
+  FROM nushop.changeslogs WHERE createdat >= TIMESTAMP('2025-07-01')
+    AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
+ev2 AS (SELECT * FROM ev WHERE prev_id IS NOT NULL OR new_id IS NOT NULL),
+cutoffs AS (
+  SELECT seller_id, 'GOLIVE' evt, CAST(NULL AS STRING) revival_task_id, go_live_date evt_date,
+    TIMESTAMP(go_live_date,'Asia/Kolkata') cutoff, TIMESTAMP(DATE_ADD(go_live_date,INTERVAL 1 DAY),'Asia/Kolkata') grace_end
+  FROM sellers
+  UNION ALL
+  SELECT u.seller_id,'UNASSIGN',u.revival_task_id,u.unassignment_date,
+    TIMESTAMP(u.unassignment_date,'Asia/Kolkata'), TIMESTAMP(u.unassignment_date,'Asia/Kolkata')
+  FROM unassign u JOIN sellers s USING (seller_id)),
+ce AS (SELECT CONCAT(c.evt,'|',c.seller_id,'|',IFNULL(c.revival_task_id,'')) evt_key, c.cutoff, c.grace_end, e.role, e.prev_id, e.new_id, e.createdat
+  FROM cutoffs c JOIN ev2 e USING (seller_id)),
+b AS (SELECT evt_key, role, new_id person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat DESC, new_id IS NULL) rn FROM ce WHERE createdat<cutoff) WHERE rn=1),
+b_held AS (SELECT evt_key, role, new_id person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat DESC) rn FROM ce WHERE createdat<cutoff AND new_id IS NOT NULL) WHERE rn=1),
+a AS (SELECT evt_key, role, COALESCE(prev_id, IF(createdat<grace_end,new_id,NULL)) person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat ASC, prev_id IS NULL) rn FROM ce WHERE createdat>=cutoff) WHERE rn=1),
+resolved AS (SELECT k.evt_key, k.role, COALESCE(b.person_id, IF(b.evt_key IS NULL, a.person_id, NULL), bh.person_id) person_id
+  FROM (SELECT DISTINCT evt_key, role FROM ce UNION DISTINCT SELECT CONCAT(evt,'|',seller_id,'|',IFNULL(revival_task_id,'')), r FROM cutoffs CROSS JOIN UNNEST(['GC','GM']) r) k
+  LEFT JOIN b USING (evt_key,role) LEFT JOIN b_held bh USING (evt_key,role) LEFT JOIN a USING (evt_key,role)),
+golive_ev AS (
+  SELECT s.seller_id, s.go_live_date evt_date, 'golive' kind, gc.person_id gc_id, gm.person_id gm_id
+  FROM sellers s
+  LEFT JOIN resolved gc ON gc.evt_key=CONCAT('GOLIVE|',s.seller_id,'|') AND gc.role='GC'
+  LEFT JOIN resolved gm ON gm.evt_key=CONCAT('GOLIVE|',s.seller_id,'|') AND gm.role='GM'),
+unassign_ev AS (
+  SELECT u.seller_id, u.unassignment_date evt_date, 'unassign' kind, gc.person_id gc_id, gm.person_id gm_id
+  FROM unassign u JOIN sellers s USING (seller_id)
+  LEFT JOIN resolved gc ON gc.evt_key=CONCAT('UNASSIGN|',u.seller_id,'|',u.revival_task_id) AND gc.role='GC'
+  LEFT JOIN resolved gm ON gm.evt_key=CONCAT('UNASSIGN|',u.seller_id,'|',u.revival_task_id) AND gm.role='GM'),
+allev AS (SELECT * FROM golive_ev UNION ALL SELECT * FROM unassign_ev),
+long AS (
+  SELECT FORMAT_DATE('%G-W%V', evt_date) year_week, kind, 'GC' role, gc_id person_id FROM allev
+  UNION ALL
+  SELECT FORMAT_DATE('%G-W%V', evt_date), kind, 'GM', gm_id FROM allev)
+SELECT l.year_week, l.role, l.kind,
+  COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),''),'(unattributed)') person,
+  COUNT(*) n
+FROM long l LEFT JOIN nushop.users u ON u._id=l.person_id
+GROUP BY 1,2,3,4 ORDER BY 1,2,3,4
+"""
+
+
+def parse_tssop(csv_text):
+    rows = list(csvmod.DictReader(io.StringIO(csv_text)))
+    names, nidx, out = [], {}, []
+
+    def ni(x):
+        x = (x or "").strip() or "(unknown)"
+        if x not in nidx:
+            nidx[x] = len(names); names.append(x)
+        return nidx[x]
+
+    def i(v):
+        try: return int(float(v or 0))
+        except ValueError: return 0
+
+    def f(v):
+        try: return round(float(v or 0), 1)
+        except ValueError: return 0
+
+    for r in rows:
+        out.append([ni(r["assignee_name"]), ni(r["gm_name"]), r["assignee_bucket"], r["year_week"],
+                    i(r["tasks"]), i(r["completed"]), i(r["sla_met"]), i(r["attempted"]), i(r["connected"]),
+                    i(r["scored"]), i(r["dur_sum"]), f(r["acc_sum"]), i(r["acc_n"]),
+                    f(r["sat_sum"]), i(r["sat_n"]), f(r["ton_sum"]), i(r["ton_n"])])
+    return {"names": names, "rows": out}
+
+
+def parse_unassign(csv_text):
+    rows = list(csvmod.DictReader(io.StringIO(csv_text)))
+    names, nidx, out = [], {}, []
+
+    def ni(x):
+        x = (x or "").strip() or "(unattributed)"
+        if x not in nidx:
+            nidx[x] = len(names); names.append(x)
+        return nidx[x]
+
+    for r in rows:
+        try: n = int(float(r.get("n") or 0))
+        except ValueError: n = 0
+        out.append([r["year_week"], r["role"], r["kind"], ni(r["person"]), n])
+    return {"names": names, "rows": out}
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -355,15 +520,18 @@ def main():
         print("Diagnosis query returned no rows", file=sys.stderr); sys.exit(1)
     gcgm = parse_gcgm(run_csv(session, GCGM_SQL))
     gcgms = parse_gcgms(run_csv(session, GCGMS_SQL))
+    tssop = parse_tssop(run_csv(session, TSSOP_SQL))
+    unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
 
-    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms}
+    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
             old = json.load(f)
         if (old.get("csv") == payload["csv"] and old.get("diagnosis") == payload["diagnosis"]
                 and old.get("buckets") == payload["buckets"] and old.get("gcgm") == payload["gcgm"]
-                and old.get("gcgmSellers") == payload["gcgmSellers"]):
+                and old.get("gcgmSellers") == payload["gcgmSellers"]
+                and old.get("tsSop") == payload["tsSop"] and old.get("unassign") == payload["unassign"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -374,7 +542,8 @@ def main():
     with open(OUT, "w") as f:
         json.dump(out, f, separators=(",", ":")); f.write("\n")
     print(f"Wrote {OUT}: {len(curve_csv.splitlines())-1} curve cohorts, {len(diag)} diagnosis sellers, "
-          f"{len(gcgm['gc'])+len(gcgm['gm'])} GC/GM rows, {len(gcgms['rows'])} GC/GM sellers.")
+          f"{len(gcgm['gc'])+len(gcgm['gm'])} GC/GM rows, {len(gcgms['rows'])} GC/GM sellers, "
+          f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows.")
 
 
 if __name__ == "__main__":
