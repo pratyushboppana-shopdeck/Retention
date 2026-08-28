@@ -116,6 +116,7 @@
   table.rank td.num,table.rank th.num{text-align:right;}
   table.rank .rbar{height:12px;border-radius:3px;display:inline-block;vertical-align:middle;min-width:2px;}
   .gcgm-detail{font-size:12px;color:var(--muted);margin-top:8px;}
+  table.matrix tr.actsep td{background:#efeee7;height:6px;padding:2px 6px;font-size:9.5px;color:var(--muted);font-weight:650;border-top:2px solid var(--accent);}
   table.rank tbody tr{cursor:pointer;}
   table.rank tbody tr:hover{background:#f7f6f0;}
   table.rank tbody tr.sel{background:var(--accent-soft);}
@@ -572,6 +573,7 @@ async function load(){
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
     GCGM=snap.gcgm||null; gcgmInit=false;
+    WEEKACT=snap.weekActuals||null;
     // per-seller go-live GC/GM + open pointers (card 10550 tasks + SOS), last 3 months
     GCGMS=null;
     if(snap.gcgmSellers&&Array.isArray(snap.gcgmSellers.rows)){
@@ -682,8 +684,31 @@ function buildReasonTrend(rows,diag){
           (v>=1?Math.round(v):(v>0?'·':''))+'</td>';
       }).join('')+'</tr>';
   });
+  // ---- actual underlying metrics (different units to the % rows above) ----
+  if(WEEKACT){
+    const ACT=[
+      {label:'RTO rate — actual (W0–W3, median seller)', color:'#1D9E75', key:'rto',
+       fmt:v=>v==null?'':Math.round(v), title:'RTOs ÷ orders, W0–W3. Median seller of that go-live week. NOT a % of go-lives.'},
+      {label:'Spend / GMV — actual (W0–W2, median seller)', color:'#185FA5', key:'sgmv',
+       fmt:v=>v==null?'':v.toFixed(2), title:'FB spend ÷ GMV over W0–W2. Median seller of that go-live week. Lower is better. NOT a % of go-lives.'}
+    ];
+    h+='<tr class="actsep"><td class="rn">Actual metric (not % of go-lives)</td>'+weeks.map(()=>'<td></td>').join('')+'</tr>';
+    ACT.forEach(A=>{
+      const vals=weeks.map(w=>(WEEKACT[w]?WEEKACT[w][A.key]:null));
+      const fin=vals.filter(v=>v!=null); const mn=Math.min(...fin), mx=Math.max(...fin);
+      h+='<tr title="'+esc(A.title)+'"><td class="rn"><span class="defdot" style="background:'+A.color+'"></span>'+esc(A.label)+'</td>'+
+        vals.map(v=>{
+          if(v==null) return '<td></td>';
+          const t=(mx>mn)?(v-mn)/(mx-mn):0;          // shade by position within the row's own range
+          const a=0.10+0.70*t, fg=a>0.52?'#fff':'#23251f';
+          return '<td style="background:'+hx(A.color,a)+';color:'+fg+';font-weight:600">'+A.fmt(v)+'</td>';
+        }).join('')+'</tr>';
+    });
+  }
   h+='</tbody>'; M.innerHTML=h;
-  document.getElementById('reasonFoot').textContent='Mature cohorts only (W3 elapsed). Each reason = % of that ISO week’s go-lives. Toggle lines above; “Retained” is hidden by default. Matrix cells are heat-shaded within each row.';
+  document.getElementById('reasonFoot').innerHTML='Mature cohorts only (W3 elapsed). Each reason row = % of that ISO week’s go-lives; heat-shaded within the row. '+
+    '<b>The last two rows are the ACTUAL underlying metrics</b> (median seller), not shares — RTO in %, Spend/GMV as a ratio. '+
+    'Read them against the reason rows: RTO is flat and does not separate retained from dropped, so that reason row is largely a residual of the median split; Spend/GMV genuinely improved and tracks the retention rise.';
   card.style.display='block';
 }
 function drill(gi,wk){
@@ -744,7 +769,7 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
 });
 
 // ===== GC & GM retention view =====
-let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={};
+let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={}, WEEKACT=null;
 const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All'};
 const MONTH2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function wkMonthKey(w){const co=parseCohort(w); return co?co.my*100+co.mm:0;}
@@ -1016,10 +1041,12 @@ function renderRank(rows, tbodyId, detailId, sel, selEl){
   const minN=document.getElementById('gcgmMinN').checked;
   let list=Object.entries(acc).map(([name,a])=>({name,n:a.n,p:a.n?a.ret/a.n:0,rr:a.rr,mn:a.mn}));
   // dropdown options (all names, alphabetic)
-  const cur=selEl.value||'All';
-  selEl.innerHTML='<option>All</option>'+list.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(x=>`<option>${esc(x.name)}</option>`).join('');
+  const cur=gcgmSel[selEl.id==='gcSel'?'gc':'gm']||selEl.value||'All';
+  selEl.innerHTML='<option value="All">All</option>'+list.slice().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
   selEl.value=[...selEl.options].some(o=>o.value===cur)?cur:'All';
-  const selName=selEl.value;
+  const selName=gcgmSel[selEl.id==='gcSel'?'gc':'gm']||'All';
+  if(selEl.value!==selName) selEl.value=selName;
   // keep the full ranking visible even when one person is selected (just highlight them)
   let shown=list.filter(x=>x.n>=(minN?5:1) || x.name===selName);
   shown.sort((a,b)=>a.p-b.p || b.n-a.n);
@@ -1031,10 +1058,10 @@ function renderRank(rows, tbodyId, detailId, sel, selEl){
     // click a row = select that person (shows their not-retained sellers below)
     // clicking a row selects that person; GC and GM are alternate views, so pick one at a time
     tr.addEventListener('click',()=>{const isGc=selEl.id==='gcSel';
-      const val=(selEl.value===x.name)?'All':x.name;
-      selEl.value=val; gcgmSel[isGc?'gc':'gm']=val;
-      const other=document.getElementById(isGc?'gmSel':'gcSel');
-      if(val!=='All'){ other.value='All'; gcgmSel[isGc?'gm':'gc']='All'; }
+      const cur=gcgmSel[isGc?'gc':'gm'];
+      const val=(cur===x.name)?'All':x.name;
+      gcgmSel[isGc?'gc':'gm']=val; selEl.value=val;
+      if(val!=='All'){ gcgmSel[isGc?'gm':'gc']='All'; document.getElementById(isGc?'gmSel':'gcSel').value='All'; }
       renderGcgm();});
     tb.appendChild(tr);});
   // detail: W1-W7 for the selected one
@@ -1070,7 +1097,7 @@ function fmtOps(ops){
 let SPROWS=[];
 function renderSellerPanel(){
   const panel=document.getElementById('sellerPanel');
-  const gcName=document.getElementById('gcSel').value, gmName=document.getElementById('gmSel').value;
+  const gcName=gcgmSel.gc||'All', gmName=gcgmSel.gm||'All';
   const picked=[]; if(gcName&&gcName!=='All')picked.push('GC '+gcName); if(gmName&&gmName!=='All')picked.push('GM '+gmName);
   if(!picked.length||!GCGMS){ panel.style.display='none'; SPROWS=[]; return; }
   const m=gcgmSel.metric;

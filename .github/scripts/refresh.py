@@ -510,6 +510,64 @@ def parse_unassign(csv_text):
     return {"names": names, "rows": out}
 
 
+# Actual underlying metrics per go-live ISO week (RTO rate, spend/GMV) — the two
+# "actual metric" rows under the reason matrix. These are NOT % of go-lives.
+WEEKACT_SQL = r"""
+WITH golive AS (
+  SELECT seller_id, MIN(start_date) gd, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
+  FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1
+  HAVING MIN(start_date) >= DATE '2025-11-01'),
+sw AS (
+  SELECT g.seller_id, g.gw,
+    SUM(IF(DATE_DIFF(v.start_date,g.gd,ISOWEEK) BETWEEN 0 AND 3, v.rtos,0)) rto03,
+    SUM(IF(DATE_DIFF(v.start_date,g.gd,ISOWEEK) BETWEEN 0 AND 3, v.total_orders,0)) ord03
+  FROM golive g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id GROUP BY 1,2),
+o AS (
+  SELECT g.seller_id,
+    SUM(oi.selling_price*oi.quantity+oi.cod_charge+oi.delivery_fees-oi.total_discount) gmv02
+  FROM golive g JOIN nushop.orderitems oi ON oi.seller_id=g.seller_id
+  WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-01'
+    AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid') AND oi.awb_no!='None' AND oi.in_house_status!='awb_expired'
+    AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'),g.gd,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1),
+f AS (
+  SELECT g.seller_id, SUM(fb.spend) fb02
+  FROM golive g JOIN fb_marketings.fb_marketing_insights fb ON fb.seller_id=g.seller_id
+  WHERE fb.breakdown_key IS NULL AND DATE(fb.spend_date,'Asia/Kolkata')>=DATE '2025-10-01'
+    AND DATE_DIFF(DATE(fb.spend_date,'Asia/Kolkata'),g.gd,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1),
+s AS (
+  SELECT sw.gw, sw.seller_id, SAFE_DIVIDE(sw.rto03,sw.ord03) rto_rate, sw.rto03, sw.ord03,
+    SAFE_DIVIDE(f.fb02,o.gmv02) sgmv, f.fb02, o.gmv02
+  FROM sw LEFT JOIN o USING(seller_id) LEFT JOIN f USING(seller_id))
+SELECT gw AS year_week,
+  COUNT(*) n,
+  ROUND(100*APPROX_QUANTILES(rto_rate,2)[OFFSET(1)],1) rto_median,
+  ROUND(100*SAFE_DIVIDE(SUM(rto03),SUM(ord03)),1) rto_agg,
+  ROUND(APPROX_QUANTILES(sgmv,2)[OFFSET(1)],3) sgmv_median,
+  ROUND(SAFE_DIVIDE(SUM(fb02),SUM(gmv02)),3) sgmv_agg
+FROM s GROUP BY gw ORDER BY gw
+"""
+
+
+def parse_weekact(csv_text):
+    out = {}
+    for r in csvmod.DictReader(io.StringIO(csv_text)):
+        def f(k):
+            try:
+                v = r.get(k)
+                return float(v) if v not in ("", None) else None
+            except ValueError:
+                return None
+        try:
+            n = int(float(r.get("n") or 0))
+        except ValueError:
+            n = 0
+        if n < 5:              # skip trivially small weeks
+            continue
+        out[r["year_week"]] = {"rto": f("rto_median"), "rtoAgg": f("rto_agg"),
+                               "sgmv": f("sgmv_median"), "sgmvAgg": f("sgmv_agg"), "n": n}
+    return out
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -522,8 +580,9 @@ def main():
     gcgms = parse_gcgms(run_csv(session, GCGMS_SQL))
     tssop = parse_tssop(run_csv(session, TSSOP_SQL))
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
+    weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
 
-    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas}
+    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -531,7 +590,8 @@ def main():
         if (old.get("csv") == payload["csv"] and old.get("diagnosis") == payload["diagnosis"]
                 and old.get("buckets") == payload["buckets"] and old.get("gcgm") == payload["gcgm"]
                 and old.get("gcgmSellers") == payload["gcgmSellers"]
-                and old.get("tsSop") == payload["tsSop"] and old.get("unassign") == payload["unassign"]):
+                and old.get("tsSop") == payload["tsSop"] and old.get("unassign") == payload["unassign"]
+                and old.get("weekActuals") == payload["weekActuals"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -543,7 +603,7 @@ def main():
         json.dump(out, f, separators=(",", ":")); f.write("\n")
     print(f"Wrote {OUT}: {len(curve_csv.splitlines())-1} curve cohorts, {len(diag)} diagnosis sellers, "
           f"{len(gcgm['gc'])+len(gcgm['gm'])} GC/GM rows, {len(gcgms['rows'])} GC/GM sellers, "
-          f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows.")
+          f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows, {len(weekact)} week-actual rows.")
 
 
 if __name__ == "__main__":
