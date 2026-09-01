@@ -614,6 +614,19 @@ function renderDefs(){
 }
 let CURDRILL=null;
 function esc(s){return (s==null?'':(''+s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+// Save `text` as `name`. The anchor MUST be in the document: a detached <a>.click()
+// is ignored by Safari and Firefox, so the button appeared dead outside Chrome.
+// A BOM keeps Excel from mangling non-ASCII seller names.
+function saveCsv(name,text){
+  const blob=new Blob(['\ufeff'+text],{type:'text/csv;charset=utf-8'});
+  if(window.navigator && window.navigator.msSaveBlob){window.navigator.msSaveBlob(blob,name);return;}
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=name; a.rel='noopener'; a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{document.body.removeChild(a); URL.revokeObjectURL(url);},0);
+}
 function buildWoW(g,cohort,wk){
   const B=window.BUCKETS, T=document.getElementById('wowTable');
   document.getElementById('wowCohort').textContent=g.label;
@@ -764,9 +777,8 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
   let rows=CURDRILL.notret; if(CURDRILL.filter!=null) rows=rows.filter(d=>d.b===CURDRILL.filter);
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const csv=['seller_id,reason_bucket,GC,GM,KAM'].concat(rows.map(d=>[d.s,B[d.b],d.gc,d.gm,d.kam].map(q).join(','))).join('\n');
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   // sanitise the stem only -- including '.csv' would strip the dot and kill the extension
-  a.download=('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)).replace(/[^a-z0-9]+/gi,'_')+'.csv'; a.click();
+  saveCsv(('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)).replace(/[^a-z0-9]+/gi,'_')+'.csv', csv);
 });
 
 // ===== GC & GM retention view =====
@@ -913,8 +925,7 @@ document.getElementById('tsCsv').addEventListener('click',()=>{
       x.quality==null?'':x.quality.toFixed(1),x.accAvg==null?'':x.accAvg.toFixed(1),
       x.satAvg==null?'':x.satAvg.toFixed(1),x.tonAvg==null?'':x.tonAvg.toFixed(1),
       x.durAvg==null?'':x.durAvg.toFixed(0)].map(q).join(','))).join('\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='ts_sop_metrics.csv';a.click();
+  saveCsv('ts_sop_metrics.csv', csv);
 });
 
 // ================= TAB: Go-lives vs unassignments (card 12438) =================
@@ -986,8 +997,7 @@ document.getElementById('unCsv').addEventListener('click',()=>{
   if(!UNVIEW.length) return; const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const csv=[`${unSt.role.toLowerCase()},go_lives,unassignments,unassign_per_golive_pct`]
     .concat(UNVIEW.map(x=>[x.name,x.golive,x.unassign,x.golive?(100*x.unassign/x.golive).toFixed(1):''].map(q).join(','))).join('\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='golives_vs_unassignments.csv';a.click();
+  saveCsv('golives_vs_unassignments.csv', csv);
 });
 document.querySelectorAll('#tabs .tab').forEach(t=>t.addEventListener('click',()=>setView(t.dataset.view)));
 function buildGcgm(){
@@ -1136,8 +1146,7 @@ document.getElementById('spCsv').addEventListener('click',()=>{
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const csv=['seller_id,golive_week,reason_bucket,golive_gc,golive_gm,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
     .concat(SPROWS.map(x=>[x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='not_retained_sellers.csv'; a.click();
+  saveCsv('not_retained_sellers.csv', csv);
 });
 
 renderDefs(); // static bucket definitions are available immediately
