@@ -765,7 +765,8 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const csv=['seller_id,reason_bucket,GC,GM,KAM'].concat(rows.map(d=>[d.s,B[d.b],d.gc,d.gm,d.kam].map(q).join(','))).join('\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download=('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)+'.csv').replace(/[^a-z0-9]+/gi,'_'); a.click();
+  // sanitise the stem only -- including '.csv' would strip the dot and kill the extension
+  a.download=('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)).replace(/[^a-z0-9]+/gi,'_')+'.csv'; a.click();
 });
 
 // ===== GC & GM retention view =====
