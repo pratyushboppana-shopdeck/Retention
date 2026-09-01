@@ -352,10 +352,12 @@ const OPTS={split:true,omitOct:true,weighted:false,zeroBlank:false};
 // Any other month renders as a single whole-month line automatically, so new/future
 // months appear on their own with no code change. Add a month number here to split it.
 const SPLIT_MONTHS=[5,6,7]; // May, Jun, Jul
-// a cohort joins a rolled-up line only once it has at least this many matured weeks.
-// Drops brand-new (immature) ISO-week cohorts that would otherwise cap the whole line
-// to their short tail — matches the query's "keep cohorts with >= W3 mature" gate.
-const MIN_MATURE_WEEKS=3;
+// A cohort joins a rolled-up line once it has at least this many matured weeks.
+// Set to 1 so a fresh ISO week contributes its mature W1/W2 instead of being dropped
+// wholesale. Because cohorts inside one line can now be at different ages, each
+// plotted point records how many of them it rests on (see g.nAt/g.glAt below) and
+// any point that isn't carried by every cohort is drawn hollow and flagged.
+const MIN_MATURE_WEEKS=1;
 // Recency ramp: oldest cohorts = soft/cool slate, newest = deep green then warm amber.
 // Colour therefore encodes TIME — the chart reads as a timeline and the newest line pops.
 // oldest -> newest. Kept dark enough that even the oldest line reads clearly on white.
@@ -395,7 +397,7 @@ function parseCSV(text){
   if(!('cohort' in idx)) throw new Error('No "Cohort" column in snapshot.');
   const wIdx=WCOLS.map(w=>idx[w.toLowerCase()]);
   if(wIdx.some(i=>i===undefined)) throw new Error('Missing one or more of W1..W7 columns.');
-  const glIdx=idx['go-lives'];
+  const glIdx=idx['go-lives'], weIdx=idx['weeks_elapsed'];
   const rows=[];
   for(let li=1;li<lines.length;li++){
     const parts=lines[li].split(',');
@@ -403,11 +405,23 @@ function parseCSV(text){
     if(!co) continue;
     const vals=wIdx.map(i=>{const v=(parts[i]||'').trim().replace('%','');return v===''?null:parseFloat(v);});
     const gl=glIdx!==undefined?parseFloat((parts[glIdx]||'').replace(/[^0-9.]/g,''))||0:1;
-    rows.push({co,vals,gl});
+    // weeks_elapsed tells us which relative weeks this cohort has actually lived
+    // through. Older snapshots lack the column -- fall back to counting non-null
+    // weeks, which is what the maturity gate used before it was published.
+    let we=weIdx!==undefined?parseInt((parts[weIdx]||'').trim(),10):NaN;
+    if(!isFinite(we)) we=vals.filter(v=>v!=null).length+1;
+    rows.push({co,vals,gl,we});
   }
   if(!rows.length) throw new Error('No rows with a recognizable cohort value.');
   return rows;
 }
+
+// ISO week -> weeks_elapsed, so anything downstream can ask "has this cohort
+// actually lived through relative week k yet?" rather than trusting a 0 in sp[].
+let WEMAP={};
+function buildWeMap(rows){ WEMAP={}; rows.forEach(r=>{ WEMAP[r.co.y+'-W'+String(r.co.w).padStart(2,'0')]=r.we; }); }
+// relative week index wk is 0-based (wk=0 is W1); the query publishes Wk once we > k
+function isMatureAt(isoWeek,wk){ const we=WEMAP[isoWeek]; return we===undefined?true:we>wk+1; }
 
 function rollup(rows,opts){
   // Group weekly cohorts by calendar month. Months in SPLIT_MONTHS become two lines:
@@ -441,21 +455,25 @@ function rollup(rows,opts){
     g.dropped=g.weeks.filter(r=>matureCount(r)<MIN_MATURE_WEEKS);
     g.dropped.forEach(r=>HELD_WEEKS.push(r.co.y+'-W'+String(r.co.w).padStart(2,'0')));
     g.weeks=g.weeks.filter(r=>matureCount(r)>=MIN_MATURE_WEEKS);
-    // Strict maturity: a week is plotted only once EVERY remaining cohort has matured
-    // to it, so a line never rests on a shrinking subset. Lines grow as data matures.
+    // A week is plotted from whichever cohorts have matured to it. That lets a young
+    // month show its real W1/W2, but it means the mix behind a line changes along the
+    // x-axis, so record the composition of every point and expose it in the tooltip.
+    g.nAt=[]; g.glAt=[];
     g.data=WCOLS.map((_,wi)=>{
-      let num=0,den=0,present=0;
+      let num=0,den=0,present=0,gl=0;
       for(const r of g.weeks){
         let v=r.vals[wi];
         if(v===null||v===undefined||isNaN(v)) continue;
         if(opts.zeroBlank && v===0) continue;
-        present++;
+        present++; gl+=r.gl||0;
         const wt=opts.weighted?r.gl:1;
         num+=v*wt;den+=wt;
       }
-      // require all remaining cohorts to have this week (else it's immature)
-      return (g.weeks.length && present===g.weeks.length && den)?Math.round(num/den*10)/10:null;
+      g.nAt[wi]=present; g.glAt[wi]=gl;
+      return (present&&den)?Math.round(num/den*10)/10:null;
     });
+    // widest composition the line reaches -- points below it rest on a subset
+    g.nFull=Math.max(0,...g.nAt);
     g.n=g.weeks.length;
   }
   // drop months whose every cohort was too immature to plot yet
@@ -477,7 +495,10 @@ function buildCompo(groups,ds){
   const held=(HELD_WEEKS||[]).slice().sort();
   const note=document.getElementById('compoNote');
   note.innerHTML='ISO week = the week of the seller&rsquo;s go-live (Monday). '+
-    (held.length?`Held back until ${MIN_MATURE_WEEKS} weeks mature: <b>${held.map(wkNum).join(', ')}</b>.`:'All mature ISO weeks are plotted.');
+    'Every ISO week is plotted as far as it has matured, so a young month shows W1&ndash;W2 before its W3 exists. '+
+    '<b>Diamond points rest on only some of the month&rsquo;s weeks</b> &mdash; hover for the exact composition. '+
+    'Because the mix behind a line changes along the x-axis, compare a partial point with care: part of any step can be a change of cohort mix rather than of behaviour. '+
+    (held.length?`No matured week yet: <b>${held.map(wkNum).join(', ')}</b>.`:'');
 }
 
 let chart=null;
@@ -491,7 +512,9 @@ function render(groups,meta){
     g.color=c;
     return {label:g.label,data:g.data,borderColor:c,backgroundColor:c,
       borderWidth:newest?2.8:1.8, borderDash:[], tension:0.35,
-      pointRadius:newest?2.6:1.8, pointHoverRadius:6, pointBackgroundColor:'#fff',
+      pointRadius:g.data.map((v,wi)=>v==null?0:(g.nAt[wi]<g.nFull?3.4:(newest?2.6:1.8))),
+      pointStyle:g.data.map((v,wi)=>g.nAt[wi]<g.nFull?'rectRot':'circle'),
+      pointHoverRadius:6, pointBackgroundColor:'#fff',
       pointBorderColor:c, pointBorderWidth:newest?2.2:1.6, pointHoverBorderWidth:2.6,
       spanGaps:false, order:N-i};
   });
@@ -505,6 +528,14 @@ function render(groups,meta){
       interaction:{mode:'index',intersect:false},
       onClick:(e)=>{const el=chart.getElementsAtEventForMode(e,'nearest',{intersect:false},true);if(!el.length)return;const di=el[0].datasetIndex,ix=el[0].index;if(chart.data.datasets[di].data[ix]==null)return;drill(di,ix);},
       plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>{
+          const g=(window.GROUPS||[])[c.datasetIndex]; const wi=c.dataIndex;
+          if(!g||c.parsed.y==null) return c.dataset.label+': —';
+          const part=g.nAt[wi]<g.nFull;
+          return c.dataset.label+': '+c.parsed.y+'%  ('+g.nAt[wi]+' of '+g.nFull+
+            ' ISO week'+(g.nFull===1?'':'s')+' · '+(g.glAt[wi]||0).toLocaleString()+' go-lives'+
+            (part?' · partial — not yet mature across the whole month':'')+')';
+        }}},
         tooltip:{
           backgroundColor:'rgba(255,255,255,0.97)', titleColor:'#12130f', bodyColor:'#3d4038',
           borderColor:'rgba(18,19,15,0.12)', borderWidth:1, cornerRadius:10,
@@ -586,6 +617,7 @@ async function load(){
     TSSOP=snap.tsSop||null; tsInit=false;
     UNAS=snap.unassign||null; unInit=false;
     const rows=parseCSV(csv);
+    buildWeMap(rows);
     const groups=rollup(rows,OPTS);
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
     render(groups,snap);
@@ -728,8 +760,14 @@ function drill(gi,wk){
   const g=(window.GROUPS||[])[gi]; if(!g) return;
   const card=document.getElementById('drillCard');
   const weeks=new Set(g.isoWeeks||[]);
-  const cohort=(window.DIAG||[]).filter(d=>weeks.has(d.w));
+  // Only ISO weeks that have actually lived through this relative week. Without this
+  // a seller whose W3 simply has not happened yet reads as sp[2]=0 and would be
+  // counted as "not retained" -- inflating the drop with sellers who are still fine.
+  const mature=new Set([...weeks].filter(w=>isMatureAt(w,wk)));
+  const excluded=[...weeks].filter(w=>!mature.has(w)).sort();
+  const cohort=(window.DIAG||[]).filter(d=>mature.has(d.w));
   document.getElementById('drillTitle').textContent=g.label+' — not retained at W'+(wk+1);
+  window.DRILL_EXCLUDED=excluded;
   card.style.display='block';
   if(!cohort.length){
     document.getElementById('drillSub').textContent='No seller-level diagnosis for this cohort.';
@@ -740,7 +778,10 @@ function drill(gi,wk){
   }
   const notret=cohort.filter(d=>(d.sp[wk]||0)<3000);
   const notPct=(100*notret.length/cohort.length).toFixed(1);
-  document.getElementById('drillSub').textContent=notret.length+' of '+cohort.length+' sellers dropped ('+notPct+'% not retained · '+(100-notPct).toFixed(1)+'% retained).';
+  const exNote=(window.DRILL_EXCLUDED&&window.DRILL_EXCLUDED.length)
+    ? ' Excludes '+window.DRILL_EXCLUDED.map(w=>'W'+w.slice(-2)).join(', ')+
+      ' — not yet '+(wk+1<2?'a full week':'W'+(wk+1)+' mature')+'.' : '';
+  document.getElementById('drillSub').textContent=notret.length+' of '+cohort.length+' sellers dropped ('+notPct+'% not retained · '+(100-notPct).toFixed(1)+'% retained).'+exNote;
   const B=window.BUCKETS;
   const dist=B.map((name,bi)=>({name,bi,n:notret.filter(d=>d.b===bi).length})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
   const max=Math.max(1,...dist.map(x=>x.n));

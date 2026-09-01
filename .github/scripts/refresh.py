@@ -26,7 +26,8 @@ WITH golive AS (
   SELECT seller_id, MIN(start_date) AS golive_date, FORMAT_DATE('%G-W%V', MIN(start_date)) AS golive_iso_week
   FROM nushop.gc_view_3 WHERE marketing_spend > 1000 AND team_mapping = 'HIT'
   GROUP BY seller_id
-  HAVING MIN(start_date) >= DATE '2025-11-01' AND MIN(start_date) <= DATE_SUB(CURRENT_DATE(), INTERVAL 21 DAY)
+  HAVING MIN(start_date) >= DATE '2025-11-01'
+     AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)
 ),
 weekly_spend AS (
   SELECT cs.seller_id, cs.golive_iso_week, DATE_DIFF(gv.start_date, cs.golive_date, ISOWEEK) AS rel_week, SUM(gv.marketing_spend) AS week_spend
@@ -45,7 +46,7 @@ cohort_counts AS (
   SELECT golive_iso_week, COUNT(*) golives, DATE_DIFF(CURRENT_DATE(), MIN(golive_date), ISOWEEK) weeks_elapsed
   FROM golive GROUP BY golive_iso_week
 )
-SELECT c.golive_iso_week AS Cohort, c.golives AS `go-lives`,
+SELECT c.golive_iso_week AS Cohort, c.golives AS `go-lives`, c.weeks_elapsed AS weeks_elapsed,
   IF(c.weeks_elapsed>1, ROUND(100*COALESCE(SUM(f.s1),0)/c.golives,2), NULL) W1,
   IF(c.weeks_elapsed>2, ROUND(100*COALESCE(SUM(f.s2),0)/c.golives,2), NULL) W2,
   IF(c.weeks_elapsed>3, ROUND(100*COALESCE(SUM(f.s3),0)/c.golives,2), NULL) W3,
