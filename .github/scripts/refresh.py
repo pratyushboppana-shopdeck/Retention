@@ -569,6 +569,123 @@ def parse_weekact(csv_text):
     return out
 
 
+# Task SLA adherence by creation day / task type / assignee, for GC and KAM.
+# Anchored on CREATION date because the SLA clock starts there, which also lets a
+# task that was never completed and is now past SLA count as a breach ("stuck")
+# rather than vanishing from the denominator the way a completion-date view does.
+TASKSLA_SQL = r"""
+WITH base AS (
+  SELECT t.id, t.type, t.sub_type, t.title, t.status AS task_status,
+    t.created_at, t.completed_at, t.sla_in_min,
+    DATE(t.created_at,'Asia/Kolkata') AS cd,
+    REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
+    CASE WHEN LOWER(u.role) LIKE '%growth-consultant%'   THEN 'GC'
+         WHEN LOWER(u.role) LIKE '%key-account-manager%' THEN 'KAM' END AS role
+  FROM nushop.workboard_tasks t
+  JOIN nushop.sellers s ON t.seller_id = s._id AND s.seller_account_status='hit' AND s.user_type='seller'
+  LEFT JOIN nushop.users u ON t.assignee = u._id
+  WHERE DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 35 DAY)
+    AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
+),
+labelled AS (
+  SELECT *, CASE
+    WHEN role='GC' AND type='callback' AND sub_type='schedule_call'                  THEN 'Callback'
+    WHEN role='GC' AND type='callback' AND sub_type='early_retention_call'           THEN 'Retention Call'
+    WHEN role='GC' AND type='seller_callback_management'                             THEN 'Seller Callback'
+    WHEN role='GC' AND type='troubleshoot_action' AND sub_type='troubleshoot_sop'    THEN 'TS SOP Call'
+    WHEN role='GC' AND type='seller_poc_handover'                                    THEN 'POC Handover'
+    WHEN role='GC' AND type='other_request' AND title LIKE '[Post-call]%'            THEN 'Commitment Task'
+    WHEN role='GC' AND sub_type='dashboard_training_or_query_or_concern'             THEN 'Dashboard Training'
+    WHEN role='KAM' AND type='notification' AND sub_type='notify_key_account_manager_kam' THEN 'KAM Notification'
+    WHEN role='KAM' AND type='seller_poc_handover'                                   THEN 'Rapport Building Call'
+    WHEN role='KAM' AND type='hit_seller_shipping_issues' AND sub_type='o2s_breach_kam' THEN 'O2S Breach (KAM)'
+    WHEN role='KAM' AND type='hit_seller_shipping_issues' AND sub_type='o2s_breach'  THEN 'O2S Breach'
+    WHEN role='KAM' AND type='hit_seller_shipping_issues' AND sub_type='seller_first_pickup' THEN 'First Pickup'
+    WHEN role='KAM' AND type='hit_seller_shipping_issues'                            THEN 'Shipping Issue (other)'
+    WHEN role='KAM' AND type='callback'                                              THEN 'Callback'
+    WHEN role='KAM' AND type='seller_callback_management'                            THEN 'Seller Callback'
+    WHEN role='KAM' AND type='catalogue_website'                                     THEN 'Catalogue Request'
+    WHEN role='KAM' AND type='go_live_call'                                          THEN 'Go-live Call'
+    WHEN role='KAM' AND type='seller_tts_kam_churn_call'                             THEN 'Churn Call'
+    WHEN role='KAM' AND type='troubleshoot_action'                                   THEN 'Troubleshoot'
+    WHEN role='KAM' AND type='leadership_support_escalation'                         THEN 'Escalation'
+    WHEN role='KAM' AND type='shipping_operations'                                   THEN 'Shipping Ops'
+    WHEN role='KAM' AND type='finance_payments'                                      THEN 'Finance'
+    WHEN role='KAM' AND type='account_dashboard'                                     THEN 'Account / Dashboard'
+    WHEN role='KAM' AND type IN ('other_request','others','other')                   THEN 'Other request'
+    WHEN role='KAM'                                                                  THEN 'Other'
+  END AS task
+  FROM base WHERE role IS NOT NULL AND nm != ''
+),
+scored AS (
+  SELECT role, cd, task, nm, task_status, created_at,
+    -- TS SOP Call is fixed at 48h from creation; every other type uses its own sla_in_min
+    IF(task='TS SOP Call', 2880, sla_in_min) AS sla_eff,
+    TIMESTAMP_DIFF(completed_at, created_at, MINUTE) AS mins
+  FROM labelled WHERE task IS NOT NULL
+),
+cls AS (
+  SELECT *, CASE
+    WHEN task_status='completed' AND mins <= sla_eff THEN 'on_time'
+    WHEN task_status='completed'                     THEN 'late'
+    WHEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), created_at, MINUTE) > sla_eff THEN 'stuck'
+    ELSE 'pending' END AS outcome,
+    CASE WHEN task_status='completed' AND mins > sla_eff THEN mins - sla_eff
+         WHEN task_status != 'completed'
+          AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), created_at, MINUTE) > sla_eff
+         THEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), created_at, MINUTE) - sla_eff
+         ELSE 0 END AS over_min
+  FROM scored
+)
+SELECT role, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm,
+  COUNT(*) AS created,
+  COUNTIF(outcome='on_time') AS on_time,
+  COUNTIF(outcome='late')    AS late,
+  COUNTIF(outcome='stuck')   AS stuck,
+  COUNTIF(outcome='pending') AS pending,
+  CAST(ROUND(SUM(over_min)) AS INT64) AS over_min_sum
+FROM cls GROUP BY role, d, task, nm ORDER BY role, d, task, nm
+"""
+
+
+def parse_tasksla(csv_text):
+    """Index days/tasks/people per role and emit compact integer rows."""
+    roles = {}
+    days = []
+    day_ix = {}
+    for r in csvmod.DictReader(io.StringIO(csv_text)):
+        role = r["role"]
+        if role not in roles:
+            roles[role] = {"tasks": [], "people": [], "_t": {}, "_p": {}, "rows": []}
+        R = roles[role]
+        d = r["d"]
+        if d not in day_ix:
+            day_ix[d] = len(days); days.append(d)
+        t = r["task"]
+        if t not in R["_t"]:
+            R["_t"][t] = len(R["tasks"]); R["tasks"].append(t)
+        n = r["nm"]
+        if n not in R["_p"]:
+            R["_p"][n] = len(R["people"]); R["people"].append(n)
+
+        def i(k):
+            try:
+                return int(float(r.get(k) or 0))
+            except ValueError:
+                return 0
+        R["rows"].append([day_ix[d], R["_t"][t], R["_p"][n],
+                          i("created"), i("on_time"), i("late"), i("stuck"),
+                          i("pending"), i("over_min_sum")])
+    order = sorted(range(len(days)), key=lambda k: days[k])
+    remap = {old: new for new, old in enumerate(order)}
+    for R in roles.values():
+        R.pop("_t"); R.pop("_p")
+        for row in R["rows"]:
+            row[0] = remap[row[0]]
+        R["rows"].sort()
+    return {"days": [days[k] for k in order], "roles": roles}
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -582,8 +699,9 @@ def main():
     tssop = parse_tssop(run_csv(session, TSSOP_SQL))
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
+    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL))
 
-    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact}
+    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -592,7 +710,8 @@ def main():
                 and old.get("buckets") == payload["buckets"] and old.get("gcgm") == payload["gcgm"]
                 and old.get("gcgmSellers") == payload["gcgmSellers"]
                 and old.get("tsSop") == payload["tsSop"] and old.get("unassign") == payload["unassign"]
-                and old.get("weekActuals") == payload["weekActuals"]):
+                and old.get("weekActuals") == payload["weekActuals"]
+                and old.get("taskSla") == payload["taskSla"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -604,7 +723,8 @@ def main():
         json.dump(out, f, separators=(",", ":")); f.write("\n")
     print(f"Wrote {OUT}: {len(curve_csv.splitlines())-1} curve cohorts, {len(diag)} diagnosis sellers, "
           f"{len(gcgm['gc'])+len(gcgm['gm'])} GC/GM rows, {len(gcgms['rows'])} GC/GM sellers, "
-          f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows, {len(weekact)} week-actual rows.")
+          f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows, {len(weekact)} week-actual rows, "
+          f"{sum(len(v['rows']) for v in tasksla['roles'].values())} task-SLA rows.")
 
 
 if __name__ == "__main__":

@@ -143,6 +143,36 @@
   table.wow th{color:#3c3f37;font-weight:650;border-bottom:2px solid var(--line);}
   table.wow tr.selwk td{background:var(--accent-soft);font-weight:600;}
   table.wow td.z{color:#8d9086;}
+
+  #slaCard .kpis{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 14px;}
+  #slaCard .kpi{flex:1 1 150px;background:#fbfaf5;border:1px solid var(--line);border-radius:10px;padding:10px 13px;}
+  #slaCard .kpi .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;}
+  #slaCard .kpi .v{font-size:23px;font-weight:750;color:#23251f;line-height:1.25;}
+  #slaCard .kpi .s{font-size:11px;color:var(--muted);}
+  #slaCard .kpi.bad .v{color:#C0392B;} #slaCard .kpi.good .v{color:#2f6d4f;}
+  #slaCard .slaGrid{display:grid;grid-template-columns:minmax(430px,1fr) minmax(430px,1.05fr);gap:16px;align-items:start;}
+  @media (max-width:1100px){#slaCard .slaGrid{grid-template-columns:1fr;}}
+  table.sla{width:100%;border-collapse:collapse;font-size:12px;}
+  table.sla th{position:sticky;top:0;background:#f3f2ea;color:#3d4036;font-weight:700;text-align:right;
+    padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:11px;cursor:pointer;user-select:none;}
+  table.sla th:first-child,table.sla td:first-child{text-align:left;}
+  table.sla td{padding:5px 8px;border-bottom:1px solid #efeee7;text-align:right;color:#23251f;white-space:nowrap;}
+  table.sla tbody tr:hover{background:#faf9f4;} table.sla tbody tr.sel{background:#eef4f0;}
+  table.sla tbody tr{cursor:pointer;}
+  .adhbar{display:inline-block;height:8px;border-radius:4px;vertical-align:middle;min-width:2px;}
+  table.slamx{border-collapse:collapse;font-size:11px;}
+  table.slamx th{background:#f3f2ea;color:#3d4036;font-weight:700;padding:5px 6px;border-bottom:1px solid var(--line);
+    font-size:10px;white-space:nowrap;}
+  table.slamx th.rn,table.slamx td.rn{text-align:left;position:sticky;left:0;background:#fbfaf5;z-index:1;max-width:190px;
+    overflow:hidden;text-overflow:ellipsis;}
+  table.slamx td{padding:4px 6px;text-align:center;border-bottom:1px solid #efeee7;min-width:44px;}
+  .slaChips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;font-size:12px;}
+  .slaChips .item{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;padding:4px 11px;border-radius:999px;
+    border:1px solid var(--line);background:#fff;color:#3d4036;}
+  .slaChips .item.off{opacity:.34;text-decoration:line-through;}
+  .slaseg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .slaseg button{border:0;background:#fff;padding:5px 11px;font-size:12px;cursor:pointer;color:#3d4036;}
+  .slaseg button.on{background:#23251f;color:#fff;font-weight:650;}
 </style>
 </head>
 <body>
@@ -155,6 +185,8 @@
     <button class="tab" type="button" data-view="gcgm">GC &amp; GM retention</button>
     <button class="tab" type="button" data-view="tssop">TS SOP metrics</button>
     <button class="tab" type="button" data-view="unassign">Go-lives vs unassignments</button>
+    <button class="tab" type="button" data-view="slaGC">GC task SLA</button>
+    <button class="tab" type="button" data-view="slaKAM">KAM task SLA</button>
   </div>
 
   <div class="card" id="gcgmCard">
@@ -338,6 +370,50 @@
       <span class="drill-sub" id="drillFilter"></span>
     </div>
   </div>
+</div>
+
+
+<div class="card" id="slaCard" style="display:none">
+  <div class="drill-h" style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <div><b id="slaTitle">Task SLA adherence</b>
+      <span class="hint">&mdash; by task creation day. A task past SLA and still open counts as a breach.</span></div>
+    <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+      <span class="slaseg" id="slaRange">
+        <button type="button" data-r="7">7d</button>
+        <button type="button" data-r="14">14d</button>
+        <button type="button" data-r="28" class="on">28d</button>
+        <button type="button" data-r="35">35d</button>
+      </span>
+      <label style="font-size:12px;color:var(--muted)"><input type="checkbox" id="slaMinN" checked> hide &lt;10 due</label>
+      <button id="slaCsv" type="button">Download CSV</button>
+    </div>
+  </div>
+  <div class="kpis" id="slaKpis"></div>
+  <div class="slaChips" id="slaTaskChips"></div>
+  <div class="slaGrid">
+    <div>
+      <div class="drill-h3">By task type <span class="hint">&mdash; worst adherence first</span></div>
+      <div class="tablewrap" style="max-height:290px;overflow:auto"><table class="sla" id="slaTaskTable"></table></div>
+      <div class="drill-sub" id="slaTaskFoot" style="margin-top:6px"></div>
+    </div>
+    <div>
+      <div class="drill-h3">Adherence by day <span class="hint">&mdash; % of that day&rsquo;s tasks closed inside SLA</span></div>
+      <div class="chart-box" style="height:250px"><canvas id="slaChart" role="img"
+        aria-label="Line chart of SLA adherence by task creation day."></canvas></div>
+    </div>
+  </div>
+  <div class="slaGrid" style="margin-top:18px">
+    <div>
+      <div class="drill-h3"><span id="slaWhoLbl">Who</span> <span class="hint">&mdash; worst adherence first; click to filter</span></div>
+      <div class="tablewrap" style="max-height:420px;overflow:auto"><table class="sla" id="slaWhoTable"></table></div>
+    </div>
+    <div>
+      <div class="drill-h3">Heat map <span class="hint">&mdash; adherence % by person &times; task type</span></div>
+      <div class="tablewrap" style="max-height:420px;overflow:auto"><table class="slamx" id="slaMatrix"></table></div>
+      <div class="drill-sub" style="margin-top:6px">Blank = no tasks due. Cell shows adherence %; hover for counts.</div>
+    </div>
+  </div>
+  <div class="drill-sub" id="slaFoot" style="margin-top:12px"></div>
 </div>
 
 <script>
@@ -605,6 +681,7 @@ async function load(){
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
     GCGM=snap.gcgm||null; gcgmInit=false;
     WEEKACT=snap.weekActuals||null;
+    TSLA=snap.taskSla||null;
     // per-seller go-live GC/GM + open pointers (card 10550 tasks + SOS), last 3 months
     GCGMS=null;
     if(snap.gcgmSellers&&Array.isArray(snap.gcgmSellers.rows)){
@@ -839,7 +916,10 @@ function setView(v){
   document.getElementById('unCard').style.display=v==='unassign'?'block':'none';
   if(v==='gcgm') buildGcgm();
   if(v==='tssop') buildTs();
+  const isSla=(v==='slaGC'||v==='slaKAM');
+  document.getElementById('slaCard').style.display=isSla?'block':'none';
   if(v==='unassign') buildUn();
+  if(isSla) buildSla(v==='slaGC'?'GC':'KAM');
 }
 // ---- shared week/month filter widget used by the newer tabs ----
 function makeWeekFilter(o){
@@ -1189,6 +1269,197 @@ document.getElementById('spCsv').addEventListener('click',()=>{
     .concat(SPROWS.map(x=>[x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
   saveCsv('not_retained_sellers.csv', csv);
 });
+
+
+// ================= TABS: GC / KAM task SLA adherence =================
+// Rows are [dayIdx, taskIdx, personIdx, created, on_time, late, stuck, pending, overMinSum].
+// "due" = on_time + late + stuck; a task still open past its SLA is a breach, not a gap.
+let TSLA=null, slaChart=null, slaInit=false;
+const slaSt={role:'GC', range:28, person:null, off:{}, sort:'adh', asc:true};
+function slaAdhColor(p){return p<0.35?'#C0392B':(p<0.55?'#BA7517':(p<0.75?'#8a8f33':'#2f6d4f'));}
+function slaHrs(m){ if(m==null) return ''; const h=m/60; return h>=48?(h/24).toFixed(1)+'d':h.toFixed(1)+'h'; }
+
+function slaRole(){ return (TSLA&&TSLA.roles&&TSLA.roles[slaSt.role])||null; }
+function slaDays(){ // the day indices inside the selected window
+  if(!TSLA) return [];
+  const n=TSLA.days.length, from=Math.max(0,n-slaSt.range);
+  const out=[]; for(let i=from;i<n;i++) out.push(i); return out;
+}
+// aggregate the cube under the current filters; `by` picks the grouping key
+function slaAgg(by){
+  const R=slaRole(); if(!R) return new Map();
+  const days=new Set(slaDays()); const m=new Map();
+  for(const r of R.rows){
+    if(!days.has(r[0])) continue;
+    if(slaSt.off[R.tasks[r[1]]]) continue;
+    if(slaSt.person!=null && r[2]!==slaSt.person) continue;
+    const k = by==='task'?r[1] : by==='person'?r[2] : by==='day'?r[0] : (r[2]+'|'+r[1]);
+    let a=m.get(k); if(!a){a={created:0,on:0,late:0,stuck:0,pend:0,over:0}; m.set(k,a);}
+    a.created+=r[3]; a.on+=r[4]; a.late+=r[5]; a.stuck+=r[6]; a.pend+=r[7]; a.over+=r[8];
+  }
+  m.forEach(a=>{ a.due=a.on+a.late+a.stuck; a.adh=a.due?a.on/a.due:null;
+                 a.avgOver=(a.late+a.stuck)?a.over/(a.late+a.stuck):null; });
+  return m;
+}
+function buildSla(role){
+  slaSt.role=role;
+  const card=document.getElementById('slaCard');
+  if(!TSLA||!TSLA.roles||!TSLA.roles[role]){
+    document.getElementById('slaKpis').innerHTML='<div class="kpi"><div class="k">No data</div>'+
+      '<div class="s">This snapshot has no task-SLA rows for '+esc(role)+'.</div></div>';
+    ['slaTaskTable','slaWhoTable','slaMatrix'].forEach(id=>document.getElementById(id).innerHTML='');
+    document.getElementById('slaTaskChips').innerHTML=''; return;
+  }
+  document.getElementById('slaTitle').textContent=role+' task SLA adherence';
+  document.getElementById('slaWhoLbl').textContent=role==='GC'?'By GC':'By KAM';
+  if(!slaInit){ slaWire(); slaInit=true; }
+  slaSt.person=null; slaSt.off={};
+  renderSla();
+}
+function slaWire(){
+  document.querySelectorAll('#slaRange button').forEach(b=>b.addEventListener('click',()=>{
+    slaSt.range=+b.dataset.r;
+    document.querySelectorAll('#slaRange button').forEach(x=>x.classList.toggle('on',x===b));
+    renderSla();
+  }));
+  document.getElementById('slaMinN').addEventListener('change',renderSla);
+  document.getElementById('slaCsv').addEventListener('click',slaDownload);
+}
+function renderSla(){
+  const R=slaRole(); if(!R) return;
+  slaChips(R); slaKpis(); slaTaskTable(R); slaDayChart(R); slaWhoTable(R); slaMatrix(R); slaFoot(R);
+}
+function slaChips(R){
+  const el=document.getElementById('slaTaskChips');
+  el.innerHTML='<span class="item" data-all="1" style="font-weight:650">All / none</span>'+
+    R.tasks.map(t=>`<span class="item${slaSt.off[t]?' off':''}" data-t="${esc(t)}">${esc(t)}</span>`).join('');
+  el.querySelectorAll('.item').forEach(c=>c.addEventListener('click',()=>{
+    if(c.dataset.all){ const anyOn=R.tasks.some(t=>!slaSt.off[t]);
+      R.tasks.forEach(t=>slaSt.off[t]=anyOn); }
+    else slaSt.off[c.dataset.t]=!slaSt.off[c.dataset.t];
+    renderSla();
+  }));
+}
+function slaKpis(){
+  const all=slaAgg('all'); let a={created:0,on:0,late:0,stuck:0,pend:0,over:0,due:0};
+  all.forEach(x=>{a.created+=x.created;a.on+=x.on;a.late+=x.late;a.stuck+=x.stuck;a.pend+=x.pend;a.over+=x.over;a.due+=x.due;});
+  const adh=a.due?100*a.on/a.due:null;
+  const avgOver=(a.late+a.stuck)?a.over/(a.late+a.stuck):null;
+  const who=slaSt.person!=null?(' · '+slaRole().people[slaSt.person]):'';
+  document.getElementById('slaKpis').innerHTML=[
+    ['Adherence', adh==null?'—':adh.toFixed(1)+'%', a.due.toLocaleString()+' tasks due'+who, adh!=null&&adh<50?'bad':(adh>=70?'good':'')],
+    ['Breached', (a.late+a.stuck).toLocaleString(), (a.due?(100*(a.late+a.stuck)/a.due).toFixed(1):'0')+'% of due', 'bad'],
+    ['Still open past SLA', a.stuck.toLocaleString(), 'never completed', a.stuck?'bad':''],
+    ['Closed late', a.late.toLocaleString(), 'avg '+(avgOver==null?'—':slaHrs(avgOver))+' past SLA', ''],
+    ['Not yet due', a.pend.toLocaleString(), 'inside SLA, still open', '']
+  ].map(([k,v,s,c])=>`<div class="kpi ${c}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${esc(s)}</div></div>`).join('');
+}
+function slaTaskTable(R){
+  const m=slaAgg('task');
+  const rows=[...m.entries()].map(([ti,a])=>({name:R.tasks[ti],...a}))
+    .filter(x=>x.due>0).sort((a,b)=>(a.adh??9)-(b.adh??9)||b.due-a.due);
+  const T=document.getElementById('slaTaskTable');
+  T.innerHTML='<thead><tr><th>Task type</th><th>Due</th><th>On time</th><th>Late</th><th>Stuck</th><th>Adherence</th><th>Avg over</th></tr></thead><tbody>'+
+    rows.map(x=>{const p=x.adh==null?0:x.adh, c=slaAdhColor(p);
+      return `<tr><td>${esc(x.name)}</td><td>${x.due}</td><td>${x.on}</td><td>${x.late}</td>`+
+        `<td${x.stuck?' style="color:#C0392B;font-weight:650"':''}>${x.stuck}</td>`+
+        `<td style="color:${c};font-weight:700">${(100*p).toFixed(1)}%`+
+        `<span class="adhbar" style="width:${Math.max(2,44*p)}px;background:${c};margin-left:6px"></span></td>`+
+        `<td>${slaHrs(x.avgOver)}</td></tr>`;}).join('')+'</tbody>';
+  const worst=rows[0];
+  document.getElementById('slaTaskFoot').innerHTML=worst
+    ? `Worst: <b>${esc(worst.name)}</b> at ${(100*worst.adh).toFixed(1)}% — ${worst.stuck} still open past SLA.`
+    : 'No tasks due in this window.';
+}
+function slaDayChart(R){
+  const m=slaAgg('day'); const dayIdx=slaDays();
+  const labels=dayIdx.map(i=>TSLA.days[i].slice(5));
+  const data=dayIdx.map(i=>{const a=m.get(i); return (a&&a.due)?Math.round(1000*a.on/a.due)/10:null;});
+  const vol=dayIdx.map(i=>{const a=m.get(i); return a?a.due:0;});
+  if(slaChart) slaChart.destroy();
+  slaChart=new Chart(document.getElementById('slaChart'),{
+    data:{labels,datasets:[
+      {type:'bar',label:'Tasks due',data:vol,yAxisID:'y1',backgroundColor:'rgba(35,37,31,.10)',borderWidth:0,order:2},
+      {type:'line',label:'Adherence %',data,yAxisID:'y',borderColor:'#2f6d4f',backgroundColor:'#2f6d4f',
+       borderWidth:2.2,tension:.32,pointRadius:2.2,pointHoverRadius:5,pointBackgroundColor:'#fff',
+       pointBorderColor:'#2f6d4f',pointBorderWidth:1.8,spanGaps:false,order:1}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{
+        const i=dayIdx[c.dataIndex], a=m.get(i);
+        if(c.dataset.type==='bar') return (a?a.due:0)+' tasks due';
+        if(!a||!a.due) return 'no tasks due';
+        return a.on+' on time / '+a.due+' due ('+(100*a.on/a.due).toFixed(1)+'%) · '+a.stuck+' stuck';
+      }}}},
+      scales:{
+        y:{min:0,max:100,ticks:{color:'#3d4036',font:{size:11},callback:v=>v+'%'},
+           grid:{color:'#eceade'},title:{display:true,text:'Adherence',color:'#3d4036',font:{size:11,weight:'700'}}},
+        y1:{position:'right',min:0,grid:{display:false},ticks:{color:'#8a8d80',font:{size:10}},
+            title:{display:true,text:'Tasks due',color:'#8a8d80',font:{size:10}}},
+        x:{ticks:{color:'#3d4036',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12},grid:{display:false}}}}
+  });
+}
+function slaWhoTable(R){
+  const m=slaAgg('person'); const minN=document.getElementById('slaMinN').checked?10:1;
+  const rows=[...m.entries()].map(([pi,a])=>({pi,name:R.people[pi],...a}))
+    .filter(x=>x.due>=minN||x.pi===slaSt.person)
+    .sort((a,b)=>(a.adh??9)-(b.adh??9)||b.due-a.due);
+  const T=document.getElementById('slaWhoTable');
+  T.innerHTML='<thead><tr><th>#</th><th>'+(slaSt.role==='GC'?'GC':'KAM')+
+    '</th><th>Due</th><th>Late</th><th>Stuck</th><th>Adherence</th></tr></thead><tbody>'+
+    rows.map((x,i)=>{const p=x.adh==null?0:x.adh,c=slaAdhColor(p);
+      return `<tr data-pi="${x.pi}"${x.pi===slaSt.person?' class="sel"':''}><td>${i+1}</td><td>${esc(x.name)}</td>`+
+        `<td>${x.due}</td><td>${x.late}</td>`+
+        `<td${x.stuck?' style="color:#C0392B;font-weight:650"':''}>${x.stuck}</td>`+
+        `<td style="color:${c};font-weight:700">${(100*p).toFixed(0)}%`+
+        `<span class="adhbar" style="width:${Math.max(2,46*p)}px;background:${c};margin-left:6px"></span></td></tr>`;}).join('')+'</tbody>';
+  T.querySelectorAll('tbody tr').forEach(tr=>tr.addEventListener('click',()=>{
+    const pi=+tr.dataset.pi; slaSt.person=(slaSt.person===pi)?null:pi; renderSla();
+  }));
+}
+function slaMatrix(R){
+  // person x task adherence; ignores the person filter so the grid stays comparable
+  const keep=slaSt.person; slaSt.person=null;
+  const m=slaAgg('pt'); const per=slaAgg('person');
+  slaSt.person=keep;
+  const minN=document.getElementById('slaMinN').checked?10:1;
+  const people=[...per.entries()].filter(([pi,a])=>a.due>=minN||pi===slaSt.person)
+    .sort((a,b)=>(a[1].adh??9)-(b[1].adh??9)).map(([pi])=>pi);
+  const tasks=R.tasks.map((t,i)=>i).filter(i=>!slaSt.off[R.tasks[i]]);
+  const T=document.getElementById('slaMatrix');
+  if(!people.length||!tasks.length){T.innerHTML='';return;}
+  let h='<thead><tr><th class="rn">'+(slaSt.role==='GC'?'GC':'KAM')+'</th>'+
+    tasks.map(ti=>`<th title="${esc(R.tasks[ti])}">${esc(R.tasks[ti].length>13?R.tasks[ti].slice(0,12)+'…':R.tasks[ti])}</th>`).join('')+'</tr></thead><tbody>';
+  people.forEach(pi=>{
+    h+=`<tr${pi===slaSt.person?' class="sel"':''}><td class="rn" title="${esc(R.people[pi])}">${esc(R.people[pi])}</td>`;
+    tasks.forEach(ti=>{
+      const a=m.get(pi+'|'+ti);
+      if(!a||!a.due){ h+='<td></td>'; return; }
+      const p=a.on/a.due, c=slaAdhColor(p), al=0.14+0.62*(1-p), fg=al>0.5?'#fff':'#23251f';
+      h+=`<td style="background:${hx(c,al)};color:${fg};font-weight:650" title="${esc(R.people[pi])} · ${esc(R.tasks[ti])}: ${a.on}/${a.due} on time, ${a.stuck} stuck">${Math.round(100*p)}</td>`;
+    });
+    h+='</tr>';
+  });
+  T.innerHTML=h+'</tbody>';
+}
+function slaFoot(R){
+  const d=slaDays();
+  document.getElementById('slaFoot').innerHTML=
+    `<b>Window:</b> ${TSLA.days[d[0]]} to ${TSLA.days[d[d.length-1]]} (${d.length} days), by task <b>creation</b> date. `+
+    `<b>Adherence</b> = on-time ÷ (on-time + closed-late + still-open-past-SLA). Tasks still inside their SLA are excluded from the denominator, so the newest day or two is thin. `+
+    `<b>SLA</b> comes from each task's own <code>sla_in_min</code>, except <b>TS SOP Call</b>, fixed at <b>48h</b> from creation. `+
+    `Scope: tasks on HIT sellers assigned to a ${slaSt.role}.`;
+}
+function slaDownload(){
+  const R=slaRole(); if(!R) return;
+  const m=slaAgg('pt'); const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const rows=[...m.entries()].map(([k,a])=>{const [pi,ti]=k.split('|').map(Number);
+    return [R.people[pi],R.tasks[ti],a.created,a.due,a.on,a.late,a.stuck,a.pend,
+            a.adh==null?'':(100*a.adh).toFixed(1), a.avgOver==null?'':(a.avgOver/60).toFixed(1)];})
+    .sort((a,b)=>(+a[8]||0)-(+b[8]||0));
+  const csv=[`${slaSt.role.toLowerCase()},task_type,created,due,on_time,late,stuck_open,not_yet_due,adherence_pct,avg_hours_past_sla`]
+    .concat(rows.map(r=>r.map(q).join(','))).join('\n');
+  saveCsv(slaSt.role.toLowerCase()+'_task_sla.csv', csv);
+}
 
 renderDefs(); // static bucket definitions are available immediately
 window.addEventListener('load',load);
