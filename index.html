@@ -1446,7 +1446,10 @@ function slaFoot(R){
   document.getElementById('slaFoot').innerHTML=
     `<b>Window:</b> ${TSLA.days[d[0]]} to ${TSLA.days[d[d.length-1]]} (${d.length} days), by task <b>creation</b> date. `+
     `<b>Adherence</b> = on-time ÷ (on-time + closed-late + still-open-past-SLA). Tasks still inside their SLA are excluded from the denominator, so the newest day or two is thin. `+
-    `<b>SLA</b> comes from each task's own <code>sla_in_min</code>, except <b>TS SOP Call</b>, fixed at <b>48h</b> from creation. `+
+    `<b>Due date</b> = creation + the task's own <code>sla_in_min</code>, with two exceptions: `+
+    `<b>TS SOP Call</b> is fixed at <b>48h</b> from creation, and <b>Seller Callback &ndash; primary task</b> is scored against the `+
+    `platform's own scheduled <code>completion_date</code> &mdash; that task is a callback booked for a time the seller chose, `+
+    `so creation + SLA would measure the schedule rather than the person (it matches creation + SLA for only 0.1% of those rows, median gap 18.8h). `+
     `Scope: tasks on HIT sellers assigned to a ${slaSt.role}.`;
 }
 function slaDownload(){

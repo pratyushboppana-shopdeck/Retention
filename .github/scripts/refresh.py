@@ -576,7 +576,7 @@ def parse_weekact(csv_text):
 TASKSLA_SQL = r"""
 WITH base AS (
   SELECT t.id, t.type, t.sub_type, t.title, t.status AS task_status,
-    t.created_at, t.completed_at, t.sla_in_min,
+    t.created_at, t.completed_at, t.sla_in_min, t.completion_date,
     DATE(t.created_at,'Asia/Kolkata') AS cd,
     REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
     CASE WHEN LOWER(u.role) LIKE '%growth-consultant%'   THEN 'GC'
@@ -618,23 +618,37 @@ labelled AS (
   FROM base WHERE role IS NOT NULL AND nm != ''
 ),
 scored AS (
-  SELECT role, cd, task, nm, task_status, created_at,
-    -- TS SOP Call is fixed at 48h from creation; every other type uses its own sla_in_min
-    IF(task='TS SOP Call', 2880, sla_in_min) AS sla_eff,
-    TIMESTAMP_DIFF(completed_at, created_at, MINUTE) AS mins
+  -- One explicit due TIMESTAMP per task, so every outcome below is a plain comparison.
+  --   TS SOP Call            -> creation + 48h (retention team's definition)
+  --   seller_callback_primary_task -> the platform's own completion_date. This task is a
+  --     SCHEDULED callback: its due date is when the seller asked to be called, and it
+  --     matches creation + sla_in_min for only 0.1% of rows (median gap 18.8h). Scoring
+  --     it off creation measures the schedule, not the GC.
+  --   everything else        -> creation + its own sla_in_min
+  -- completion_date is never EARLIER than creation + sla_in_min anywhere in this data,
+  -- so this can only ever relax a bar, never tighten one.
+  SELECT role, cd, task, nm, task_status, created_at, completed_at,
+    CASE
+      WHEN task = 'TS SOP Call'
+        THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)
+      WHEN sub_type = 'seller_callback_primary_task' AND completion_date IS NOT NULL
+        THEN completion_date
+      ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE)
+    END AS due_ts
   FROM labelled WHERE task IS NOT NULL
 ),
 cls AS (
   SELECT *, CASE
-    WHEN task_status='completed' AND mins <= sla_eff THEN 'on_time'
-    WHEN task_status='completed'                     THEN 'late'
-    WHEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), created_at, MINUTE) > sla_eff THEN 'stuck'
+    WHEN task_status='completed' AND completed_at <= due_ts THEN 'on_time'
+    WHEN task_status='completed'                            THEN 'late'
+    WHEN CURRENT_TIMESTAMP() > due_ts                       THEN 'stuck'
     ELSE 'pending' END AS outcome,
-    CASE WHEN task_status='completed' AND mins > sla_eff THEN mins - sla_eff
-         WHEN task_status != 'completed'
-          AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), created_at, MINUTE) > sla_eff
-         THEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), created_at, MINUTE) - sla_eff
-         ELSE 0 END AS over_min
+    CASE
+      WHEN task_status='completed' AND completed_at > due_ts
+        THEN TIMESTAMP_DIFF(completed_at, due_ts, MINUTE)
+      WHEN task_status != 'completed' AND CURRENT_TIMESTAMP() > due_ts
+        THEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), due_ts, MINUTE)
+      ELSE 0 END AS over_min
   FROM scored
 )
 SELECT role, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm,
