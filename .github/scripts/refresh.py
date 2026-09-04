@@ -8,7 +8,7 @@ Produces two datasets on the canonical go-live >1000 base:
 Reason buckets follow the agreed framework (cards 11435/11610/12049/12206), precedence
 1->7, median cutoffs for performance & RTO. Only rewrites data.json when the data changes.
 """
-import json, os, sys, urllib.request, urllib.error, urllib.parse, csv as csvmod, io
+import json, os, re, sys, urllib.request, urllib.error, urllib.parse, csv as csvmod, io
 from datetime import datetime, timezone
 
 MB_URL = os.environ.get("METABASE_URL", "https://metabase.kaip.in").rstrip("/")
@@ -153,6 +153,16 @@ def run_csv(session, sql):
     query = {"database": DB, "type": "native", "native": {"query": sql}, "parameters": []}
     data = urllib.parse.urlencode({"query": json.dumps(query)}).encode()
     req = urllib.request.Request(MB_URL + "/api/dataset/csv", data=data, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    req.add_header("X-Metabase-Session", session)
+    with urllib.request.urlopen(req, timeout=300) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def run_card_csv(session, card_id):
+    """Run a saved Metabase card, return CSV text. Used for the incentive-team
+    rosters, which live in cards rather than in BigQuery."""
+    req = urllib.request.Request(MB_URL + f"/api/card/{card_id}/query/csv", data=b"", method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
     req.add_header("X-Metabase-Session", session)
     with urllib.request.urlopen(req, timeout=300) as r:
@@ -579,12 +589,13 @@ WITH base AS (
     t.created_at, t.completed_at, t.sla_in_min, t.completion_date,
     DATE(t.created_at,'Asia/Kolkata') AS cd,
     REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
+    LOWER(TRIM(u.email)) AS em,
     CASE WHEN LOWER(u.role) LIKE '%growth-consultant%'   THEN 'GC'
          WHEN LOWER(u.role) LIKE '%key-account-manager%' THEN 'KAM' END AS role
   FROM nushop.workboard_tasks t
   JOIN nushop.sellers s ON t.seller_id = s._id AND s.seller_account_status='hit' AND s.user_type='seller'
   LEFT JOIN nushop.users u ON t.assignee = u._id
-  WHERE DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 35 DAY)
+  WHERE DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
 ),
 labelled AS (
@@ -595,7 +606,6 @@ labelled AS (
     WHEN role='GC' AND type='troubleshoot_action' AND sub_type='troubleshoot_sop'    THEN 'TS SOP Call'
     WHEN role='GC' AND type='seller_poc_handover'                                    THEN 'POC Handover'
     WHEN role='GC' AND type='other_request' AND title LIKE '[Post-call]%'            THEN 'Commitment Task'
-    WHEN role='GC' AND sub_type='dashboard_training_or_query_or_concern'             THEN 'Dashboard Training'
     WHEN role='KAM' AND type='notification' AND sub_type='notify_key_account_manager_kam' THEN 'KAM Notification'
     WHEN role='KAM' AND type='seller_poc_handover'                                   THEN 'Rapport Building Call'
     WHEN role='KAM' AND type='hit_seller_shipping_issues' AND sub_type='o2s_breach_kam' THEN 'O2S Breach (KAM)'
@@ -627,7 +637,7 @@ scored AS (
   --   everything else        -> creation + its own sla_in_min
   -- completion_date is never EARLIER than creation + sla_in_min anywhere in this data,
   -- so this can only ever relax a bar, never tighten one.
-  SELECT role, cd, task, nm, task_status, created_at, completed_at,
+  SELECT role, cd, task, nm, em, task_status, created_at, completed_at,
     CASE
       WHEN task = 'TS SOP Call'
         THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)
@@ -651,7 +661,7 @@ cls AS (
       ELSE 0 END AS over_min
   FROM scored
 )
-SELECT role, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm,
+SELECT role, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm, ANY_VALUE(em) AS em,
   COUNT(*) AS created,
   COUNTIF(outcome='on_time') AS on_time,
   COUNTIF(outcome='late')    AS late,
@@ -662,7 +672,69 @@ FROM cls GROUP BY role, d, task, nm ORDER BY role, d, task, nm
 """
 
 
-def parse_tasksla(csv_text):
+# ---------------------------------------------------------------------------
+# GC team membership, mirroring the incentive engine's own sources:
+#   card 12101 -> core GC roster (GM <-> GC), carries emails
+#   card 12100 -> 1k-5k growth leads
+#   card 11911 -> revival submitters
+# Hypercare has no card of its own; the incentive engine reads it from the
+# People sheet's team column, which this job has no credentials for. The five
+# below are GM Aaruni Vaidya's team, taken from card 12477. Treat as a manual
+# assertion and revisit if hypercare membership changes.
+HYPERCARE_EMAILS = {
+    "nikita.sinha@blitzscale.co", "sadiya.rajgoli@blitzscale.co",
+    "tanaya.gore@blitzscale.co", "sargunpreet.singh@blitzscale.co",
+    "dev.vashisth@blitzscale.co",
+}
+
+
+def _norm_name(s):
+    return re.sub(r"\s+", " ", (s or "")).strip().lower()
+
+
+def _pick(row, *names):
+    """First non-empty value among the given column names (cards rename columns)."""
+    for n in names:
+        for k, v in row.items():
+            if k and k.strip().lower() == n and (v or "").strip():
+                return v.strip()
+    return ""
+
+
+def build_team_map(session):
+    """email/name -> one of Core GC | Revival GC | Hypercare GC | 1-5K GL.
+    Returns ({email: cat}, {normalised name: cat}). Falls back to empty maps so a
+    card outage marks people Unmapped rather than failing the whole refresh."""
+    by_email, by_name = {}, {}
+
+    def add(cat, name, email):
+        if email:
+            by_email.setdefault(email.strip().lower(), cat)
+        if name:
+            by_name.setdefault(_norm_name(name), cat)
+
+    try:
+        for r in csvmod.DictReader(io.StringIO(run_card_csv(session, 12101))):
+            add("Core GC", _pick(r, "core_gc", "gc"), _pick(r, "core_gc_email_id", "gcemail", "gc_email_id"))
+    except Exception as e:                                      # noqa: BLE001
+        print(f"  ! card 12101 (core roster) failed: {e}")
+    try:
+        for r in csvmod.DictReader(io.StringIO(run_card_csv(session, 12100))):
+            add("1-5K GL", _pick(r, "gl", "name", "gl_name"), _pick(r, "glemail", "gl_email", "gl_email_id"))
+    except Exception as e:                                      # noqa: BLE001
+        print(f"  ! card 12100 (1k-5k) failed: {e}")
+    try:
+        for r in csvmod.DictReader(io.StringIO(run_card_csv(session, 11911))):
+            add("Revival GC", _pick(r, "gc", "gc_name"), _pick(r, "gcemail", "gc_email"))
+    except Exception as e:                                      # noqa: BLE001
+        print(f"  ! card 11911 (revival) failed: {e}")
+
+    for e in HYPERCARE_EMAILS:                                   # overrides the core roster
+        by_email[e] = "Hypercare GC"
+    return by_email, by_name
+
+
+def parse_tasksla(csv_text, team_by_email=None, team_by_name=None):
     """Index days/tasks/people per role and emit compact integer rows."""
     roles = {}
     days = []
@@ -681,6 +753,7 @@ def parse_tasksla(csv_text):
         n = r["nm"]
         if n not in R["_p"]:
             R["_p"][n] = len(R["people"]); R["people"].append(n)
+            R.setdefault("emails", []).append((r.get("em") or "").strip().lower())
 
         def i(k):
             try:
@@ -690,6 +763,19 @@ def parse_tasksla(csv_text):
         R["rows"].append([day_ix[d], R["_t"][t], R["_p"][n],
                           i("created"), i("on_time"), i("late"), i("stuck"),
                           i("pending"), i("over_min_sum")])
+    tbe = team_by_email or {}
+    tbn = team_by_name or {}
+    for role, R in roles.items():
+        ems = R.pop("emails", [])
+        if role == "GC":
+            cats = []
+            for i, nm in enumerate(R["people"]):
+                e = ems[i] if i < len(ems) else ""
+                cats.append(tbe.get(e) or tbn.get(_norm_name(nm)) or "Unmapped")
+            R["cats"] = cats
+        else:
+            R["cats"] = [""] * len(R["people"])
+
     order = sorted(range(len(days)), key=lambda k: days[k])
     remap = {old: new for new, old in enumerate(order)}
     for R in roles.values():
@@ -713,7 +799,11 @@ def main():
     tssop = parse_tssop(run_csv(session, TSSOP_SQL))
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
-    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL))
+    tbe, tbn = build_team_map(session)
+    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn)
+    _gc = tasksla["roles"].get("GC", {})
+    _un = sum(1 for c in _gc.get("cats", []) if c == "Unmapped")
+    print(f"  team map: {len(tbe)} emails, {len(tbn)} names; {_un} GC(s) unmapped of {len(_gc.get('people', []))}")
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise

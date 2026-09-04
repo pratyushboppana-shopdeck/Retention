@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cohort retention curve</title>
+<title>HIT Retention &amp; Servicing</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root{
@@ -177,7 +177,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>3K retention curve</h1>
+  <h1>HIT Retention &amp; Servicing</h1>
   <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point</b> to see why those sellers didn&rsquo;t retain that week. Auto-synced from Metabase once daily (~10&nbsp;AM IST).</p>
 
   <div class="tabs" id="tabs">
@@ -379,15 +379,19 @@
       <span class="hint">&mdash; by task creation day. A task past SLA and still open counts as a breach.</span></div>
     <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
       <span class="slaseg" id="slaRange">
-        <button type="button" data-r="7">7d</button>
-        <button type="button" data-r="14">14d</button>
-        <button type="button" data-r="28" class="on">28d</button>
-        <button type="button" data-r="35">35d</button>
+        <button type="button" data-r="yday">Yesterday</button>
+        <button type="button" data-r="7" class="on">Last 7 days</button>
+        <button type="button" data-r="custom">Custom</button>
+      </span>
+      <span id="slaCustom" style="display:none;gap:6px;align-items:center">
+        <input type="date" id="slaFrom"><span style="color:var(--muted);font-size:12px">to</span>
+        <input type="date" id="slaTo">
       </span>
       <label style="font-size:12px;color:var(--muted)"><input type="checkbox" id="slaMinN" checked> hide &lt;10 due</label>
       <button id="slaCsv" type="button">Download CSV</button>
     </div>
   </div>
+  <div class="slaChips" id="slaTeamChips"></div>
   <div class="kpis" id="slaKpis"></div>
   <div class="slaChips" id="slaTaskChips"></div>
   <div class="slaGrid">
@@ -1275,15 +1279,34 @@ document.getElementById('spCsv').addEventListener('click',()=>{
 // Rows are [dayIdx, taskIdx, personIdx, created, on_time, late, stuck, pending, overMinSum].
 // "due" = on_time + late + stuck; a task still open past its SLA is a breach, not a gap.
 let TSLA=null, slaChart=null, slaInit=false;
-const slaSt={role:'GC', range:28, person:null, off:{}, sort:'adh', asc:true};
+const slaSt={role:'GC', mode:'7', from:null, to:null, person:null, off:{}, team:null, sort:'adh', asc:true};
+const SLA_TEAMS=['Core GC','Revival GC','Hypercare GC','1-5K GL','Unmapped'];
+const SLA_TEAM_COLOR={'Core GC':'#2f6d4f','Revival GC':'#185FA5','Hypercare GC':'#BA7517','1-5K GL':'#7A4E9E','Unmapped':'#C0392B'};
 function slaAdhColor(p){return p<0.35?'#C0392B':(p<0.55?'#BA7517':(p<0.75?'#8a8f33':'#2f6d4f'));}
 function slaHrs(m){ if(m==null) return ''; const h=m/60; return h>=48?(h/24).toFixed(1)+'d':h.toFixed(1)+'h'; }
 
 function slaRole(){ return (TSLA&&TSLA.roles&&TSLA.roles[slaSt.role])||null; }
-function slaDays(){ // the day indices inside the selected window
+// Day indices inside the selected window. TSLA.days is ascending YYYY-MM-DD, and
+// the last entry is today (partial), so presets are anchored on yesterday.
+function slaWindow(){
+  if(!TSLA||!TSLA.days.length) return [null,null];
+  const days=TSLA.days, last=days[days.length-1];
+  // Do the arithmetic in UTC. Parsing 'YYYY-MM-DD' as local time and formatting
+  // back through toISOString() shifts the date by one in any non-UTC zone (IST
+  // included), which silently turned "last 7 days" into 8.
+  const shift=(iso,n)=>{const d=new Date(iso+'T00:00:00Z');
+                        d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10);};
+  const yday=shift(last,-1);
+  if(slaSt.mode==='yday')   return [yday,yday];
+  if(slaSt.mode==='custom') return [slaSt.from||days[0], slaSt.to||yday];
+  const n=+slaSt.mode||7;                        // last N days ending yesterday
+  return [shift(yday,-(n-1)), yday];
+}
+function slaDays(){
   if(!TSLA) return [];
-  const n=TSLA.days.length, from=Math.max(0,n-slaSt.range);
-  const out=[]; for(let i=from;i<n;i++) out.push(i); return out;
+  const [a,b]=slaWindow(); if(!a) return [];
+  const out=[]; TSLA.days.forEach((d,i)=>{ if(d>=a&&d<=b) out.push(i); });
+  return out;
 }
 // aggregate the cube under the current filters; `by` picks the grouping key
 function slaAgg(by){
@@ -1293,6 +1316,7 @@ function slaAgg(by){
     if(!days.has(r[0])) continue;
     if(slaSt.off[R.tasks[r[1]]]) continue;
     if(slaSt.person!=null && r[2]!==slaSt.person) continue;
+    if(slaSt.team && (R.cats?R.cats[r[2]]:'')!==slaSt.team) continue;
     const k = by==='task'?r[1] : by==='person'?r[2] : by==='day'?r[0] : (r[2]+'|'+r[1]);
     let a=m.get(k); if(!a){a={created:0,on:0,late:0,stuck:0,pend:0,over:0}; m.set(k,a);}
     a.created+=r[3]; a.on+=r[4]; a.late+=r[5]; a.stuck+=r[6]; a.pend+=r[7]; a.over+=r[8];
@@ -1318,16 +1342,51 @@ function buildSla(role){
 }
 function slaWire(){
   document.querySelectorAll('#slaRange button').forEach(b=>b.addEventListener('click',()=>{
-    slaSt.range=+b.dataset.r;
+    slaSt.mode=b.dataset.r;
     document.querySelectorAll('#slaRange button').forEach(x=>x.classList.toggle('on',x===b));
+    const cw=document.getElementById('slaCustom');
+    cw.style.display = slaSt.mode==='custom' ? 'inline-flex' : 'none';
+    if(slaSt.mode==='custom'){                       // seed the pickers with the current window
+      const [a,b2]=slaWindow();
+      const f=document.getElementById('slaFrom'), t=document.getElementById('slaTo');
+      f.min=t.min=TSLA.days[0]; f.max=t.max=TSLA.days[TSLA.days.length-1];
+      if(!slaSt.from){ slaSt.from=a; slaSt.to=b2; }
+      f.value=slaSt.from; t.value=slaSt.to;
+    }
     renderSla();
+  }));
+  ['slaFrom','slaTo'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{
+    let f=document.getElementById('slaFrom').value, t=document.getElementById('slaTo').value;
+    if(f&&t&&f>t){ if(id==='slaFrom') t=f; else f=t;
+      document.getElementById('slaFrom').value=f; document.getElementById('slaTo').value=t; }
+    slaSt.from=f||null; slaSt.to=t||null; renderSla();
   }));
   document.getElementById('slaMinN').addEventListener('change',renderSla);
   document.getElementById('slaCsv').addEventListener('click',slaDownload);
 }
 function renderSla(){
   const R=slaRole(); if(!R) return;
-  slaChips(R); slaKpis(); slaTaskTable(R); slaDayChart(R); slaWhoTable(R); slaMatrix(R); slaFoot(R);
+  slaTeamChips(R); slaChips(R); slaKpis(); slaTaskTable(R); slaDayChart(R); slaWhoTable(R); slaMatrix(R); slaFoot(R);
+}
+
+function slaTeamChips(R){
+  const el=document.getElementById('slaTeamChips');
+  if(slaSt.role!=='GC'||!R.cats){ el.innerHTML=''; el.style.display='none'; return; }
+  el.style.display='flex';
+  const cnt={}; R.cats.forEach(c=>{cnt[c]=(cnt[c]||0)+1;});
+  const order=SLA_TEAMS.filter(t=>cnt[t]).concat(Object.keys(cnt).filter(t=>!SLA_TEAMS.includes(t)));
+  el.innerHTML='<span class="item'+(slaSt.team?'':' on')+'" data-t="" style="font-weight:650">All GCs ('+R.cats.length+')</span>'+
+    order.map(t=>{const c=SLA_TEAM_COLOR[t]||'#8a8d80';
+      return `<span class="item${slaSt.team===t?'':' off'}" data-t="${esc(t)}" style="border-color:${c}">`+
+        `<span class="defdot" style="background:${c}"></span>${esc(t)} (${cnt[t]})</span>`;}).join('');
+  // when nothing is selected every chip should read as active, not struck through
+  if(!slaSt.team) el.querySelectorAll('.item[data-t]:not([data-t=""])').forEach(c=>c.classList.remove('off'));
+  el.querySelectorAll('.item').forEach(c=>c.addEventListener('click',()=>{
+    const t=c.dataset.t;
+    slaSt.team = (!t || slaSt.team===t) ? null : t;
+    slaSt.person=null;                      // a person may not exist in the new subset
+    renderSla();
+  }));
 }
 function slaChips(R){
   const el=document.getElementById('slaTaskChips');
@@ -1404,10 +1463,16 @@ function slaWhoTable(R){
     .filter(x=>x.due>=minN||x.pi===slaSt.person)
     .sort((a,b)=>(a.adh??9)-(b.adh??9)||b.due-a.due);
   const T=document.getElementById('slaWhoTable');
-  T.innerHTML='<thead><tr><th>#</th><th>'+(slaSt.role==='GC'?'GC':'KAM')+
-    '</th><th>Due</th><th>Late</th><th>Stuck</th><th>Adherence</th></tr></thead><tbody>'+
+  const showTeam=slaSt.role==='GC'&&R.cats;
+  T.innerHTML='<thead><tr><th>#</th><th>'+(slaSt.role==='GC'?'GC':'KAM')+'</th>'+
+    (showTeam?'<th>Team</th>':'')+
+    '<th>Due</th><th>Late</th><th>Stuck</th><th>Adherence</th></tr></thead><tbody>'+
     rows.map((x,i)=>{const p=x.adh==null?0:x.adh,c=slaAdhColor(p);
+      const tm=showTeam?(R.cats[x.pi]||'Unmapped'):null;
+      const tc=tm?(SLA_TEAM_COLOR[tm]||'#8a8d80'):'';
       return `<tr data-pi="${x.pi}"${x.pi===slaSt.person?' class="sel"':''}><td>${i+1}</td><td>${esc(x.name)}</td>`+
+        (showTeam?`<td style="text-align:left"><span class="defdot" style="background:${tc}"></span>`+
+          `<span style="${tm==='Unmapped'?'color:#C0392B;font-weight:650':'color:var(--muted)'};font-size:11px">${esc(tm)}</span></td>`:'')+
         `<td>${x.due}</td><td>${x.late}</td>`+
         `<td${x.stuck?' style="color:#C0392B;font-weight:650"':''}>${x.stuck}</td>`+
         `<td style="color:${c};font-weight:700">${(100*p).toFixed(0)}%`+
@@ -1444,7 +1509,10 @@ function slaMatrix(R){
 function slaFoot(R){
   const d=slaDays();
   document.getElementById('slaFoot').innerHTML=
-    `<b>Window:</b> ${TSLA.days[d[0]]} to ${TSLA.days[d[d.length-1]]} (${d.length} days), by task <b>creation</b> date. `+
+    `<b>Window:</b> ${TSLA.days[d[0]]} to ${TSLA.days[d[d.length-1]]} (${d.length} day${d.length===1?'':'s'}), by task <b>creation</b> date. `+
+    (slaSt.role==='GC'?`<b>Teams</b> come from the incentive rosters &mdash; core GC card 12101, 1k-5k card 12100, revival card 11911; `+
+      `hypercare has no card, so it is GM Aaruni Vaidya's team taken from card 12477 and maintained by hand. `+
+      `<b style="color:#C0392B">Unmapped</b> = present in none of those rosters (new joiner, leaver, or a team without a card) &mdash; worth reviewing. `:'')+
     `<b>Adherence</b> = on-time ÷ (on-time + closed-late + still-open-past-SLA). Tasks still inside their SLA are excluded from the denominator, so the newest day or two is thin. `+
     `<b>Due date</b> = creation + the task's own <code>sla_in_min</code>, with two exceptions: `+
     `<b>TS SOP Call</b> is fixed at <b>48h</b> from creation, and <b>Seller Callback &ndash; primary task</b> is scored against the `+
@@ -1456,10 +1524,10 @@ function slaDownload(){
   const R=slaRole(); if(!R) return;
   const m=slaAgg('pt'); const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const rows=[...m.entries()].map(([k,a])=>{const [pi,ti]=k.split('|').map(Number);
-    return [R.people[pi],R.tasks[ti],a.created,a.due,a.on,a.late,a.stuck,a.pend,
+    return [R.people[pi],(R.cats?R.cats[pi]:'')||'',R.tasks[ti],a.created,a.due,a.on,a.late,a.stuck,a.pend,
             a.adh==null?'':(100*a.adh).toFixed(1), a.avgOver==null?'':(a.avgOver/60).toFixed(1)];})
-    .sort((a,b)=>(+a[8]||0)-(+b[8]||0));
-  const csv=[`${slaSt.role.toLowerCase()},task_type,created,due,on_time,late,stuck_open,not_yet_due,adherence_pct,avg_hours_past_sla`]
+    .sort((a,b)=>(+a[9]||0)-(+b[9]||0));
+  const csv=[`${slaSt.role.toLowerCase()},team,task_type,created,due,on_time,late,stuck_open,not_yet_due,adherence_pct,avg_hours_past_sla`]
     .concat(rows.map(r=>r.map(q).join(','))).join('\n');
   saveCsv(slaSt.role.toLowerCase()+'_task_sla.csv', csv);
 }
