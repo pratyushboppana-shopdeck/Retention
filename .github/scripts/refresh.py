@@ -693,18 +693,24 @@ def _norm_name(s):
 
 
 def _pick(row, *names):
-    """First non-empty value among the given column names (cards rename columns)."""
-    for n in names:
-        for k, v in row.items():
-            if k and k.strip().lower() == n and (v or "").strip():
-                return v.strip()
+    """First non-empty value among the given column names. Compares on a key with
+    every non-alphanumeric stripped, because a card's CSV headers are display names
+    ("1k 5k Gl Email Id") while its result columns are snake_case."""
+    want = [re.sub(r"[^a-z0-9]", "", n.lower()) for n in names]
+    norm = {re.sub(r"[^a-z0-9]", "", (k or "").lower()): (v or "").strip()
+            for k, v in row.items()}
+    for w in want:
+        if norm.get(w):
+            return norm[w]
     return ""
 
 
 def build_team_map(session):
-    """email/name -> one of Core GC | Revival GC | Hypercare GC | 1-5K GL.
-    Returns ({email: cat}, {normalised name: cat}). Falls back to empty maps so a
-    card outage marks people Unmapped rather than failing the whole refresh."""
+    """email/name -> Core GC | Revival GC | Hypercare GC | 1-5K GL.
+    Returns ({email: cat}, {normalised name: cat}). Specific teams are loaded before
+    the core roster so a GC who appears in both lands in the specific one, matching
+    the incentive engine (revival submitters are forced onto the revival team).
+    A card outage marks people Unmapped rather than failing the refresh."""
     by_email, by_name = {}, {}
 
     def add(cat, name, email):
@@ -713,21 +719,23 @@ def build_team_map(session):
         if name:
             by_name.setdefault(_norm_name(name), cat)
 
-    try:
-        for r in csvmod.DictReader(io.StringIO(run_card_csv(session, 12101))):
-            add("Core GC", _pick(r, "core_gc", "gc"), _pick(r, "core_gc_email_id", "gcemail", "gc_email_id"))
-    except Exception as e:                                      # noqa: BLE001
-        print(f"  ! card 12101 (core roster) failed: {e}")
-    try:
-        for r in csvmod.DictReader(io.StringIO(run_card_csv(session, 12100))):
-            add("1-5K GL", _pick(r, "gl", "name", "gl_name"), _pick(r, "glemail", "gl_email", "gl_email_id"))
-    except Exception as e:                                      # noqa: BLE001
-        print(f"  ! card 12100 (1k-5k) failed: {e}")
-    try:
-        for r in csvmod.DictReader(io.StringIO(run_card_csv(session, 11911))):
-            add("Revival GC", _pick(r, "gc", "gc_name"), _pick(r, "gcemail", "gc_email"))
-    except Exception as e:                                      # noqa: BLE001
-        print(f"  ! card 11911 (revival) failed: {e}")
+    def load(card, cat, name_cols, email_cols):
+        try:
+            rows = list(csvmod.DictReader(io.StringIO(run_card_csv(session, card))))
+            n = 0
+            for r in rows:
+                nm, em = _pick(r, *name_cols), _pick(r, *email_cols)
+                if nm or em:
+                    add(cat, nm, em); n += 1
+            print(f"  card {card} -> {cat}: {n}/{len(rows)} rows mapped")
+        except Exception as e:                                   # noqa: BLE001
+            print(f"  ! card {card} ({cat}) failed: {e}")
+
+    load(12100, "1-5K GL",    ["1k_5k_gl", "gl", "name"],
+                              ["1k_5k_gl_email_id", "gl_email_id", "glemail"])
+    load(11911, "Revival GC", ["submitted_by", "gc", "gc_name"], ["gc_email", "email"])
+    load(12101, "Core GC",    ["core_gc", "gc"],
+                              ["core_gc_email_id", "gc_email_id", "gcemail"])
 
     for e in HYPERCARE_EMAILS:                                   # overrides the core roster
         by_email[e] = "Hypercare GC"
