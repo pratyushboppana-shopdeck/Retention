@@ -693,9 +693,32 @@ FROM cls GROUP BY role, d, task, nm ORDER BY role, d, task, nm
 # below are GM Aaruni Vaidya's team, taken from card 12477. Treat as a manual
 # assertion and revisit if hypercare membership changes.
 HYPERCARE_EMAILS = {
-    "nikita.sinha@blitzscale.co", "sadiya.rajgoli@blitzscale.co",
+    "nikita.sinha@blitzscale.co",
     "tanaya.gore@blitzscale.co", "sargunpreet.singh@blitzscale.co",
     "dev.vashisth@blitzscale.co",
+}
+
+# Owner-supplied corrections (2026-09-04), applied AFTER the cards and taking
+# precedence over them. Matched on normalised name because the owner gave names,
+# not emails. Fold these into the mapping sheet once it is readable, then delete.
+OWNER_OVERRIDES = {
+    # Revival — confirmed by the owner; card 11911 only sees people who have
+    # actually submitted a revival, so it under-reports the team.
+    "kavita rai": "Revival GC",
+    "debasish das": "Revival GC",
+    "vishal thapa": "Revival GC",
+    "aanchal agrawal": "Revival GC",
+    # Core — these came back Unmapped because they are in none of the three cards.
+    "pridhi s": "Core GC",
+    "pridhi": "Core GC",
+    "amit jana": "Core GC",
+    "seema paroha": "Core GC",
+    "seema": "Core GC",
+    # Owner says Sadiya is core, not hypercare. That contradicts card 12477, which
+    # is where the hypercare list came from — so the other four are unverified too.
+    "sadiya rajgoli": "Core GC",
+    "saadiya rajgoli": "Core GC",
+    "sadiya": "Core GC",
 }
 
 
@@ -718,7 +741,7 @@ def _pick(row, *names):
 
 def build_team_map(session):
     """email/name -> Core GC | Revival GC | Hypercare GC | 1-5K GL.
-    Returns ({email: cat}, {normalised name: cat}). Specific teams are loaded before
+    Returns ({email: cat}, {name: cat}, {name: cat} forced). Specific teams load before
     the core roster so a GC who appears in both lands in the specific one, matching
     the incentive engine (revival submitters are forced onto the revival team).
     A card outage marks people Unmapped rather than failing the refresh."""
@@ -750,10 +773,11 @@ def build_team_map(session):
 
     for e in HYPERCARE_EMAILS:                                   # overrides the core roster
         by_email[e] = "Hypercare GC"
-    return by_email, by_name
+    forced = {_norm_name(k): v for k, v in OWNER_OVERRIDES.items()}
+    return by_email, by_name, forced
 
 
-def parse_tasksla(csv_text, team_by_email=None, team_by_name=None):
+def parse_tasksla(csv_text, team_by_email=None, team_by_name=None, forced=None):
     """Index days/tasks/people per role and emit compact integer rows."""
     roles = {}
     days = []
@@ -784,13 +808,16 @@ def parse_tasksla(csv_text, team_by_email=None, team_by_name=None):
                           i("pending"), i("over_min_sum")])
     tbe = team_by_email or {}
     tbn = team_by_name or {}
+    tfx = forced or {}
     for role, R in roles.items():
         ems = R.pop("emails", [])
         if role == "GC":
             cats = []
             for i, nm in enumerate(R["people"]):
                 e = ems[i] if i < len(ems) else ""
-                cats.append(tbe.get(e) or tbn.get(_norm_name(nm)) or "Unmapped")
+                # owner override first, then email (most reliable), then name
+                key = _norm_name(nm)
+                cats.append(tfx.get(key) or tbe.get(e) or tbn.get(key) or "Unmapped")
             R["cats"] = cats
         else:
             R["cats"] = [""] * len(R["people"])
@@ -818,8 +845,8 @@ def main():
     tssop = parse_tssop(run_csv(session, TSSOP_SQL))
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
-    tbe, tbn = build_team_map(session)
-    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn)
+    tbe, tbn, tforced = build_team_map(session)
+    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn, tforced)
     _gc = tasksla["roles"].get("GC", {})
     _un = sum(1 for c in _gc.get("cats", []) if c == "Unmapped")
     print(f"  team map: {len(tbe)} emails, {len(tbn)} names; {_un} GC(s) unmapped of {len(_gc.get('people', []))}")

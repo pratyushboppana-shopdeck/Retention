@@ -1418,17 +1418,29 @@ function slaTaskTable(R){
   const rows=[...m.entries()].map(([ti,a])=>({name:R.tasks[ti],...a}))
     .filter(x=>x.due>0).sort((a,b)=>(a.adh??9)-(b.adh??9)||b.due-a.due);
   const T=document.getElementById('slaTaskTable');
-  T.innerHTML='<thead><tr><th>Task type</th><th>Due</th><th>On time</th><th>Late</th><th>Stuck</th><th>Adherence</th><th>Avg over</th></tr></thead><tbody>'+
-    rows.map(x=>{const p=x.adh==null?0:x.adh, c=slaAdhColor(p);
-      return `<tr><td>${esc(x.name)}</td><td>${x.due}</td><td>${x.on}</td><td>${x.late}</td>`+
+  // A task type whose SLA is longer than the window can only show tasks that already
+  // closed -- those are on-time by construction, so the rate reads ~100%. Flag any row
+  // where a big share of what was raised is still inside its SLA.
+  const prov=x=>x.created>0 && (x.pend/x.created)>=0.2;
+  T.innerHTML='<thead><tr><th>Task type</th><th>Due</th><th>On time</th><th>Late</th><th>Stuck</th>'+
+    '<th title="Raised but still inside SLA — excluded from adherence">Not due</th><th>Adherence</th><th>Avg over</th></tr></thead><tbody>'+
+    rows.map(x=>{const p=x.adh==null?0:x.adh, c=slaAdhColor(p), pv=prov(x);
+      const pct=(100*x.pend/Math.max(1,x.created)).toFixed(0);
+      return `<tr${pv?' title="'+pct+'% of the '+x.created+' raised in this window are still inside their SLA, so this rate is computed on the early closers only — it reads high. Widen the window past this task\u2019s SLA."':''}>`+
+        `<td>${esc(x.name)}${pv?' <span style="color:#BA7517;font-weight:700">&#9888;</span>':''}</td>`+
+        `<td>${x.due}</td><td>${x.on}</td><td>${x.late}</td>`+
         `<td${x.stuck?' style="color:#C0392B;font-weight:650"':''}>${x.stuck}</td>`+
-        `<td style="color:${c};font-weight:700">${(100*p).toFixed(1)}%`+
-        `<span class="adhbar" style="width:${Math.max(2,44*p)}px;background:${c};margin-left:6px"></span></td>`+
+        `<td${pv?' style="color:#BA7517;font-weight:650"':' style="color:var(--muted)"'}>${x.pend}</td>`+
+        `<td style="color:${pv?'#8a8d80':c};font-weight:700${pv?';font-style:italic':''}">${(100*p).toFixed(1)}%`+
+        `<span class="adhbar" style="width:${Math.max(2,44*p)}px;background:${pv?'#c9c6b4':c};margin-left:6px"></span></td>`+
         `<td>${slaHrs(x.avgOver)}</td></tr>`;}).join('')+'</tbody>';
-  const worst=rows[0];
-  document.getElementById('slaTaskFoot').innerHTML=worst
+  const solid=rows.filter(x=>!prov(x));
+  const worst=solid[0]||rows[0];
+  const nprov=rows.filter(prov).length;
+  document.getElementById('slaTaskFoot').innerHTML=(worst
     ? `Worst: <b>${esc(worst.name)}</b> at ${(100*worst.adh).toFixed(1)}% — ${worst.stuck} still open past SLA.`
-    : 'No tasks due in this window.';
+    : 'No tasks due in this window.')+
+    (nprov?` <span style="color:#BA7517">&#9888; ${nprov} row${nprov>1?'s':''} marked provisional — the window is shorter than that task&rsquo;s SLA, so the rate is computed on early closers only and reads high.</span>`:'');
 }
 function slaDayChart(R){
   const m=slaAgg('day'); const dayIdx=slaDays();
