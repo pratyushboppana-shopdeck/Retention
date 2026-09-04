@@ -291,7 +291,11 @@ tasks AS (
        'catalogue','campaign','create_assets','data_flow_mismatch','personal_facebook_account',
        'hit_seller_shipping_issues','leadership_support_escalation','account_dashboard','seller_request_google'),1,0) is_block
   FROM nushop.workboard_tasks t LEFT JOIN nushop.users u ON t.assignee=u._id
-  WHERE DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 200 DAY)
+  -- UTC bounds first: they match PARTITION BY DATE(created_at) and prune. The IST
+  -- pair below is what actually defines the window; it cannot prune on its own.
+  WHERE DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 201 DAY)
+    AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+    AND DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 200 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
 ),
 open_t AS (
@@ -595,7 +599,14 @@ WITH base AS (
   FROM nushop.workboard_tasks t
   JOIN nushop.sellers s ON t.seller_id = s._id AND s.seller_account_status='hit' AND s.user_type='seller'
   LEFT JOIN nushop.users u ON t.assignee = u._id
-  WHERE DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
+  -- workboard_tasks is PARTITION BY DATE(created_at) with require_partition_filter.
+  -- The IST predicate below does NOT match that partition expression, so on its own
+  -- it scans every partition (~23 GB, which blew the daily quota). These two UTC
+  -- bounds match it exactly and prune; they are a day wider so the IST window is
+  -- always fully contained.
+  WHERE DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY)
+    AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+    AND DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
 ),
 labelled AS (
