@@ -156,12 +156,24 @@ blk AS (
        'account_permanently_restricted','page_unpublished')
     AND t.status != 'completed'
   GROUP BY 1),
+-- Ownership: seller_managers first, then the console summary, which carries a GC for
+-- 26 of the 27 sellers seller_managers has no GC for. Without the second source the
+-- daily post's biggest "owner" was an unowned bucket nobody would pick up.
 mgr AS (
-  SELECT s.seller_id,
-    MAX(IF(s.manager_type='growth_consultant', REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '), NULL)) gc,
-    MAX(IF(s.manager_type='growth_manager',    REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '), NULL)) gm
-  FROM nushop.seller_managers s LEFT JOIN nushop.users u ON s.manager_id = u._id
-  GROUP BY 1),
+  SELECT COALESCE(sm.seller_id, sc.seller_id) seller_id,
+    NULLIF(TRIM(COALESCE(NULLIF(TRIM(sm.gc),''), NULLIF(TRIM(sc.gc2),''))),'') gc,
+    NULLIF(TRIM(COALESCE(NULLIF(TRIM(sm.gm),''), NULLIF(TRIM(sc.gm2),''))),'') gm,
+    NULLIF(TRIM(sc.kam2),'') kam
+  FROM (
+    SELECT s.seller_id,
+      MAX(IF(s.manager_type='growth_consultant', REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '), NULL)) gc,
+      MAX(IF(s.manager_type='growth_manager',    REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '), NULL)) gm
+    FROM nushop.seller_managers s LEFT JOIN nushop.users u ON s.manager_id = u._id
+    GROUP BY 1) sm
+  FULL OUTER JOIN (
+    SELECT seller_id, MAX(gc_name) gc2, MAX(gm_name) gm2, MAX(kam_name) kam2
+    FROM `blitzscale-prod-project.analytics.seller_console_metrics_summary` GROUP BY 1) sc
+  USING(seller_id)),
 -- 14-day spending trend for THIS cohort, so a single day's rate is readable in context
 days AS (SELECT dt FROM UNNEST(GENERATE_DATE_ARRAY(
            DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 7 DAY),
@@ -189,9 +201,12 @@ SELECT
   DATE_DIFF(CURRENT_DATE('Asia/Kolkata'), g.gd, ISOWEEK) AS rel_week_now,
   g.seller_id,
   sel.display_name AS seller,
-  -- unassigned sellers are attributed to their GM so the row has an owner
-  COALESCE(m.gc, CONCAT('(GM) ', COALESCE(m.gm,'unowned'))) AS owner,
-  m.gc, m.gm,
+  -- ownership falls through GC -> GM -> KAM so every row lands on a desk
+  COALESCE(m.gc,
+           CONCAT('(GM) ', m.gm),
+           CONCAT('(KAM) ', m.kam),
+           'UNOWNED') AS owner,
+  m.gc, m.gm, m.kam,
   CAST(ROUND(COALESCE(sy.sp_yday,0)) AS INT64)      AS spend_yesterday,
   COALESCE(s7.days_spent_7d,0)                      AS days_spent_last_7,
   CAST(ROUND(COALESCE(ws.sp_this_wk,0)) AS INT64)   AS spend_this_week,
@@ -370,7 +385,7 @@ def fmt_daily(rows):
     top = owners.most_common(5)
     L.append("*Restarts by owner*  " + " · ".join(f"{o} {c}" for o, c in top) +
              (f"  _(+{len(owners)-5} more)_" if len(owners) > 5 else ""))
-    L.append(f"_Sellers with no GC are shown as (GM) <name>._")
+    L.append("_No GC on the seller falls through to (GM) then (KAM)._")
     return "\n".join(L), restart
 
 
@@ -442,7 +457,7 @@ def main():
     if mode == "daily" and restart:
         yday = today_ist() - timedelta(days=1)
         cols = ["action_bucket", "golive_week", "rel_week_now", "seller_id", "seller",
-                "owner", "gc", "gm", "spend_yesterday", "days_spent_last_7",
+                "owner", "gc", "gm", "kam", "spend_yesterday", "days_spent_last_7",
                 "spend_this_week", "spend_last_40d", "ts_done", "ts_actions_done",
                 "last_ts_action", "open_blocks", "block_types", "oldest_block_raised"]
         # the whole cohort, call-order first -- GCs filter it themselves
