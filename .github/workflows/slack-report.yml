@@ -1,0 +1,64 @@
+name: Slack retention reports
+
+on:
+  schedule:
+    # 04:00 UTC = 09:30 IST, every day -- the restart list.
+    # Anchored on yesterday, so it does not depend on today's FB spend having landed.
+    - cron: '0 4 * * *'
+    # 04:15 UTC Tuesday = 09:45 IST -- the W3 diagnostic, 15 min after the daily
+    # so the two arrive in order rather than racing.
+    - cron: '15 4 * * 2'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Which report to send'
+        required: true
+        default: daily
+        type: choice
+        options: [daily, weekly]
+      dry_run:
+        description: 'Print only, do not post to Slack'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Pick report mode
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # cron string decides: the Tuesday entry is the weekly one
+            if [ "${{ github.event.schedule }}" = "15 4 * * 2" ]; then
+              echo "mode=weekly" >> "$GITHUB_OUTPUT"
+            else
+              echo "mode=daily" >> "$GITHUB_OUTPUT"
+            fi
+            echo "dry=" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "dry=--dry-run" >> "$GITHUB_OUTPUT"
+            else
+              echo "dry=" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Send ${{ steps.pick.outputs.mode }} report
+        env:
+          METABASE_URL: https://metabase.kaip.in
+          METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        run: python .github/scripts/slack_report.py ${{ steps.pick.outputs.mode }} ${{ steps.pick.outputs.dry }}
