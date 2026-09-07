@@ -203,11 +203,12 @@ SELECT
   DATE_DIFF(CURRENT_DATE('Asia/Kolkata'), g.gd, ISOWEEK) AS rel_week_now,
   g.seller_id,
   sel.display_name AS seller,
-  -- ownership falls through GC -> GM -> KAM so every row lands on a desk
+  -- Ownership: GC, else GM. A seller with neither is not on the managed track --
+  -- that is a SELF SERVE account, not an unassigned one, so it is labelled rather
+  -- than falling through to the KAM (who owns the account, not its growth).
   COALESCE(m.gc,
            CONCAT('(GM) ', m.gm),
-           CONCAT('(KAM) ', m.kam),
-           'UNOWNED') AS owner,
+           'Self serve') AS owner,
   m.gc, m.gm, m.kam,
   CAST(ROUND(COALESCE(sy.sp_yday,0)) AS INT64)      AS spend_yesterday,
   COALESCE(s7.days_spent_7d,0)                      AS days_spent_last_7,
@@ -387,7 +388,7 @@ def fmt_daily(rows):
     top = owners.most_common(5)
     L.append("*Restarts by owner*  " + " · ".join(f"{o} {c}" for o, c in top) +
              (f"  _(+{len(owners)-5} more)_" if len(owners) > 5 else ""))
-    L.append("_No GC on the seller falls through to (GM) then (KAM)._")
+    L.append("_No GC falls through to (GM); no GC and no GM = Self serve._")
     return "\n".join(L), restart
 
 
