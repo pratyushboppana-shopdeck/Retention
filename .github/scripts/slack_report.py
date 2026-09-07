@@ -407,9 +407,15 @@ def fmt_weekly(rows):
     for r in rows:
         def g(k, s=""):
             return (r.get(k) or "-") + s
+        def r2(k):                      # keep the trailing zero so the column lines up
+            v = r.get(k)
+            try:
+                return f"{float(v):.2f}"
+            except (TypeError, ValueError):
+                return "  - "
         L.append(f"{r['golive_week'][-3:]}  {r['cohort_n']:>4}  {g('w3_ret'):>5}% "
                  f"{g('pct_0gmv_w0'):>6}% {g('pct_o2s_gt_3d'):>6}% {g('rto_rate'):>5}% "
-                 f"{g('pct_ad_block'):>5}%  {g('sgmv_w0')}→{g('sgmv_w2')}")
+                 f"{g('pct_ad_block'):>5}%  {r2('sgmv_w0')}→{r2('sgmv_w2')}")
     L.append("```")
     worst = max(rows, key=lambda r: float(r.get("pct_ad_block") or 0))
     if float(worst.get("pct_ad_block") or 0) > 15:
