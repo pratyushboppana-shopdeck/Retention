@@ -160,10 +160,12 @@ blk AS (
 -- 26 of the 27 sellers seller_managers has no GC for. Without the second source the
 -- daily post's biggest "owner" was an unowned bucket nobody would pick up.
 mgr AS (
+  -- seller_console_metrics_summary writes '-' (not NULL, not '') when a role is vacant,
+  -- so a plain NULLIF on empty string lets the placeholder through as a name.
   SELECT COALESCE(sm.seller_id, sc.seller_id) seller_id,
-    NULLIF(TRIM(COALESCE(NULLIF(TRIM(sm.gc),''), NULLIF(TRIM(sc.gc2),''))),'') gc,
-    NULLIF(TRIM(COALESCE(NULLIF(TRIM(sm.gm),''), NULLIF(TRIM(sc.gm2),''))),'') gm,
-    NULLIF(TRIM(sc.kam2),'') kam
+    COALESCE(NULLIF(NULLIF(TRIM(sm.gc),''),'-'), NULLIF(NULLIF(TRIM(sc.gc2),''),'-')) gc,
+    COALESCE(NULLIF(NULLIF(TRIM(sm.gm),''),'-'), NULLIF(NULLIF(TRIM(sc.gm2),''),'-')) gm,
+    NULLIF(NULLIF(TRIM(sc.kam2),''),'-') kam
   FROM (
     SELECT s.seller_id,
       MAX(IF(s.manager_type='growth_consultant', REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '), NULL)) gc,
