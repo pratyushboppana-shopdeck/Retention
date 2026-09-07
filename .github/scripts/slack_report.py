@@ -232,6 +232,56 @@ ORDER BY action_bucket, days_spent_last_7 DESC, spend_last_40d DESC
 """
 
 
+# Leading indicators per go-live week. The young cohorts have no W3 yet, but S/GMV,
+# zero-GMV, TS mix and block rate are all readable from week 0 -- and they track W3
+# well (W32: S/GMV 0.66 + blocked 21% -> W3 34.3%; W28: 0.55 + 6.7% -> 57.5%). Two
+# mature weeks are carried alongside as the benchmark to read the young ones against.
+DAILY_COHORT_SQL = r"""
+WITH golive AS (
+  SELECT seller_id, MIN(start_date) gd, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
+  FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT'
+  GROUP BY 1
+  HAVING MIN(start_date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 48 DAY)
+     AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE('Asia/Kolkata'),ISOWEEK)
+),
+sw AS (
+  SELECT g.seller_id, g.gw, g.gd,
+    SUM(IF(rw=0,ms,0)) sp0, SUM(IF(rw=3,ms,0)) sp3, SUM(IF(rw=0,gmvv,0)) gmv0
+  FROM (SELECT g.seller_id,g.gw,g.gd, DATE_DIFF(v.start_date,g.gd,ISOWEEK) rw,
+               COALESCE(v.marketing_spend,0) ms, COALESCE(v.true_gmv,0) gmvv
+        FROM golive g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id) g
+  GROUP BY 1,2,3),
+tsa AS (
+  SELECT g.seller_id,
+    MAX(IF(r.system_user_id='64d156455a26610014b266a9',1,0)) auto, MAX(1) any_ts
+  FROM golive g JOIN nushop.troubleshoot_workflow_report r ON r.seller_id=g.seller_id
+  WHERE DATE(r.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 55 DAY)
+    AND DATE(r.created_at,'Asia/Kolkata') >= g.gd
+  GROUP BY 1),
+blk AS (
+  SELECT DISTINCT g.seller_id
+  FROM golive g JOIN nushop.workboard_tasks t ON t.seller_id=g.seller_id
+  WHERE DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 55 DAY)
+    AND t.source='crm_initiated' AND t.created_by IS NOT NULL AND t.status!='completed'
+    AND t.sub_type IN ('ad_account_suspension','ad_account_blocked','business_manager_verification',
+       'ad_account_not_spending','business_manager_restricted','pixel_inactive','page_restricted',
+       'ad_account_hacked','business_manager_access','account_restricted','account_not_spending',
+       'account_permanently_restricted','page_unpublished'))
+SELECT sw.gw AS wk,
+  DATE_DIFF(CURRENT_DATE('Asia/Kolkata'), DATE_TRUNC(MIN(sw.gd),ISOWEEK), WEEK) wks,
+  COUNT(*) n,
+  IF(DATE_DIFF(CURRENT_DATE('Asia/Kolkata'), DATE_TRUNC(MIN(sw.gd),ISOWEEK), WEEK)>3,
+     ROUND(100*AVG(IF(sw.sp3>=3000,1,0)),1), NULL) w3_ret,
+  ROUND(APPROX_QUANTILES(SAFE_DIVIDE(sw.sp0,sw.gmv0),2)[OFFSET(1)],2) sgmv_w0,
+  ROUND(100*AVG(IF(sw.gmv0<=0,1,0)),1) pct_0gmv_w0,
+  ROUND(100*AVG(COALESCE(tsa.auto,0)),1) pct_ts_auto,
+  ROUND(100*AVG(IF(tsa.any_ts IS NULL,1,0)),1) pct_no_ts,
+  ROUND(100*AVG(IF(blk.seller_id IS NULL,0,1)),1) pct_blocked_now
+FROM sw LEFT JOIN tsa USING(seller_id) LEFT JOIN blk USING(seller_id)
+GROUP BY 1 ORDER BY 1
+"""
+
+
 WEEKLY_SQL = r"""
 WITH
 golive AS (
@@ -333,7 +383,7 @@ def spark(vals, lo=68.0, hi=80.0):
     return "".join(ch[min(7, max(0, int((v - lo) / span * 8)))] for v in vals)
 
 
-def fmt_daily(rows):
+def fmt_daily(rows, cohort=None):
     yday = today_ist() - timedelta(days=1)
     n = len(rows)
     if not n:
@@ -385,6 +435,36 @@ def fmt_daily(rows):
         t, s = wk[k]
         L.append(f"{k[-3:]}  {s:3d}/{t:3d}  {100*s/t:3.0f}%  {'█'*round(18*s/t)}")
     L.append("```")
+    if cohort:
+        mature = [c for c in cohort if c.get("w3_ret")]
+        young = [c for c in cohort if not c.get("w3_ret")]
+        L += ["", "*Leading indicators — where the young cohorts are heading*", "```",
+              "wk    n   S/GMV  0GMV  TSauto  noTS  blkd |    W3"]
+        for c in cohort[-6:]:
+            def p(k):
+                v = c.get(k)
+                return f"{float(v):.0f}%" if v not in (None, "", "-") else "   -"
+            sg = c.get("sgmv_w0")
+            sg = f"{float(sg):.2f}" if sg else "  - "
+            w3 = c.get("w3_ret")
+            w3 = f"{float(w3):.1f}%" if w3 else "   -"
+            L.append(f"{c['wk'][-3:]}  {c['n']:>4}   {sg}  {p('pct_0gmv_w0'):>4} "
+                     f"{p('pct_ts_auto'):>6} {p('pct_no_ts'):>5} {p('pct_blocked_now'):>5} | {w3:>6}")
+        L.append("```")
+        # benchmark the young weeks against what the mature ones actually delivered
+        if mature and young:
+            base = sorted(float(m["sgmv_w0"]) for m in mature if m.get("sgmv_w0"))
+            med = base[len(base)//2] if base else None
+            worst = max(young, key=lambda c: float(c.get("sgmv_w0") or 0))
+            if med and float(worst.get("sgmv_w0") or 0) > med:
+                ref = min(mature, key=lambda m: float(m.get("w3_ret") or 99))
+                L.append(f"⚠ *{worst['wk'][-3:]}* S/GMV {float(worst['sgmv_w0']):.2f} is above the "
+                         f"mature median {med:.2f} — {ref['wk'][-3:]} ran "
+                         f"{float(ref['sgmv_w0']):.2f} and landed at {ref['w3_ret']}% W3.")
+            noTS = max(young, key=lambda c: float(c.get("pct_no_ts") or 0))
+            if float(noTS.get("pct_no_ts") or 0) >= 15:
+                L.append(f"⚠ *{noTS['wk'][-3:]}* has {float(noTS['pct_no_ts']):.0f}% with no TS run yet.")
+
     top = owners.most_common(5)
     L.append("*Restarts by owner*  " + " · ".join(f"{o} {c}" for o, c in top) +
              (f"  _(+{len(owners)-5} more)_" if len(owners) > 5 else ""))
@@ -450,7 +530,8 @@ def main():
     session = login()
     if mode == "daily":
         rows = rows_of(run_csv(session, DAILY_SQL))
-        text, restart = fmt_daily(rows)
+        cohort = rows_of(run_csv(session, DAILY_COHORT_SQL))
+        text, restart = fmt_daily(rows, cohort)
     else:
         rows = rows_of(run_csv(session, WEEKLY_SQL))
         text, restart = fmt_weekly(rows), None
