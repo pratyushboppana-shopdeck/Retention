@@ -1,13 +1,18 @@
 name: Slack retention reports
 
+# GitHub's scheduled dispatch is best-effort and has been running 4-5h late on this
+# repo (12h once, on 2026-08-28), so a single cron cannot hit 09:30 IST. Instead we
+# offer the job MANY times a day and let the first eligible one win:
+#   * every hour from 03:00 to 10:00 UTC
+#   * a run before the target time exits without posting, so it is never early
+#   * a date-keyed cache marks the day done, so exactly one posts
+# Net effect: the report lands at 09:30 IST when GitHub is on time, and as soon
+# after as it dispatches anything when it is not. It can be late; never early,
+# never twice.
 on:
   schedule:
-    # 04:00 UTC = 09:30 IST, every day -- the restart list.
-    # Anchored on yesterday, so it does not depend on today's FB spend having landed.
-    - cron: '0 4 * * *'
-    # 04:15 UTC Tuesday = 09:45 IST -- the W3 diagnostic, 15 min after the daily
-    # so the two arrive in order rather than racing.
-    - cron: '15 4 * * 2'
+    - cron: '0 3-10 * * *'      # daily   — target 04:00 UTC / 09:30 IST
+    - cron: '15 3-10 * * 2'     # Tuesday — target 04:15 UTC / 09:45 IST
   workflow_dispatch:
     inputs:
       mode:
@@ -17,13 +22,23 @@ on:
         type: choice
         options: [daily, weekly]
       dry_run:
-        description: 'Print only, do not post to Slack'
+        description: 'Print only, do not post'
         required: false
         default: false
+        type: boolean
+      force:
+        description: 'Post even if today is already marked done'
+        required: false
+        default: true
         type: boolean
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: slack-report-${{ github.event.schedule || 'manual' }}
+  cancel-in-progress: false
 
 jobs:
   report:
@@ -34,31 +49,65 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Pick report mode
-        id: pick
+      - name: Decide mode, target time and whether to run
+        id: plan
         run: |
+          NOW_MIN=$(( 10#$(date -u +%H) * 60 + 10#$(date -u +%M) ))
+          IST_DATE=$(TZ=Asia/Kolkata date +%Y-%m-%d)
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            # cron string decides: the Tuesday entry is the weekly one
-            if [ "${{ github.event.schedule }}" = "15 4 * * 2" ]; then
-              echo "mode=weekly" >> "$GITHUB_OUTPUT"
+            case "${{ github.event.schedule }}" in
+              '15 3-10 * * 2') MODE=weekly; TARGET=255 ;;   # 04:15 UTC
+              *)               MODE=daily;  TARGET=240 ;;   # 04:00 UTC
+            esac
+            DRY=""; FORCE=false
+            if [ "$NOW_MIN" -lt "$TARGET" ]; then
+              echo "too early: ${NOW_MIN}min UTC < target ${TARGET}min — skipping"
+              echo "run=false" >> "$GITHUB_OUTPUT"
             else
-              echo "mode=daily" >> "$GITHUB_OUTPUT"
+              echo "run=true" >> "$GITHUB_OUTPUT"
             fi
-            echo "dry=" >> "$GITHUB_OUTPUT"
           else
-            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
-            if [ "${{ inputs.dry_run }}" = "true" ]; then
-              echo "dry=--dry-run" >> "$GITHUB_OUTPUT"
-            else
-              echo "dry=" >> "$GITHUB_OUTPUT"
-            fi
+            MODE="${{ inputs.mode }}"; FORCE="${{ inputs.force }}"
+            DRY=""; [ "${{ inputs.dry_run }}" = "true" ] && DRY="--dry-run"
+            echo "run=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "mode=$MODE"     >> "$GITHUB_OUTPUT"
+          echo "dry=$DRY"       >> "$GITHUB_OUTPUT"
+          echo "force=$FORCE"   >> "$GITHUB_OUTPUT"
+          echo "key=slack-$MODE-$IST_DATE" >> "$GITHUB_OUTPUT"
+          echo "Mode=$MODE  IST date=$IST_DATE  now=${NOW_MIN}min UTC"
 
-      - name: Send ${{ steps.pick.outputs.mode }} report
+      # A cache hit means this mode already posted today, so this occurrence stands down.
+      - name: Has today's report already gone out?
+        id: guard
+        if: steps.plan.outputs.run == 'true' && steps.plan.outputs.dry == ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .sent
+          key: ${{ steps.plan.outputs.key }}
+
+      - name: Send ${{ steps.plan.outputs.mode }} report
+        id: send
+        if: >-
+          steps.plan.outputs.run == 'true' &&
+          (steps.guard.outputs.cache-hit != 'true' ||
+           steps.plan.outputs.force == 'true' ||
+           steps.plan.outputs.dry != '')
         env:
           METABASE_URL: https://metabase.kaip.in
           METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
           METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
-        run: python .github/scripts/slack_report.py ${{ steps.pick.outputs.mode }} ${{ steps.pick.outputs.dry }}
+        run: python .github/scripts/slack_report.py ${{ steps.plan.outputs.mode }} ${{ steps.plan.outputs.dry }}
+
+      # Only mark the day done once the post actually succeeded.
+      - name: Mark today as sent
+        if: steps.send.outcome == 'success' && steps.plan.outputs.dry == '' && steps.guard.outputs.cache-hit != 'true'
+        run: date -u +%FT%TZ > .sent
+
+      - uses: actions/cache/save@v4
+        if: steps.send.outcome == 'success' && steps.plan.outputs.dry == '' && steps.guard.outputs.cache-hit != 'true'
+        with:
+          path: .sent
+          key: ${{ steps.plan.outputs.key }}
