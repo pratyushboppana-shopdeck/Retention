@@ -932,14 +932,33 @@ function buildReasonTrend(rows,diag){
   });
   // ---- actual underlying metrics (different units to the % rows above) ----
   if(WEEKACT){
+    // Two groups, kept apart on purpose. The first three move W3 within a seller-size
+    // band. D0/D1 does not: controlled for size it flattens and even inverts for mid and
+    // large sellers, so it sits below its own header as a fulfilment metric rather than
+    // beside things that actually drive retention.
     const ACT=[
-      {label:'RTO rate — actual (W0–W3, median seller)', color:'#1D9E75', key:'rto',
+      {g:'input', label:'RTO rate — actual (W0–W3, median seller)', color:'#1D9E75', key:'rto',
        fmt:v=>v==null?'':Math.round(v), title:'RTOs ÷ orders, W0–W3. Median seller of that go-live week. NOT a % of go-lives.'},
-      {label:'Spend / GMV — actual (W0–W2, median seller)', color:'#185FA5', key:'sgmv',
-       fmt:v=>v==null?'':v.toFixed(2), title:'FB spend ÷ GMV over W0–W2. Median seller of that go-live week. Lower is better. NOT a % of go-lives.'}
+      {g:'input', label:'Spend / GMV — actual (W0–W2, median seller)', color:'#185FA5', key:'sgmv',
+       fmt:v=>v==null?'':v.toFixed(2), title:'FB spend ÷ GMV over W0–W2. Median seller of that go-live week. Lower is better. NOT a % of go-lives.'},
+      {g:'input', label:'Label lag — order → AWB, days (median seller)', color:'#7A4E9E', key:'lag',
+       fmt:v=>v==null?'':v.toFixed(2),
+       title:'Days from the order being placed to the seller generating the AWB, W0–W2. The seller\u2019s own leg of order-to-ship, and the part that tracks W3: inside one size band, sellers at ~0.04d retain 54% and those at ~2.4d retain 36%. Lower is better.'},
+      {g:'ops',   label:'D0 pickup % (median seller)', color:'#B87514', key:'d0',
+       fmt:v=>v==null?'':Math.round(v),
+       title:'Share of W0–W2 shipments the courier collected the same day the AWB was generated. Courier performance, not a W3 driver.'},
+      {g:'ops',   label:'D0+D1 pickup % (median seller)', color:'#B87514', key:'d0d1',
+       fmt:v=>v==null?'':Math.round(v),
+       title:'Collected on the AWB date or the next day. Correlates with W3 raw, but the correlation is seller size: controlled for size it flattens, and mid and large sellers with POOR pickup retain about as well as those with good pickup. Read it as a courier scorecard.'},
+      {g:'ops',   label:'Never picked up % (median seller)', color:'#C0392B', key:'unpicked',
+       fmt:v=>v==null?'':Math.round(v),
+       title:'W0–W2 shipments with no pickup recorded at all, excluding cancellations. Pickup pendency.'}
     ];
-    h+='<tr class="actsep"><td class="rn">Actual metric (not % of go-lives)</td>'+weeks.map(()=>'<td></td>').join('')+'</tr>';
+    h+='<tr class="actsep"><td class="rn">W3 input metric (actual value, not % of go-lives)</td>'+weeks.map(()=>'<td></td>').join('')+'</tr>';
+    let grp='input';
     ACT.forEach(A=>{
+      if(A.g!==grp){ grp=A.g;
+        h+='<tr class="actsep"><td class="rn">Fulfilment &mdash; courier leg, not a W3 driver</td>'+weeks.map(()=>'<td></td>').join('')+'</tr>'; }
       const vals=weeks.map(w=>(WEEKACT[w]?WEEKACT[w][A.key]:null));
       const fin=vals.filter(v=>v!=null); const mn=Math.min(...fin), mx=Math.max(...fin);
       h+='<tr title="'+esc(A.title)+'"><td class="rn"><span class="defdot" style="background:'+A.color+'"></span>'+esc(A.label)+'</td>'+
@@ -953,7 +972,9 @@ function buildReasonTrend(rows,diag){
   }
   h+='</tbody>'; M.innerHTML=h;
   document.getElementById('reasonFoot').innerHTML='Mature cohorts only (W3 elapsed). Each reason row = % of that ISO week’s go-lives; heat-shaded within the row. '+
-    '<b>The last two rows are the ACTUAL underlying metrics</b> (median seller), not shares — RTO in %, Spend/GMV as a ratio. '+
+    '<b>The rows below the divider are ACTUAL values</b> (median seller), not shares. '+
+    '<b>Label lag</b> is the seller\u2019s own leg of order-to-ship and is the fulfilment number that tracks W3 — of a ~3.5-day gap in order-to-ship, ~3.0 days is the seller not generating the label and only ~0.4 is the courier. '+
+    '<b>D0/D1 pickup</b> is shown for operations, not as a driver: it correlates with W3 raw, but that correlation is seller size, and controlled for size it flattens and inverts. '+
     'Read them against the reason rows: RTO is flat and does not separate retained from dropped, so that reason row is largely a residual of the median split; Spend/GMV genuinely improved and tracks the retention rise.';
   card.style.display='block';
 }

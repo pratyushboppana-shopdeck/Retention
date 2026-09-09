@@ -544,6 +544,31 @@ o AS (
   WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-01'
     AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid') AND oi.awb_no!='None' AND oi.in_house_status!='awb_expired'
     AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'),g.gd,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1),
+-- Fulfilment legs over W0-W2 shipments, from card 12211's definitions.
+--   LABEL LAG  = order placed -> AWB generated. The seller's own leg, and the one that
+--                tracks W3: within a size band, sellers at ~0.04d retain 54.3% and those
+--                at ~2.4d retain 36.4%.
+--   D0 / D1    = AWB generated -> picked up. The COURIER's leg. Included as a fulfilment
+--                metric only -- it does NOT survive a control for seller size (it even
+--                inverts for mid and large sellers), so it is not a W3 driver.
+-- tpl_master_data is partitioned on DATE(created_at) and carries seller_id, so this
+-- rides along with the orderitems scan already being paid for above.
+ship AS (
+  SELECT g.seller_id,
+    COUNT(DISTINCT t.awb_no) awbs,
+    COUNT(DISTINCT IF(DATE(t.pickup_date)<=DATE(t.created_at),   t.awb_no, NULL)) d0,
+    COUNT(DISTINCT IF(DATE(t.pickup_date)<=DATE(t.created_at)+1, t.awb_no, NULL)) d0d1,
+    COUNT(DISTINCT IF(t.pickup_date IS NULL, t.awb_no, NULL)) unpicked,
+    AVG(DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'), DATE(oi.createdat,'Asia/Kolkata'), DAY)) label_lag
+  FROM golive g
+  JOIN nushop.orderitems oi ON oi.seller_id=g.seller_id
+  JOIN nushop.tpl_master_data t ON t.awb_no=oi.awb_no
+  WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-01'
+    AND DATE(t.created_at)>=DATE '2025-10-01'
+    AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid','cancelled','cancel_initiated')
+    AND oi.awb_no!='None' AND COALESCE(t.clickpost_unified_status,'')!='Cancelled'
+    AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'),g.gd,ISOWEEK) BETWEEN 0 AND 2
+  GROUP BY 1),
 f AS (
   SELECT g.seller_id, SUM(fb.spend) fb02
   FROM golive g JOIN fb_marketings.fb_marketing_insights fb ON fb.seller_id=g.seller_id
@@ -551,14 +576,27 @@ f AS (
     AND DATE_DIFF(DATE(fb.spend_date,'Asia/Kolkata'),g.gd,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1),
 s AS (
   SELECT sw.gw, sw.seller_id, SAFE_DIVIDE(sw.rto03,sw.ord03) rto_rate, sw.rto03, sw.ord03,
-    SAFE_DIVIDE(f.fb02,o.gmv02) sgmv, f.fb02, o.gmv02
-  FROM sw LEFT JOIN o USING(seller_id) LEFT JOIN f USING(seller_id))
+    SAFE_DIVIDE(f.fb02,o.gmv02) sgmv, f.fb02, o.gmv02,
+    ship.label_lag,
+    SAFE_DIVIDE(ship.d0,   ship.awbs) d0_rate,
+    SAFE_DIVIDE(ship.d0d1, ship.awbs) d0d1_rate,
+    SAFE_DIVIDE(ship.unpicked, ship.awbs) unpicked_rate,
+    ship.awbs
+  FROM sw LEFT JOIN o USING(seller_id) LEFT JOIN f USING(seller_id)
+          LEFT JOIN ship USING(seller_id))
 SELECT gw AS year_week,
   COUNT(*) n,
   ROUND(100*APPROX_QUANTILES(rto_rate,2)[OFFSET(1)],1) rto_median,
   ROUND(100*SAFE_DIVIDE(SUM(rto03),SUM(ord03)),1) rto_agg,
   ROUND(APPROX_QUANTILES(sgmv,2)[OFFSET(1)],3) sgmv_median,
-  ROUND(SAFE_DIVIDE(SUM(fb02),SUM(gmv02)),3) sgmv_agg
+  ROUND(SAFE_DIVIDE(SUM(fb02),SUM(gmv02)),3) sgmv_agg,
+  ROUND(APPROX_QUANTILES(label_lag,2)[OFFSET(1)],2) label_lag_median,
+  ROUND(SAFE_DIVIDE(SUM(label_lag*awbs),SUM(awbs)),2) label_lag_agg,
+  ROUND(100*APPROX_QUANTILES(d0_rate,2)[OFFSET(1)],1)   d0_median,
+  ROUND(100*APPROX_QUANTILES(d0d1_rate,2)[OFFSET(1)],1) d0d1_median,
+  ROUND(100*SAFE_DIVIDE(SUM(d0d1_rate*awbs),SUM(awbs)),1) d0d1_agg,
+  ROUND(100*APPROX_QUANTILES(unpicked_rate,2)[OFFSET(1)],1) unpicked_median,
+  CAST(SUM(awbs) AS INT64) awbs
 FROM s GROUP BY gw ORDER BY gw
 """
 
@@ -579,7 +617,11 @@ def parse_weekact(csv_text):
         if n < 5:              # skip trivially small weeks
             continue
         out[r["year_week"]] = {"rto": f("rto_median"), "rtoAgg": f("rto_agg"),
-                               "sgmv": f("sgmv_median"), "sgmvAgg": f("sgmv_agg"), "n": n}
+                               "sgmv": f("sgmv_median"), "sgmvAgg": f("sgmv_agg"),
+                               "lag": f("label_lag_median"), "lagAgg": f("label_lag_agg"),
+                               "d0": f("d0_median"), "d0d1": f("d0d1_median"),
+                               "d0d1Agg": f("d0d1_agg"), "unpicked": f("unpicked_median"),
+                               "awbs": f("awbs"), "n": n}
     return out
 
 

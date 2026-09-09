@@ -258,6 +258,23 @@ tsa AS (
   WHERE DATE(r.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 55 DAY)
     AND DATE(r.created_at,'Asia/Kolkata') >= g.gd
   GROUP BY 1),
+-- Fulfilment legs over W0-W2 shipments. label_lag is the seller's own leg (order ->
+-- AWB) and is the one that tracks W3; D0+D1 is the courier's leg, carried for ops
+-- visibility rather than as a retention driver.
+ship AS (
+  SELECT g.seller_id,
+    COUNT(DISTINCT t.awb_no) awbs,
+    COUNT(DISTINCT IF(DATE(t.pickup_date)<=DATE(t.created_at)+1, t.awb_no, NULL)) d0d1,
+    AVG(DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'), DATE(oi.createdat,'Asia/Kolkata'), DAY)) label_lag
+  FROM golive g
+  JOIN nushop.orderitems oi ON oi.seller_id=g.seller_id
+  JOIN nushop.tpl_master_data t ON t.awb_no=oi.awb_no
+  WHERE DATE(oi.createdat,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
+    AND DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
+    AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid','cancelled','cancel_initiated')
+    AND oi.awb_no!='None' AND COALESCE(t.clickpost_unified_status,'')!='Cancelled'
+    AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'), g.gd, ISOWEEK) BETWEEN 0 AND 2
+  GROUP BY 1),
 blk AS (
   SELECT DISTINCT g.seller_id
   FROM golive g JOIN nushop.workboard_tasks t ON t.seller_id=g.seller_id
@@ -276,8 +293,11 @@ SELECT sw.gw AS wk,
   ROUND(100*AVG(IF(sw.gmv0<=0,1,0)),1) pct_0gmv_w0,
   ROUND(100*AVG(COALESCE(tsa.auto,0)),1) pct_ts_auto,
   ROUND(100*AVG(IF(tsa.any_ts IS NULL,1,0)),1) pct_no_ts,
-  ROUND(100*AVG(IF(blk.seller_id IS NULL,0,1)),1) pct_blocked_now
+  ROUND(100*AVG(IF(blk.seller_id IS NULL,0,1)),1) pct_blocked_now,
+  ROUND(APPROX_QUANTILES(ship.label_lag,2)[OFFSET(1)],2) label_lag,
+  ROUND(100*APPROX_QUANTILES(SAFE_DIVIDE(ship.d0d1,ship.awbs),2)[OFFSET(1)],0) d0d1
 FROM sw LEFT JOIN tsa USING(seller_id) LEFT JOIN blk USING(seller_id)
+        LEFT JOIN ship USING(seller_id)
 GROUP BY 1 ORDER BY 1
 """
 
@@ -439,7 +459,7 @@ def fmt_daily(rows, cohort=None):
         mature = [c for c in cohort if c.get("w3_ret")]
         young = [c for c in cohort if not c.get("w3_ret")]
         L += ["", "*Leading indicators — where the young cohorts are heading*", "```",
-              "wk    n   S/GMV  0GMV  TSauto  noTS  blkd |    W3"]
+              "wk    n   S/GMV  0GMV  TSauto  noTS  blkd  lag  D0D1 |    W3"]
         for c in cohort[-6:]:
             def p(k):
                 v = c.get(k)
@@ -448,8 +468,11 @@ def fmt_daily(rows, cohort=None):
             sg = f"{float(sg):.2f}" if sg else "  - "
             w3 = c.get("w3_ret")
             w3 = f"{float(w3):.1f}%" if w3 else "   -"
+            lag = c.get("label_lag")
+            lag = f"{float(lag):.1f}d" if lag not in (None, "", "-") else "  - "
             L.append(f"{c['wk'][-3:]}  {c['n']:>4}   {sg}  {p('pct_0gmv_w0'):>4} "
-                     f"{p('pct_ts_auto'):>6} {p('pct_no_ts'):>5} {p('pct_blocked_now'):>5} | {w3:>6}")
+                     f"{p('pct_ts_auto'):>6} {p('pct_no_ts'):>5} {p('pct_blocked_now'):>5} "
+                     f"{lag:>4} {p('d0d1'):>5} | {w3:>6}")
         L.append("```")
         # benchmark the young weeks against what the mature ones actually delivered
         if mature and young:
@@ -464,6 +487,15 @@ def fmt_daily(rows, cohort=None):
             noTS = max(young, key=lambda c: float(c.get("pct_no_ts") or 0))
             if float(noTS.get("pct_no_ts") or 0) >= 15:
                 L.append(f"⚠ *{noTS['wk'][-3:]}* has {float(noTS['pct_no_ts']):.0f}% with no TS run yet.")
+            # label lag is the fulfilment leg that actually tracks W3
+            lags = [float(m["label_lag"]) for m in mature if m.get("label_lag")]
+            if lags:
+                med = sorted(lags)[len(lags)//2]
+                wl = max((c for c in young if c.get("label_lag")),
+                         key=lambda c: float(c["label_lag"]), default=None)
+                if wl and float(wl["label_lag"]) > med + 0.3:
+                    L.append(f"⚠ *{wl['wk'][-3:]}* label lag {float(wl['label_lag']):.1f}d vs "
+                             f"{med:.1f}d on matured weeks — the seller-side leg of order-to-ship.")
 
     top = owners.most_common(5)
     L.append("*Restarts by owner*  " + " · ".join(f"{o} {c}" for o, c in top) +
