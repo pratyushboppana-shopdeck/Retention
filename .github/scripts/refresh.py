@@ -532,6 +532,7 @@ WITH golive AS (
   SELECT seller_id, MIN(start_date) gd, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
   FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1
   HAVING MIN(start_date) >= DATE '2025-11-01'),
+gdate AS (SELECT gw, MIN(gd) gd FROM golive GROUP BY 1),
 sw AS (
   SELECT g.seller_id, g.gw,
     SUM(IF(DATE_DIFF(v.start_date,g.gd,ISOWEEK) BETWEEN 0 AND 3, v.rtos,0)) rto03,
@@ -582,20 +583,22 @@ s AS (
     SAFE_DIVIDE(ship.d0d1, ship.awbs) d0d1_rate,
     SAFE_DIVIDE(ship.unpicked, ship.awbs) unpicked_rate,
     ship.awbs
+    gdate.gd
   FROM sw LEFT JOIN o USING(seller_id) LEFT JOIN f USING(seller_id)
-          LEFT JOIN ship USING(seller_id))
+          LEFT JOIN ship USING(seller_id) LEFT JOIN gdate ON gdate.gw = sw.gw)
 SELECT gw AS year_week,
   COUNT(*) n,
+  DATE_DIFF(CURRENT_DATE(), DATE_TRUNC(MIN(gd),ISOWEEK), WEEK) weeks_elapsed,
   ROUND(100*APPROX_QUANTILES(rto_rate,2)[OFFSET(1)],1) rto_median,
   ROUND(100*SAFE_DIVIDE(SUM(rto03),SUM(ord03)),1) rto_agg,
   ROUND(APPROX_QUANTILES(sgmv,2)[OFFSET(1)],3) sgmv_median,
   ROUND(SAFE_DIVIDE(SUM(fb02),SUM(gmv02)),3) sgmv_agg,
-  ROUND(APPROX_QUANTILES(label_lag,2)[OFFSET(1)],2) label_lag_median,
-  ROUND(SAFE_DIVIDE(SUM(label_lag*awbs),SUM(awbs)),2) label_lag_agg,
-  ROUND(100*APPROX_QUANTILES(d0_rate,2)[OFFSET(1)],1)   d0_median,
-  ROUND(100*APPROX_QUANTILES(d0d1_rate,2)[OFFSET(1)],1) d0d1_median,
-  ROUND(100*SAFE_DIVIDE(SUM(d0d1_rate*awbs),SUM(awbs)),1) d0d1_agg,
-  ROUND(100*APPROX_QUANTILES(unpicked_rate,2)[OFFSET(1)],1) unpicked_median,
+  IF(DATE_DIFF(CURRENT_DATE(), DATE_TRUNC(MIN(gd),ISOWEEK), WEEK)>3, ROUND(APPROX_QUANTILES(label_lag,2)[OFFSET(1)],2), NULL) label_lag_median,
+  IF(DATE_DIFF(CURRENT_DATE(), DATE_TRUNC(MIN(gd),ISOWEEK), WEEK)>3, ROUND(SAFE_DIVIDE(SUM(label_lag*awbs),SUM(awbs)),2), NULL) label_lag_agg,
+  IF(DATE_DIFF(CURRENT_DATE(), DATE_TRUNC(MIN(gd),ISOWEEK), WEEK)>3, ROUND(100*APPROX_QUANTILES(d0_rate,2)[OFFSET(1)],1), NULL) d0_median,
+  IF(DATE_DIFF(CURRENT_DATE(), DATE_TRUNC(MIN(gd),ISOWEEK), WEEK)>3, ROUND(100*APPROX_QUANTILES(d0d1_rate,2)[OFFSET(1)],1), NULL) d0d1_median,
+  IF(DATE_DIFF(CURRENT_DATE(), DATE_TRUNC(MIN(gd),ISOWEEK), WEEK)>3, ROUND(100*SAFE_DIVIDE(SUM(d0d1_rate*awbs),SUM(awbs)),1), NULL) d0d1_agg,
+  IF(DATE_DIFF(CURRENT_DATE(), DATE_TRUNC(MIN(gd),ISOWEEK), WEEK)>3, ROUND(100*APPROX_QUANTILES(unpicked_rate,2)[OFFSET(1)],1), NULL) unpicked_median,
   CAST(SUM(awbs) AS INT64) awbs
 FROM s GROUP BY gw ORDER BY gw
 """
