@@ -684,15 +684,24 @@ ed AS (
   SELECT sid, duration,
     NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.accuracy_of_answers') AS FLOAT64),-1) acc,
     NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) sat,
-    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) ton
+    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) ton,
+    (NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.accuracy_of_answers') AS FLOAT64),-1) IS NOT NULL
+     AND NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) IS NOT NULL
+     AND NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) IS NOT NULL) q_ok
   FROM nushop.exotel_call_details
   WHERE created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY))),
 callm AS (
+  -- A call counts as SCORED only when all three components are present. They are not
+  -- scored together: over 30 days tonality lands on 68,626 calls but accuracy on
+  -- 43,270, so counting on one and summing the others reported tonality at 111 on a
+  -- 0-100 scale. One population keeps the three comparable and the composite honest.
   SELECT cls.id,
     COUNT(ec.exotel_call_sid) n_calls,
     COUNTIF(ed.duration>0) n_conn,
-    COUNTIF(ed.acc IS NOT NULL) n_scored,
-    SUM(ed.acc) acc_sum, SUM(ed.sat) sat_sum, SUM(ed.ton) ton_sum
+    COUNTIF(ed.q_ok) n_scored,
+    SUM(IF(ed.q_ok, ed.acc, NULL)) acc_sum,
+    SUM(IF(ed.q_ok, ed.sat, NULL)) sat_sum,
+    SUM(IF(ed.q_ok, ed.ton, NULL)) ton_sum
   FROM cls LEFT JOIN ec ON ec.entity_id=cls.id LEFT JOIN ed ON ed.sid=ec.exotel_call_sid
   GROUP BY 1),
 -- GM inferred from whichever GM most of a GC's sellers sit under. Card 12101 wins
