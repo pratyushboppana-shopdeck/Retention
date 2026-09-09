@@ -676,10 +676,14 @@ cls AS (
 -- Call activity and quality per task. call_quality_score writes -1 when a call was
 -- not scored, so NULLIF is essential -- averaging the sentinel drags TS SOP accuracy
 -- from 66.7 down to 39.1. Roughly 30% of connected calls carry a real score.
+-- Exotel is the expensive half of this query and pushed the daily refresh over the
+-- BigQuery quota at 91 days. Quality needs ~28 days to be readable per GC (median 77
+-- scored calls) and no more, so calls are scanned over 35 days while SLA keeps 90.
+-- A window selection older than 35 days shows SLA without quality; the tab says so.
 ec AS (
   SELECT entity_id, exotel_call_sid FROM nushop.exotel_calls
   WHERE entity='workboard'
-    AND created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY))),
+    AND created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 35 DAY))),
 ed AS (
   SELECT sid, duration,
     NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.accuracy_of_answers') AS FLOAT64),-1) acc,
@@ -689,7 +693,7 @@ ed AS (
      AND NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) IS NOT NULL
      AND NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) IS NOT NULL) q_ok
   FROM nushop.exotel_call_details
-  WHERE created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY))),
+  WHERE created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 35 DAY))),
 callm AS (
   -- A call counts as SCORED only when all three components are present. They are not
   -- scored together: over 30 days tonality lands on 68,626 calls but accuracy on
