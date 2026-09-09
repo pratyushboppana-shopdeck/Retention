@@ -582,7 +582,7 @@ s AS (
     SAFE_DIVIDE(ship.d0,   ship.awbs) d0_rate,
     SAFE_DIVIDE(ship.d0d1, ship.awbs) d0d1_rate,
     SAFE_DIVIDE(ship.unpicked, ship.awbs) unpicked_rate,
-    ship.awbs
+    ship.awbs,
     gdate.gd
   FROM sw LEFT JOIN o USING(seller_id) LEFT JOIN f USING(seller_id)
           LEFT JOIN ship USING(seller_id) LEFT JOIN gdate ON gdate.gw = sw.gw)
