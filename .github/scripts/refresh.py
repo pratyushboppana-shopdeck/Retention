@@ -648,7 +648,7 @@ scored AS (
   --   everything else        -> creation + its own sla_in_min
   -- completion_date is never EARLIER than creation + sla_in_min anywhere in this data,
   -- so this can only ever relax a bar, never tighten one.
-  SELECT role, cd, task, nm, em, task_status, created_at, completed_at,
+  SELECT id, seller_id, role, cd, task, nm, em, task_status, created_at, completed_at,
     CASE
       WHEN task = 'TS SOP Call'
         THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)
