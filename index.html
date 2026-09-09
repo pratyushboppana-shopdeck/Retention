@@ -179,8 +179,14 @@
   .slaseg button.on{background:#23251f;color:#fff;font-weight:650;}
 
   /* ---- GC performance console (GC task SLA tab) ---- */
-  #gcCard .gcbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
-  #gcCard .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:9px;margin:4px 0 14px;}
+  /* One rhythm down the control stack: every row 10px apart, then a clear 18px break
+     before the KPI strip. Previously each row carried its own margin (12/10/10/4) and
+     the gaps read as uneven. */
+  #gcCard .gcbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px;}
+  #gcCard .slaChips{margin:0 0 10px;}
+  #gcCard .slaChips:empty{display:none;margin:0;}
+  #gcCard .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:9px;margin:18px 0 14px;}
+  #gcCard .drill-h{margin-bottom:14px;}
   #gcCard .kpi{background:#fbfaf5;border:1px solid var(--line);border-radius:9px;padding:9px 12px;}
   #gcCard .kpi .k{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
   #gcCard .kpi .v{font-size:22px;font-weight:750;color:#23251f;line-height:1.2;}
@@ -193,6 +199,23 @@
     border-bottom:1px solid var(--line);background:#f3f2ea;}
   .gcph b{font-size:12.5px;} .gcph span{font-size:11px;color:var(--muted);}
   .gcroster{max-height:520px;overflow-y:auto;}
+  /* Expanded: the roster takes the full width, drops its scroll cap so every GC is in
+     one screenshot, and shows adherence per task type instead of a single bar. */
+  .gcsplit.expanded{grid-template-columns:1fr;}
+  .gcsplit.expanded #gcReportPanel{display:none;}
+  .gcsplit.expanded .gcroster{max-height:none;overflow:visible;}
+  table.gcwide{width:100%;border-collapse:collapse;font-size:11.5px;}
+  table.gcwide th{position:sticky;top:0;z-index:2;background:#f3f2ea;color:#3d4036;font-weight:700;
+    text-align:right;padding:6px 7px;border-bottom:1px solid var(--line);font-size:10px;
+    letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;}
+  table.gcwide th:nth-child(-n+3),table.gcwide td:nth-child(-n+3){text-align:left;}
+  table.gcwide td{padding:5px 7px;border-bottom:1px solid #efeee7;text-align:right;white-space:nowrap;}
+  table.gcwide tbody tr:hover{background:#faf9f4;cursor:pointer;}
+  table.gcwide .nmw{font-weight:600;color:#23251f;}
+  table.gcwide .gmw{color:var(--muted);font-size:10.5px;}
+  .gcexp{border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11px;
+    padding:3px 9px;cursor:pointer;color:#3d4036;}
+  .gcexp.on{background:#23251f;color:#fff;border-color:#23251f;font-weight:650;}
   .gcrow{display:grid;grid-template-columns:22px 1fr auto;gap:9px;align-items:center;
     padding:8px 12px 8px 0;border-bottom:1px solid #efeee7;cursor:pointer;position:relative;}
   .gcrow:last-child{border-bottom:0;} .gcrow:hover{background:#faf9f4;}
@@ -472,12 +495,16 @@
 
   <div id="gcConsole">
     <div class="kpis" id="gcKpis"></div>
-    <div class="gcsplit">
+    <div class="gcsplit" id="gcSplit">
       <div class="gcpanel">
-        <div class="gcph"><b id="gcRosterTitle">All GCs</b><span>click a row &rarr;</span></div>
+        <div class="gcph"><b id="gcRosterTitle">All GCs</b>
+          <span style="display:flex;gap:8px;align-items:center">
+            <span id="gcRosterHint">click a row &rarr;</span>
+            <button type="button" class="gcexp" id="gcExpand">Expand all &#8599;</button>
+          </span></div>
         <div class="gcroster" id="gcRoster"></div>
       </div>
-      <div class="gcpanel">
+      <div class="gcpanel" id="gcReportPanel">
         <div class="gcph"><b>Individual report</b><span id="gcRepHint"></span></div>
         <div class="rbody" id="gcReport"></div>
       </div>
@@ -1695,7 +1722,7 @@ function slaDownload(){
 // stays correct. It is shown at call level with no minimum-n gate -- the n is printed
 // beside it so a thin sample is visible rather than hidden.
 const gcSt={view:'gc', mode:'console', sort:'adh', sel:null, team:null, off:{},
-            range:'7', from:null, to:null};
+            range:'7', from:null, to:null, expanded:false};
 let gcInit=false;
 function gcQCol(v){return v==null?'#c9c6b4':v<60?'#C0392B':v<70?'#BA7517':'#2f6d4f';}
 function gcR(){ return (TSLA&&TSLA.roles&&TSLA.roles.GC)||null; }
@@ -1795,6 +1822,9 @@ function gcWire(){
     renderGc();
   }));
   document.getElementById('gcCsv').addEventListener('click',gcDownload);
+  document.getElementById('gcExpand').addEventListener('click',()=>{
+    gcSt.expanded=!gcSt.expanded; renderGc();
+  });
 }
 function renderGc(){
   const R=gcR(); if(!R) return;
@@ -1802,7 +1832,17 @@ function renderGc(){
   document.getElementById('gcConsole').style.display=con?'block':'none';
   document.getElementById('gcDigestWrap').style.display=con?'none':'block';
   gcTeamChips(R); gcTaskChips(R); gcFoot(R);
-  if(con){ gcKpis(); gcRoster(); gcReport(); } else { gcDigest(); }
+  if(con){
+    gcKpis();
+    const ex=gcSt.expanded;
+    document.getElementById('gcSplit').classList.toggle('expanded',ex);
+    document.getElementById('gcExpand').classList.toggle('on',ex);
+    document.getElementById('gcExpand').innerHTML = ex?'Collapse &#8600;':'Expand all &#8599;';
+    document.getElementById('gcRosterHint').textContent = ex
+      ? 'every '+(gcSt.view==='gm'?'GM':'GC')+' and task type — one screenshot'
+      : 'click a row →';
+    if(ex) gcRosterWide(); else { gcRoster(); gcReport(); }
+  } else { gcDigest(); }
 }
 function gcTeamChips(R){
   const el=document.getElementById('gcTeamChips');
@@ -1873,6 +1913,46 @@ function gcRoster(){
     const k=el.dataset.k;
     gcSt.sel = (gcSt.sel!=null && String(gcSt.sel)===k) ? null : (gcSt.view==='gm'?k:+k);
     renderGc();
+  }));
+}
+
+// Expanded roster: one row per person, one column per task type, no scroll cap -- the
+// whole team fits in a single screenshot. Cells show adherence; a task the person had
+// nothing due on stays blank rather than reading 0%.
+function gcRosterWide(){
+  const R=gcR(), a=gcList(), pt=gcAgg('pt');
+  const tasks=R.tasks.map((t,i)=>({t,i})).filter(x=>!gcSt.off[x.t]);
+  document.getElementById('gcRosterTitle').textContent=
+    (gcSt.view==='gm'?'All GMs':'All GCs')+' · '+a.length;
+  const head='<thead><tr><th>#</th><th>'+(gcSt.view==='gm'?'GM':'GC')+'</th>'+
+    (gcSt.view==='gm'?'<th>GCs</th>':'<th>GM</th>')+
+    '<th>Due</th><th>Late</th><th>Stuck</th>'+
+    tasks.map(x=>`<th title="${esc(x.t)}">${esc(x.t.length>12?x.t.slice(0,11)+'…':x.t)}</th>`).join('')+
+    '<th>Quality</th><th>Overall</th></tr></thead>';
+  const body=a.map((x,i)=>{
+    const c=slaAdhColor(x.adh==null?0:x.adh);
+    const who2 = gcSt.view==='gm' ? String(x.members.size) : esc(R.gms[x.k]||'(no GM)');
+    return `<tr data-k="${esc(String(x.k))}">
+      <td>${i+1}</td>
+      <td class="nmw">${esc(x.name)}</td>
+      <td class="gmw">${who2}</td>
+      <td>${x.due}</td><td>${x.late}</td>
+      <td${x.stuck?' style="color:#C0392B;font-weight:650"':''}>${x.stuck}</td>
+      ${tasks.map(t=>{
+        const v=pt.get(x.k+'|'+t.i);
+        if(!v||!v.due) return '<td style="color:#c9c6b4">·</td>';
+        const cc=slaAdhColor(v.adh);
+        return `<td style="color:${cc};font-weight:650" title="${v.on}/${v.due} on time, ${v.stuck} stuck">${Math.round(100*v.adh)}</td>`;
+      }).join('')}
+      <td style="color:${gcQCol(x.q)};font-weight:650" title="${x.sc?x.sc+' scored calls':'no scored calls'}">${x.q==null?'·':x.q}</td>
+      <td style="color:${c};font-weight:750">${x.adh==null?'—':Math.round(100*x.adh)+'%'}</td>
+    </tr>`;}).join('');
+  document.getElementById('gcRoster').innerHTML='<table class="gcwide">'+head+'<tbody>'+body+'</tbody></table>';
+  // clicking a row still opens that person, by collapsing back to the split view
+  document.querySelectorAll('#gcRoster tbody tr').forEach(tr=>tr.addEventListener('click',()=>{
+    gcSt.sel = gcSt.view==='gm' ? tr.dataset.k : +tr.dataset.k;
+    gcSt.expanded=false; renderGc();
+    document.getElementById('gcReportPanel').scrollIntoView({behavior:'smooth',block:'nearest'});
   }));
 }
 function gcReport(){
