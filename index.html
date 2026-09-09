@@ -161,8 +161,12 @@
   table.sla tbody tr{cursor:pointer;}
   .adhbar{display:inline-block;height:8px;border-radius:4px;vertical-align:middle;min-width:2px;}
   table.slamx{border-collapse:collapse;font-size:11px;}
+  /* The matrix scrolls inside a fixed-height box, so the header row has to stick to the
+     top or the task names scroll away and the numbers lose their labels. The corner cell
+     is sticky on both axes and needs the higher z-index to sit above each of them. */
   table.slamx th{background:#f3f2ea;color:#3d4036;font-weight:700;padding:5px 6px;border-bottom:1px solid var(--line);
-    font-size:10px;white-space:nowrap;}
+    font-size:10px;white-space:nowrap;position:sticky;top:0;z-index:2;}
+  table.slamx thead th.rn{z-index:3;}
   table.slamx th.rn,table.slamx td.rn{text-align:left;position:sticky;left:0;background:#fbfaf5;z-index:1;max-width:190px;
     overflow:hidden;text-overflow:ellipsis;}
   table.slamx td{padding:4px 6px;text-align:center;border-bottom:1px solid #efeee7;min-width:44px;}
