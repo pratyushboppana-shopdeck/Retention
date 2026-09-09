@@ -589,7 +589,7 @@ def parse_weekact(csv_text):
 # rather than vanishing from the denominator the way a completion-date view does.
 TASKSLA_SQL = r"""
 WITH base AS (
-  SELECT t.id, t.type, t.sub_type, t.title, t.status AS task_status,
+  SELECT t.id, t.seller_id, t.type, t.sub_type, t.title, t.status AS task_status,
     t.created_at, t.completed_at, t.sla_in_min, t.completion_date,
     DATE(t.created_at,'Asia/Kolkata') AS cd,
     REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
@@ -672,14 +672,65 @@ cls AS (
       ELSE 0 END AS over_min
   FROM scored
 )
-SELECT role, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm, ANY_VALUE(em) AS em,
+,
+-- Call activity and quality per task. call_quality_score writes -1 when a call was
+-- not scored, so NULLIF is essential -- averaging the sentinel drags TS SOP accuracy
+-- from 66.7 down to 39.1. Roughly 30% of connected calls carry a real score.
+ec AS (
+  SELECT entity_id, exotel_call_sid FROM nushop.exotel_calls
+  WHERE entity='workboard'
+    AND created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY))),
+ed AS (
+  SELECT sid, duration,
+    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.accuracy_of_answers') AS FLOAT64),-1) acc,
+    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) sat,
+    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) ton
+  FROM nushop.exotel_call_details
+  WHERE created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY))),
+callm AS (
+  SELECT cls.id,
+    COUNT(ec.exotel_call_sid) n_calls,
+    COUNTIF(ed.duration>0) n_conn,
+    COUNTIF(ed.acc IS NOT NULL) n_scored,
+    SUM(ed.acc) acc_sum, SUM(ed.sat) sat_sum, SUM(ed.ton) ton_sum
+  FROM cls LEFT JOIN ec ON ec.entity_id=cls.id LEFT JOIN ed ON ed.sid=ec.exotel_call_sid
+  GROUP BY 1),
+-- GM inferred from whichever GM most of a GC's sellers sit under. Card 12101 wins
+-- where it has the GC; this only fills the 38 it does not cover.
+gmmap AS (
+  SELECT sm.seller_id,
+    MAX(IF(sm.manager_type='growth_manager',
+        REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '),
+        NULL)) gm
+  FROM nushop.seller_managers sm LEFT JOIN nushop.users u ON sm.manager_id=u._id
+  GROUP BY 1),
+gcgm AS (
+  SELECT role, nm, gm FROM (
+    SELECT c.role, c.nm, g.gm,
+      ROW_NUMBER() OVER (PARTITION BY c.role, c.nm ORDER BY COUNT(*) DESC) rn
+    FROM cls c JOIN gmmap g ON g.seller_id=c.seller_id
+    WHERE g.gm IS NOT NULL AND g.gm NOT IN ('','-')
+    GROUP BY 1,2,3) WHERE rn=1)
+SELECT cls.role, FORMAT_DATE('%Y-%m-%d', cls.cd) AS d, cls.task, cls.nm,
+  ANY_VALUE(cls.em) AS em,
+  ANY_VALUE(gcgm.gm) AS gm_inferred,
   COUNT(*) AS created,
-  COUNTIF(outcome='on_time') AS on_time,
-  COUNTIF(outcome='late')    AS late,
-  COUNTIF(outcome='stuck')   AS stuck,
-  COUNTIF(outcome='pending') AS pending,
-  CAST(ROUND(SUM(over_min)) AS INT64) AS over_min_sum
-FROM cls GROUP BY role, d, task, nm ORDER BY role, d, task, nm
+  COUNTIF(cls.outcome='on_time') AS on_time,
+  COUNTIF(cls.outcome='late')    AS late,
+  COUNTIF(cls.outcome='stuck')   AS stuck,
+  COUNTIF(cls.outcome='pending') AS pending,
+  CAST(ROUND(SUM(cls.over_min)) AS INT64) AS over_min_sum,
+  CAST(SUM(COALESCE(callm.n_calls,0)) AS INT64)  AS calls,
+  CAST(SUM(COALESCE(callm.n_conn,0)) AS INT64)   AS connected,
+  CAST(SUM(COALESCE(callm.n_scored,0)) AS INT64) AS scored,
+  CAST(ROUND(SUM(COALESCE(callm.acc_sum,0))) AS INT64) AS acc_sum,
+  CAST(ROUND(SUM(COALESCE(callm.sat_sum,0))) AS INT64) AS sat_sum,
+  CAST(ROUND(SUM(COALESCE(callm.ton_sum,0))) AS INT64) AS ton_sum
+FROM cls
+LEFT JOIN callm ON callm.id = cls.id
+LEFT JOIN gcgm  ON gcgm.role = cls.role AND gcgm.nm = cls.nm
+GROUP BY cls.role, d, cls.task, cls.nm
+ORDER BY cls.role, d, cls.task, cls.nm
 """
 
 
@@ -740,12 +791,22 @@ def _pick(row, *names):
 
 
 def build_team_map(session):
-    """email/name -> Core GC | Revival GC | Hypercare GC | 1-5K GL.
-    Returns ({email: cat}, {name: cat}, {name: cat} forced). Specific teams load before
-    the core roster so a GC who appears in both lands in the specific one, matching
-    the incentive engine (revival submitters are forced onto the revival team).
-    A card outage marks people Unmapped rather than failing the refresh."""
+    """Team category and GM per GC.
+
+    Category: 1-5K GL (card 12100) / Revival GC (11911) / Core GC (12101), specific
+    teams first so a GC in both lands in the specific one, matching the incentive
+    engine. Hypercare has no card and is asserted by hand below.
+
+    GM: card 12101 is authoritative but is the CORE roster only -- it covers 52 of the
+    90 GCs carrying tasks (76% of tasks due). The rest (revival, hypercare, 1-5K, new
+    joiners) get a GM inferred from whichever GM most of their sellers sit under, and
+    are flagged inferred so the two can be told apart in the UI.
+
+    Returns (cat_by_email, cat_by_name, forced_cat, gm_by_email, gm_by_name).
+    A card outage degrades to Unmapped rather than failing the refresh.
+    """
     by_email, by_name = {}, {}
+    gm_email, gm_name = {}, {}
 
     def add(cat, name, email):
         if email:
@@ -753,39 +814,55 @@ def build_team_map(session):
         if name:
             by_name.setdefault(_norm_name(name), cat)
 
-    def load(card, cat, name_cols, email_cols):
+    def load(card, cat, name_cols, email_cols, gm_cols=None):
         try:
             rows = list(csvmod.DictReader(io.StringIO(run_card_csv(session, card))))
-            n = 0
+            n = g = 0
             for r in rows:
                 nm, em = _pick(r, *name_cols), _pick(r, *email_cols)
                 if nm or em:
                     add(cat, nm, em); n += 1
-            print(f"  card {card} -> {cat}: {n}/{len(rows)} rows mapped")
+                if gm_cols:
+                    gm = _pick(r, *gm_cols)
+                    if gm:
+                        if em:
+                            gm_email.setdefault(em.strip().lower(), gm)
+                        if nm:
+                            gm_name.setdefault(_norm_name(nm), gm)
+                        g += 1
+            print(f"  card {card} -> {cat}: {n}/{len(rows)} mapped" + (f", {g} with GM" if gm_cols else ""))
         except Exception as e:                                   # noqa: BLE001
             print(f"  ! card {card} ({cat}) failed: {e}")
 
     load(12100, "1-5K GL",    ["1k_5k_gl", "gl", "name"],
-                              ["1k_5k_gl_email_id", "gl_email_id", "glemail"])
+                              ["1k_5k_gl_email_id", "gl_email_id", "glemail"], ["gm"])
     load(11911, "Revival GC", ["submitted_by", "gc", "gc_name"], ["gc_email", "email"])
     load(12101, "Core GC",    ["core_gc", "gc"],
-                              ["core_gc_email_id", "gc_email_id", "gcemail"])
+                              ["core_gc_email_id", "gc_email_id", "gcemail"], ["gm"])
 
     for e in HYPERCARE_EMAILS:                                   # overrides the core roster
         by_email[e] = "Hypercare GC"
     forced = {_norm_name(k): v for k, v in OWNER_OVERRIDES.items()}
-    return by_email, by_name, forced
+    return by_email, by_name, forced, gm_email, gm_name
 
 
-def parse_tasksla(csv_text, team_by_email=None, team_by_name=None, forced=None):
-    """Index days/tasks/people per role and emit compact integer rows."""
+def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
+                  gm_email=None, gm_name=None):
+    """Index days/tasks/people per role and emit compact integer rows.
+
+    Row = [dayIdx, taskIdx, personIdx, created, on_time, late, stuck, pending,
+           overMinSum, calls, connected, scored, accSum, satSum, tonSum]
+    Quality is stored as SUMS over scored calls so any aggregation stays correct --
+    averaging pre-averaged rates would weight a 1-call day like a 40-call day.
+    """
     roles = {}
-    days = []
-    day_ix = {}
+    days, day_ix = [], {}
+    seen_gm = {}
     for r in csvmod.DictReader(io.StringIO(csv_text)):
         role = r["role"]
         if role not in roles:
-            roles[role] = {"tasks": [], "people": [], "_t": {}, "_p": {}, "rows": []}
+            roles[role] = {"tasks": [], "people": [], "_t": {}, "_p": {}, "rows": [],
+                           "emails": [], "gms": [], "cats": [], "gmsrc": []}
         R = roles[role]
         d = r["d"]
         if d not in day_ix:
@@ -796,7 +873,11 @@ def parse_tasksla(csv_text, team_by_email=None, team_by_name=None, forced=None):
         n = r["nm"]
         if n not in R["_p"]:
             R["_p"][n] = len(R["people"]); R["people"].append(n)
-            R.setdefault("emails", []).append((r.get("em") or "").strip().lower())
+            R["emails"].append((r.get("em") or "").strip().lower())
+        # a person's inferred GM can appear on any of their rows
+        gi = (role, n)
+        if not seen_gm.get(gi):
+            seen_gm[gi] = (r.get("gm_inferred") or "").strip()
 
         def i(k):
             try:
@@ -805,27 +886,35 @@ def parse_tasksla(csv_text, team_by_email=None, team_by_name=None, forced=None):
                 return 0
         R["rows"].append([day_ix[d], R["_t"][t], R["_p"][n],
                           i("created"), i("on_time"), i("late"), i("stuck"),
-                          i("pending"), i("over_min_sum")])
-    tbe = team_by_email or {}
-    tbn = team_by_name or {}
-    tfx = forced or {}
+                          i("pending"), i("over_min_sum"),
+                          i("calls"), i("connected"), i("scored"),
+                          i("acc_sum"), i("sat_sum"), i("ton_sum")])
+
+    cbe, cbn, fx = cat_email or {}, cat_name or {}, forced or {}
+    gbe, gbn = gm_email or {}, gm_name or {}
     for role, R in roles.items():
         ems = R.pop("emails", [])
-        if role == "GC":
-            cats = []
-            for i, nm in enumerate(R["people"]):
-                e = ems[i] if i < len(ems) else ""
-                # owner override first, then email (most reliable), then name
-                key = _norm_name(nm)
-                cats.append(tfx.get(key) or tbe.get(e) or tbn.get(key) or "Unmapped")
-            R["cats"] = cats
-        else:
-            R["cats"] = [""] * len(R["people"])
+        for i2, nm in enumerate(R["people"]):
+            e = ems[i2] if i2 < len(ems) else ""
+            key = _norm_name(nm)
+            if role == "GC":
+                R["cats"].append(fx.get(key) or cbe.get(e) or cbn.get(key) or "Unmapped")
+                # card 12101 is authoritative; the seller-derived GM only fills gaps
+                gm = gbe.get(e) or gbn.get(key)
+                if gm:
+                    R["gms"].append(gm); R["gmsrc"].append("roster")
+                else:
+                    R["gms"].append(seen_gm.get((role, nm)) or "(no GM)")
+                    R["gmsrc"].append("inferred" if seen_gm.get((role, nm)) else "none")
+            else:
+                R["cats"].append("")
+                R["gms"].append("")
+                R["gmsrc"].append("")
+        R.pop("_t"); R.pop("_p")
 
     order = sorted(range(len(days)), key=lambda k: days[k])
     remap = {old: new for new, old in enumerate(order)}
     for R in roles.values():
-        R.pop("_t"); R.pop("_p")
         for row in R["rows"]:
             row[0] = remap[row[0]]
         R["rows"].sort()
@@ -845,11 +934,15 @@ def main():
     tssop = parse_tssop(run_csv(session, TSSOP_SQL))
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
-    tbe, tbn, tforced = build_team_map(session)
-    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn, tforced)
+    tbe, tbn, tforced, tgme, tgmn = build_team_map(session)
+    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn, tforced, tgme, tgmn)
     _gc = tasksla["roles"].get("GC", {})
     _un = sum(1 for c in _gc.get("cats", []) if c == "Unmapped")
-    print(f"  team map: {len(tbe)} emails, {len(tbn)} names; {_un} GC(s) unmapped of {len(_gc.get('people', []))}")
+    _gmsrc = _gc.get("gmsrc", [])
+    print(f"  team map: {len(tbe)} emails, {len(tbn)} names; "
+          f"{_un} GC(s) unmapped of {len(_gc.get('people', []))}; "
+          f"GM from roster {_gmsrc.count('roster')}, inferred {_gmsrc.count('inferred')}, "
+          f"none {_gmsrc.count('none')}")
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
