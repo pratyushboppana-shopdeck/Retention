@@ -192,6 +192,19 @@
   #gcCard .kpi .v{font-size:22px;font-weight:750;color:#23251f;line-height:1.2;}
   #gcCard .kpi .s{font-size:11px;color:var(--muted);}
   #gcCard .kpi.bad .v{color:#C0392B;} #gcCard .kpi.good .v{color:#2f6d4f;}
+  /* ---- Ad-account & BM restrictions tab ---- */
+  #blkCard .drill-h{margin-bottom:14px;}
+  #blkCard .slaChips{margin:0 0 12px;}
+  #blkCard .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:9px;margin:14px 0 4px;}
+  #blkCard .kpi{background:#fbfaf5;border:1px solid var(--line);border-radius:9px;padding:9px 12px;}
+  #blkCard .kpi .kl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+  #blkCard .kpi .kv{font-size:21px;font-weight:750;color:#23251f;line-height:1.25;}
+  #blkCard .fl-row{margin-bottom:8px;}
+  #blkCard .drill-h3{margin:0 0 7px;}
+  #blkCard .slaGrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;}
+  @media (max-width:1020px){#blkCard .slaGrid{grid-template-columns:1fr;}}
+  #blkCard table.sla code{background:#f3f2ea;padding:1px 4px;border-radius:3px;}
+  #blkCard .swatch{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:6px;}
   .gcsplit{display:grid;grid-template-columns:minmax(310px,.8fr) minmax(420px,1.25fr);gap:14px;align-items:start;}
   @media (max-width:1020px){.gcsplit{grid-template-columns:1fr;}}
   .gcpanel{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;}
@@ -269,6 +282,7 @@
     <button class="tab" type="button" data-view="unassign">Go-lives vs unassignments</button>
     <button class="tab" type="button" data-view="slaGC">GC task SLA</button>
     <button class="tab" type="button" data-view="slaKAM">KAM task SLA</button>
+    <button class="tab" type="button" data-view="blocks">Ad-account &amp; BM blocks</button>
   </div>
 
   <div class="card" id="gcgmCard">
@@ -567,6 +581,90 @@
   <div class="drill-sub" id="slaFoot" style="margin-top:12px"></div>
 </div>
 
+<div class="card" id="blkCard" style="display:none">
+  <div class="drill-h" style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <div><b>Ad-account &amp; BM restrictions</b>
+      <span class="hint">&mdash; keyed on ticket creation week (ISO). Resolution = <code>completed_at</code>; a ticket past 48h and still open counts as a breach.</span></div>
+    <div style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="slaseg" id="blkUnit" title="Tickets is the raw workflow load; incidents collapse duplicate tickets into the restriction the seller actually lived through.">
+        <button type="button" data-u="ticket" class="on">Tickets</button>
+        <button type="button" data-u="incident">Incidents</button>
+      </span>
+      <span class="slaseg" id="blkResMode" title="94% of 'closed' tickets carry a real completed_at, so closed is treated as resolved by default.">
+        <button type="button" data-m="lax" class="on">completed + closed</button>
+        <button type="button" data-m="strict">completed only</button>
+      </span>
+      <label style="font-size:12px;color:var(--muted)"><input type="checkbox" id="blkHit" checked> HIT book only</label>
+      <button id="blkCsv" type="button">Download CSV</button>
+    </div>
+  </div>
+
+  <div class="fl-row" style="margin-bottom:10px">
+    <span class="fl-label">Weeks</span>
+    <span id="blkMonths" class="wkwrap"></span>
+    <button class="mbtn" id="blkAll" type="button">All</button>
+    <button class="mbtn" id="blkClear" type="button">None</button>
+  </div>
+  <div class="wkwrap" id="blkWeeks" style="margin-bottom:10px"></div>
+  <div class="slaChips" id="blkCatChips"></div>
+  <div class="kpis" id="blkKpis"></div>
+
+  <div class="slaGrid" style="margin-top:18px">
+    <div>
+      <div class="drill-h3">Raised vs resolved in 2 days <span class="hint">&mdash; unique sellers, by ticket-creation week</span></div>
+      <div class="chart-box" style="height:260px"><canvas id="blkChart1" role="img"
+        aria-label="Sellers raising an ad-account or BM restriction ticket each week, against the share resolved within two days."></canvas></div>
+    </div>
+    <div>
+      <div class="drill-h3">Resolution TAT <span class="hint">&mdash; hours to <code>completed_at</code>, resolved tickets only</span></div>
+      <div class="chart-box" style="height:260px"><canvas id="blkChart2" role="img"
+        aria-label="Median, 75th and 90th percentile hours to resolve an ad-account or BM restriction ticket, by week."></canvas></div>
+    </div>
+  </div>
+
+  <div class="drill-h3" style="margin-top:20px">Weekly detail <span class="hint">&mdash; the latest week is still in flight; its resolved % only falls</span></div>
+  <div class="tablewrap" style="max-height:340px;overflow:auto"><table class="sla" id="blkWeekTable"></table></div>
+
+  <div class="slaGrid" style="margin-top:22px">
+    <div>
+      <div class="drill-h3">Repeat restrictions <span class="hint">&mdash; the same seller blocked again</span></div>
+      <div class="tablewrap" style="max-height:300px;overflow:auto"><table class="sla" id="blkRepeatTable"></table></div>
+      <div class="drill-sub" id="blkRepeatFoot" style="margin-top:6px"></div>
+    </div>
+    <div>
+      <div class="drill-h3">Open backlog now <span class="hint">&mdash; unresolved tickets by age</span></div>
+      <div class="tablewrap" style="max-height:300px;overflow:auto"><table class="sla" id="blkAgeTable"></table></div>
+      <div class="drill-sub" id="blkAgeFoot" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <div class="drill-h3" style="margin-top:22px">Worst repeat offenders <span class="hint">&mdash; click a seller for their restriction history</span></div>
+  <div class="gcsplit" id="blkSplit">
+    <div>
+      <div class="tablewrap gcroster" style="max-height:360px;overflow:auto"><table class="sla" id="blkSellerTable"></table></div>
+    </div>
+    <div class="gcpanel" id="blkSellerPanel">
+      <div class="gcph"><b id="blkSellerName">Pick a seller</b></div>
+      <div id="blkSellerBody" class="drill-sub">Their every restriction ticket, in order, with the time each one took to clear.</div>
+    </div>
+  </div>
+
+  <div class="slaGrid" style="margin-top:22px">
+    <div>
+      <div class="drill-h3">Does a block cost W3 retention? <span class="hint">&mdash; blocks landing in W0&ndash;W3 of the seller&rsquo;s own go-live</span></div>
+      <div class="tablewrap" style="max-height:300px;overflow:auto"><table class="sla" id="blkRetTable"></table></div>
+      <div class="drill-sub" id="blkRetFoot" style="margin-top:6px"></div>
+    </div>
+    <div>
+      <div class="drill-h3">Blocked on Meta, no ticket raised <span class="hint">&mdash; current platform state vs our ticket stream</span></div>
+      <div class="tablewrap" style="max-height:300px;overflow:auto"><table class="sla" id="blkPlatTable"></table></div>
+      <div class="drill-sub" id="blkPlatFoot" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <div class="drill-sub" id="blkFoot" style="margin-top:14px"></div>
+</div>
+
 <script>
 const MONTH=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WCOLS=['W1','W2','W3','W4','W5','W6','W7'];
@@ -844,6 +942,7 @@ async function load(){
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
     TSSOP=snap.tsSop||null; tsInit=false;
     UNAS=snap.unassign||null; unInit=false;
+    BLK=snap.blocks||null; BLKPLAT=snap.blockPlatform||null; blkInit=false;
     const rows=parseCSV(csv);
     buildWeMap(rows);
     const groups=rollup(rows,OPTS);
@@ -1093,6 +1192,8 @@ function setView(v){
   document.getElementById('slaCard').style.display = v==='slaKAM' ? 'block':'none';
   if(v==='unassign') buildUn();
   if(v==='slaGC')  buildGcConsole();
+  document.getElementById('blkCard').style.display = v==='blocks' ? 'block':'none';
+  if(v==='blocks') buildBlocks();
   if(v==='slaKAM') buildSla('KAM');
 }
 // ---- shared week/month filter widget used by the newer tabs ----
@@ -1779,6 +1880,406 @@ function gcList(){
         : (x,y)=>(x.q==null?999:x.q)-(y.q==null?999:y.q));
   return arr;
 }
+// ================= TAB: Ad-account & BM restrictions =================
+// Rows: [wkIdx, dnum, sellerIdx, catIdx, subIdx, statusIdx, tatMin(-1 null), slaMin, inHit, relWeek(-99 null), gcIdx, gmIdx]
+let BLK=null, BLKPLAT=null, blkInit=false, blkF=null, blkC1=null, blkC2=null;
+const blkSt={strict:false, hitOnly:true, unit:'ticket', cats:new Set([0,1,2,3,4,5]), seller:null};
+const BLK_COLLAPSE=7;   // days: tickets this close, same seller + same category, are one incident
+const BLK_EPOCH=Date.UTC(2026,0,1);
+const blkToday=()=>Math.floor((Date.now()-BLK_EPOCH)/86400000);
+
+function blkRes(r){                     // minutes to resolution, or null if unresolved
+  const st=r[5], t=r[6];
+  if(t<0) return null;                  // no completed_at => never actually closed
+  if(st===0) return t;                  // completed
+  if(st===1 && !blkSt.strict) return t; // closed: a real terminal state 94% of the time
+  return null;                          // pending, or closed under the strict reading
+}
+function blkRows(){
+  if(!BLK) return [];
+  return BLK.rows.filter(r=>blkSt.cats.has(r[3])
+    && (!blkSt.hitOnly || r[8]===1)
+    && blkF.sel.has(BLK.weeks[r[0]]));
+}
+function pctl(v,p){ if(!v.length) return null; const a=v.slice().sort((x,y)=>x-y);
+  return a[Math.min(a.length-1, Math.floor(p*a.length))]; }
+
+// One row per unit of analysis. 'ticket' is the raw workflow load -- 9.5% of tickets are
+// same-seller, same-category, same-DAY duplicates, so counting tickets overstates how often a
+// seller is actually restricted. 'incident' collapses tickets within 7 days of each other into
+// the restriction event the seller lived through: raised at the first ticket, cleared when the
+// last one clears, and unresolved if any of them is still open.
+function blkUnits(R){
+  if(blkSt.unit==='ticket') return R.map(r=>({d:r[1],wk:r[0],sel:r[2],cat:r[3],sub:r[4],
+    res:blkRes(r),sla:r[7],rel:r[9],gc:r[10],gm:r[11],n:1}));
+  const per={};
+  R.forEach(r=>{const k=r[2]+'|'+r[3];(per[k]=per[k]||[]).push(r);});
+  const grp=[];
+  Object.values(per).forEach(list=>{
+    list.sort((a,b)=>a[1]-b[1]);
+    let cur=null;
+    list.forEach(r=>{
+      if(cur && r[1]-cur.last<=BLK_COLLAPSE){ cur.rows.push(r); cur.last=r[1]; }
+      else { if(cur) grp.push(cur); cur={rows:[r], last:r[1]}; }
+    });
+    if(cur) grp.push(cur);
+  });
+  return grp.map(g=>{
+    const f=g.rows[0], res=g.rows.map(blkRes);
+    const open=res.some(x=>x===null);
+    const dur=open?null:Math.max(...g.rows.map((r,i)=>(r[1]-f[1])*1440+res[i]));
+    return {d:f[1],wk:f[0],sel:f[2],cat:f[3],sub:f[4],res:dur,sla:f[7],rel:f[9],
+            gc:f[10],gm:f[11],n:g.rows.length};
+  });
+}
+const blkNoun=()=>blkSt.unit==='ticket'?'Tickets':'Incidents';
+
+function buildBlocks(){
+  if(!BLK){ document.getElementById('blkFoot').textContent='No restriction data in this snapshot.'; return; }
+  if(!blkInit){
+    blkInit=true;
+    blkF=makeWeekFilter({weeks:BLK.weeks, monthsId:'blkMonths', weeksId:'blkWeeks',
+      allId:'blkAll', clearId:'blkClear', onChange:blkPaint});
+    BLK.weeks.forEach(w=>blkF.sel.add(w)); blkF.paint();   // default: whole history
+    const chips=document.getElementById('blkCatChips'); chips.innerHTML='';
+    BLK.cats.forEach((c,i)=>{
+      const el=document.createElement('span'); el.className='item'+(blkSt.cats.has(i)?'':' off');
+      el.innerHTML='<span class="swatch" style="background:'+BLK_COL[i]+'"></span>'+c;
+      el.addEventListener('click',()=>{blkSt.cats.has(i)?blkSt.cats.delete(i):blkSt.cats.add(i);
+        el.classList.toggle('off'); blkPaint();});
+      chips.appendChild(el);
+    });
+    document.querySelectorAll('#blkUnit button').forEach(b=>b.addEventListener('click',()=>{
+      document.querySelectorAll('#blkUnit button').forEach(x=>x.classList.toggle('on',x===b));
+      blkSt.unit=b.dataset.u; blkPaint();}));
+    document.querySelectorAll('#blkResMode button').forEach(b=>b.addEventListener('click',()=>{
+      document.querySelectorAll('#blkResMode button').forEach(x=>x.classList.toggle('on',x===b));
+      blkSt.strict=b.dataset.m==='strict'; blkPaint();}));
+    document.getElementById('blkHit').addEventListener('change',e=>{blkSt.hitOnly=e.target.checked; blkPaint();});
+    document.getElementById('blkCsv').addEventListener('click',blkDownload);
+  }
+  blkPaint();
+}
+const BLK_COL=['#C0392B','#8E44AD','#BA7517','#185FA5','#1D9E75','#B8651A','#6f7268','#9a9d92'];
+
+function blkPaint(){
+  const R=blkRows();
+  blkKpis(R); blkCharts(R); blkWeekTable(R); blkRepeat(R); blkAge(R);
+  blkSellers(R); blkRetention(); blkPlatform();
+  const wk=[...blkF.sel].sort();
+  document.getElementById('blkFoot').innerHTML=
+    'Source: <code>nushop.workboard_tasks</code>, 19 restriction sub-types, '+
+    (wk.length?wk[0]+' &rarr; '+wk[wk.length-1]:'no weeks selected')+'. '+
+    '<b>History starts 2026-01-16</b> &mdash; that is when the whole table starts, and adoption only steadies around W14, '+
+    'so the Feb&ndash;Mar ramp is the workflow being taken up, not restrictions rising. '+
+    'TAT uses <code>completed_at</code>; <code>completion_date</code> is the SLA <i>due</i> date '+
+    '(it equals <code>created_at + sla_in_min</code> on all 19,519 rows) and is never used here. '+
+    'Ownership is the seller&rsquo;s current GC/GM, not point-in-time. '+
+    (blkSt.unit==='ticket'
+      ? '<b>Counting tickets:</b> 9.5% of them are same-seller, same-category, same-day duplicates, so this overstates how often a seller is really restricted &mdash; switch to Incidents for that.'
+      : '<b>Counting incidents:</b> tickets within '+BLK_COLLAPSE+' days of each other on the same seller and category are one restriction, raised at the first and cleared when the last one clears.');
+}
+
+function blkKpis(R){
+  const U=blkUnits(R), sellers=new Set(U.map(u=>u.sel));
+  const rv=U.filter(u=>u.res!==null).map(u=>u.res);
+  // a seller counts as cleared only if EVERY restriction of theirs cleared inside 48h
+  const bySel={}; U.forEach(u=>{(bySel[u.sel]=bySel[u.sel]||[]).push(u.res);});
+  const ok=Object.values(bySel).filter(v=>v.every(x=>x!==null&&x<=2880)).length;
+  const td=blkToday(), open=U.filter(u=>u.res===null);
+  const cnt={}; U.forEach(u=>{cnt[u.sel]=(cnt[u.sel]||0)+1;});
+  const rep=Object.values(cnt).filter(n=>n>1).length;
+  const k=[
+    [blkNoun(), U.length.toLocaleString()],
+    ['Sellers hit', sellers.size.toLocaleString()],
+    ['Cleared &le;48h', sellers.size?(100*ok/sellers.size).toFixed(1)+'%':'—'],
+    ['Median TAT', rv.length?(pctl(rv,.5)/60).toFixed(1)+'h':'—'],
+    ['p90 TAT', rv.length?(pctl(rv,.9)/60).toFixed(0)+'h':'—'],
+    ['Open now', open.length.toLocaleString()],
+    ['Open &gt;30d', open.filter(u=>td-u.d>30).length.toLocaleString()],
+    ['Blocked again', sellers.size?(100*rep/sellers.size).toFixed(1)+'%':'—'],
+  ];
+  document.getElementById('blkKpis').innerHTML=k.map(([a,b])=>
+    '<div class="kpi"><div class="kl">'+a+'</div><div class="kv">'+b+'</div></div>').join('');
+}
+
+function blkWeekAgg(R){
+  const by={};
+  blkUnits(R).forEach(u=>{ const w=BLK.weeks[u.wk]; (by[w]=by[w]||[]).push(u); });
+  return Object.keys(by).sort().map(w=>{
+    const g=by[w], rv=g.filter(u=>u.res!==null).map(u=>u.res);
+    const sel={}; g.forEach(u=>{(sel[u.sel]=sel[u.sel]||[]).push(u.res);});
+    const sv=Object.values(sel);
+    const ok=sv.filter(v=>v.every(x=>x!==null&&x<=2880)).length;
+    const sla=g.filter(u=>u.res!==null&&u.sla>0&&u.res<=u.sla).length;
+    return {w, tix:g.length, sellers:sv.length, ok, pOk:sv.length?100*ok/sv.length:null,
+      pRes:g.length?100*rv.length/g.length:null, pSla:g.length?100*sla/g.length:null,
+      med:rv.length?pctl(rv,.5)/60:null, p75:rv.length?pctl(rv,.75)/60:null,
+      p90:rv.length?pctl(rv,.9)/60:null, open:g.length-rv.length};
+  });
+}
+
+function blkCharts(R){
+  const A=blkWeekAgg(R), lab=A.map(a=>a.w.replace('2026-','’26-'));
+  const last=A.length-1;
+  if(blkC1) blkC1.destroy();
+  blkC1=new Chart(document.getElementById('blkChart1'),{data:{labels:lab,datasets:[
+    {type:'bar',label:'Sellers hit',data:A.map(a=>a.sellers),backgroundColor:'rgba(24,95,165,.22)',
+     borderColor:'#185FA5',borderWidth:1,yAxisID:'y',order:3},
+    {type:'line',label:'% sellers cleared ≤48h',data:A.map(a=>a.pOk),borderColor:'#1D9E75',
+     backgroundColor:'#1D9E75',tension:.25,yAxisID:'y1',order:1,
+     segment:{borderDash:c=>c.p1DataIndex===last?[5,4]:undefined}},
+    {type:'line',label:'% resolved at all',data:A.map(a=>a.pRes),borderColor:'#9a9d92',borderDash:[3,3],
+     backgroundColor:'#9a9d92',tension:.25,yAxisID:'y1',order:2,pointRadius:2}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}}},
+      scales:{y:{beginAtZero:true,title:{display:true,text:'sellers',color:AXIS_TITLE}},
+              y1:{position:'right',min:0,max:100,grid:{drawOnChartArea:false},
+                  title:{display:true,text:'%',color:AXIS_TITLE}},
+              x:{ticks:{maxRotation:60,minRotation:60,font:{size:9}}}}}});
+  if(blkC2) blkC2.destroy();
+  blkC2=new Chart(document.getElementById('blkChart2'),{data:{labels:lab,datasets:[
+    {type:'line',label:'median h',data:A.map(a=>a.med),borderColor:'#1D9E75',backgroundColor:'#1D9E75',tension:.25},
+    {type:'line',label:'p75 h',data:A.map(a=>a.p75),borderColor:'#BA7517',backgroundColor:'#BA7517',tension:.25,pointRadius:2},
+    {type:'line',label:'p90 h',data:A.map(a=>a.p90),borderColor:'#C0392B',backgroundColor:'#C0392B',tension:.25,pointRadius:2},
+    {type:'line',label:'the 2-day bar',data:A.map(()=>48),borderColor:'#8d9086',borderDash:[6,4],
+     pointRadius:0,borderWidth:1,tension:0}]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':
+          c.parsed.y<48?c.parsed.y.toFixed(1)+'h':(c.parsed.y/24).toFixed(1)+'d')}}},
+      // log scale: clearance times run from under an hour to over a month, so a linear
+      // axis is owned by a handful of low-n early weeks and hides everything else
+      scales:{y:{type:'logarithmic',min:1,
+                 title:{display:true,text:'hours to clear (log)',color:AXIS_TITLE},
+                 ticks:{callback:v=>[1,6,24,48,168,720].includes(v)?
+                   (v<48?v+'h':(v/24)+'d'):''}},
+              x:{ticks:{maxRotation:60,minRotation:60,font:{size:9}}}}}});
+}
+
+function blkWeekTable(R){
+  const A=blkWeekAgg(R), last=A.length-1;
+  let h='<thead><tr><th>Week</th><th class="num">'+blkNoun()+'</th><th class="num">Sellers</th>'+
+        '<th class="num">Cleared &le;48h</th><th class="num">Within own SLA</th><th class="num">Cleared at all</th>'+
+        '<th class="num">Median h</th><th class="num">p90 h</th><th class="num">Still open</th></tr></thead><tbody>';
+  A.slice().reverse().forEach((a,ri)=>{
+    const censored=(A.length-1-ri)===last;
+    h+='<tr'+(censored?' style="opacity:.55"':'')+'><td>'+a.w+(censored?' <span class="hint">in flight</span>':'')+'</td>'+
+      '<td class="num">'+a.tix+'</td><td class="num">'+a.sellers+'</td>'+
+      '<td class="num" style="background:'+scoreColor(a.pOk)+'">'+(a.pOk==null?'—':a.pOk.toFixed(1)+'%')+'</td>'+
+      '<td class="num">'+(a.pSla==null?'—':a.pSla.toFixed(1)+'%')+'</td>'+
+      '<td class="num">'+(a.pRes==null?'—':a.pRes.toFixed(1)+'%')+'</td>'+
+      '<td class="num">'+(a.med==null?'—':a.med.toFixed(1))+'</td>'+
+      '<td class="num">'+(a.p90==null?'—':a.p90.toFixed(0))+'</td>'+
+      '<td class="num">'+a.open+'</td></tr>';
+  });
+  document.getElementById('blkWeekTable').innerHTML=h+'</tbody>';
+}
+
+function blkRepeat(R){
+  const U=blkUnits(R), per={};
+  U.forEach(u=>{(per[u.sel]=per[u.sel]||[]).push(u);});
+  const S=Object.values(per), tot=S.length;
+  const b={'1':0,'2':0,'3':0,'4+':0};
+  S.forEach(t=>{const n=t.length; b[n===1?'1':n===2?'2':n===3?'3':'4+']++;});
+  let h='<thead><tr><th>'+(blkSt.unit==='ticket'?'Tickets':'Restrictions')+' in window</th>'+
+        '<th class="num">Sellers</th><th class="num">Share</th><th class="num">Cleared &le;48h</th></tr></thead><tbody>';
+  ['1','2','3','4+'].forEach(k=>{
+    const g=S.filter(t=>{const n=t.length; return k==='4+'?n>=4:n===+k;});
+    const ok=g.filter(t=>t.every(u=>u.res!==null&&u.res<=2880)).length;
+    h+='<tr><td>'+k+'</td><td class="num">'+b[k]+'</td><td class="num">'+(tot?(100*b[k]/tot).toFixed(1)+'%':'—')+'</td>'+
+       '<td class="num" style="background:'+scoreColor(g.length?100*ok/g.length:null)+'">'+
+       (g.length?(100*ok/g.length).toFixed(1)+'%':'—')+'</td></tr>';
+  });
+  h+='</tbody>';
+  const fc={};
+  S.forEach(t=>{const f=t.slice().sort((a,b)=>a.d-b.d)[0];
+    fc[f.cat]=fc[f.cat]||[0,0]; fc[f.cat][0]++; if(t.length>1) fc[f.cat][1]++;});
+  h+='<thead><tr><th>First restriction was&hellip;</th><th class="num">Sellers</th>'+
+     '<th class="num">Blocked again</th><th class="num">&nbsp;</th></tr></thead><tbody>';
+  Object.keys(fc).sort((a,b)=>fc[b][0]-fc[a][0]).forEach(c=>{
+    const [n,r]=fc[c], p=100*r/n;
+    h+='<tr><td><span class="swatch" style="background:'+BLK_COL[c]+'"></span>'+BLK.cats[c]+'</td>'+
+       '<td class="num">'+n+'</td><td class="num" style="background:'+scoreColor(100-p)+'">'+p.toFixed(1)+'%</td>'+
+       '<td class="num">'+r+' of '+n+'</td></tr>';
+  });
+  document.getElementById('blkRepeatTable').innerHTML=h+'</tbody>';
+
+  const gaps=[];
+  S.forEach(t=>{const d=t.map(u=>u.d).sort((a,b)=>a-b);
+    for(let i=0;i<d.length-1;i++) if(d[i+1]-d[i]>0) gaps.push(d[i+1]-d[i]);});
+  let reo=0, base=0;
+  S.forEach(t=>{const d=t.slice().sort((a,b)=>a.d-b.d);
+    d.forEach((u,i)=>{ if(u.res!==null){ base++;
+      if(d.slice(i+1).some(x=>x.d-u.d>0&&x.d-u.d<=14)) reo++; }});});
+  document.getElementById('blkRepeatFoot').innerHTML=
+    '<b>'+(tot?(100*(tot-b['1'])/tot).toFixed(1):'0')+'%</b> of restricted sellers get restricted again'+
+    (gaps.length?', a median <b>'+pctl(gaps,.5)+' days</b> apart':'')+'. '+
+    (base?'<b>'+(100*reo/base).toFixed(1)+'%</b> of clearances are followed by another restriction within 14 days &mdash; the fix does not hold.':'');
+}
+
+function blkAge(R){
+  const td=blkToday(), open=blkUnits(R).filter(u=>u.res===null);
+  const B=['0–2d','3–7d','8–14d','15–30d','31d+'];
+  const age=u=>{const a=td-u.d; return a<=2?0:a<=7?1:a<=14?2:a<=30?3:4;};
+  const byCat={};
+  open.forEach(u=>{ byCat[u.cat]=byCat[u.cat]||[0,0,0,0,0]; byCat[u.cat][age(u)]++; });
+  let h='<thead><tr><th>Category</th>'+B.map(x=>'<th class="num">'+x+'</th>').join('')+
+        '<th class="num">Total</th></tr></thead><tbody>';
+  const tot=[0,0,0,0,0];
+  Object.keys(byCat).sort((a,b)=>{const f=x=>byCat[x].reduce((p,q)=>p+q,0);return f(b)-f(a);}).forEach(c=>{
+    const v=byCat[c], sm=v.reduce((p,q)=>p+q,0);
+    v.forEach((x,i)=>tot[i]+=x);
+    h+='<tr><td><span class="swatch" style="background:'+BLK_COL[c]+'"></span>'+BLK.cats[c]+'</td>'+
+       v.map((x,i)=>'<td class="num"'+(i>=3&&x?' style="background:#f8dfdb"':'')+'>'+(x||'—')+'</td>').join('')+
+       '<td class="num"><b>'+sm+'</b></td></tr>';
+  });
+  h+='<tr><td><b>All</b></td>'+tot.map(x=>'<td class="num"><b>'+x+'</b></td>').join('')+
+     '<td class="num"><b>'+tot.reduce((p,q)=>p+q,0)+'</b></td></tr>';
+  document.getElementById('blkAgeTable').innerHTML=h+'</tbody>';
+  const stale=tot[3]+tot[4];
+  document.getElementById('blkAgeFoot').innerHTML=
+    '<b>'+stale+'</b> of '+open.length+' open ('+(open.length?(100*stale/open.length).toFixed(0):'0')+
+    '%) are more than a fortnight old, across <b>'+
+    new Set(open.filter(u=>td-u.d>14).map(u=>u.sel)).size+'</b> sellers. Age runs to today, '+
+    'not to the end of the selected weeks.';
+}
+
+function blkSellers(R){
+  const U=blkUnits(R), per={};
+  U.forEach(u=>{(per[u.sel]=per[u.sel]||[]).push(u);});
+  const list=Object.keys(per).map(k=>{
+    const t=per[k], rv=t.filter(u=>u.res!==null).map(u=>u.res);
+    return {i:+k, id:BLK.sellers[+k], n:t.length, open:t.length-rv.length,
+      worst:rv.length?Math.max(...rv):null, gc:BLK.gcs[t[0].gc]||'Self serve'};
+  }).sort((a,b)=>b.n-a.n||b.open-a.open||(b.worst||0)-(a.worst||0)).slice(0,60);
+  let h='<thead><tr><th>#</th><th>Seller</th><th>GC</th><th class="num">'+
+        (blkSt.unit==='ticket'?'Tickets':'Blocks')+'</th>'+
+        '<th class="num">Open</th><th class="num">Worst TAT</th></tr></thead><tbody>';
+  list.forEach((sr,i)=>{
+    h+='<tr class="blkrow'+(blkSt.seller===sr.i?' sel':'')+'" data-i="'+sr.i+'">'+
+      '<td>'+(i+1)+'</td><td><code>'+sr.id+'</code></td><td>'+sr.gc+'</td>'+
+      '<td class="num"><b>'+sr.n+'</b></td>'+
+      '<td class="num"'+(sr.open?' style="background:#f8dfdb"':'')+'>'+(sr.open||'—')+'</td>'+
+      '<td class="num">'+(sr.worst==null?'—':(sr.worst/1440).toFixed(1)+'d')+'</td></tr>';
+  });
+  const tb=document.getElementById('blkSellerTable');
+  tb.innerHTML=h+'</tbody>';
+  tb.querySelectorAll('.blkrow').forEach(tr=>tr.addEventListener('click',()=>{
+    blkSt.seller=+tr.dataset.i; blkSellers(blkRows()); }));
+  if(blkSt.seller!==null && !per[blkSt.seller]) blkSt.seller=null;
+  blkSellerPanel();
+}
+
+function blkSellerPanel(){
+  const el=document.getElementById('blkSellerBody'), nm=document.getElementById('blkSellerName');
+  if(blkSt.seller===null){ nm.textContent='Pick a seller';
+    el.innerHTML='Their every restriction ticket, in order, with the time each one took to clear.'; return; }
+  const t=blkRows().filter(r=>r[2]===blkSt.seller).sort((a,b)=>a[1]-b[1]);
+  nm.innerHTML='<code>'+BLK.sellers[blkSt.seller]+'</code>';
+  const dt=d=>new Date(BLK_EPOCH+d*86400000).toISOString().slice(0,10);
+  let h='<table class="sla"><thead><tr><th>Raised</th><th>Sub-type</th><th>Status</th>'+
+        '<th class="num">TAT</th><th class="num">Rel wk</th></tr></thead><tbody>';
+  t.forEach(r=>{
+    const x=blkRes(r);
+    h+='<tr><td>'+dt(r[1])+'</td><td><code style="font-size:11px">'+BLK.subs[r[4]]+'</code></td>'+
+      '<td>'+BLK.status[r[5]]+'</td>'+
+      '<td class="num"'+(x!==null&&x>2880?' style="background:#f8dfdb"':'')+'>'+
+        (x===null?'<i>open</i>':x<1440?(x/60).toFixed(1)+'h':(x/1440).toFixed(1)+'d')+'</td>'+
+      '<td class="num">'+(r[9]===-99?'—':'W'+r[9])+'</td></tr>';
+  });
+  const d=(window.DIAGBY||{})[BLK.sellers[blkSt.seller]];
+  el.innerHTML=h+'</tbody></table>'+(d?
+    '<div class="drill-sub" style="margin-top:8px">Go-live '+d.w+' &middot; W3 spend &#8377;'+
+    d.sp[2].toLocaleString()+' &middot; '+(d.sp[2]>=3000?'<b>retained at W3</b>':'<b>not retained at W3</b>')+
+    ' &middot; GC '+d.gc+'</div>':'');
+}
+
+function blkRetention(){
+  const el=document.getElementById('blkRetTable'), ft=document.getElementById('blkRetFoot');
+  if(!window.DIAG||!window.DIAG.length){ el.innerHTML=''; ft.textContent='No cohort data.'; return; }
+  // sellers with a restriction inside W0-W3 of their own go-live, ignoring the week filter
+  const early={};
+  BLK.rows.forEach(r=>{ if(blkSt.cats.has(r[3])&&r[9]>=0&&r[9]<=3) (early[BLK.sellers[r[2]]]=early[BLK.sellers[r[2]]]||[]).push(r); });
+  const pop=window.DIAG.filter(d=>isMatureAt(d.w,2));   // W3 must be mature
+  const ret=a=>{const n=a.length; return {n, p:n?100*a.filter(d=>d.sp[2]>=3000).length/n:null};};
+  const bl=pop.filter(d=>early[d.s]), nb=pop.filter(d=>!early[d.s]);
+  const cls=d=>{const t=early[d.s], v=t.map(blkRes);
+    if(v.some(x=>x===null)) return 'Never cleared';
+    return Math.max(...v)<=2880?'Cleared ≤48h':'Cleared, but late';};
+  const g={'Cleared ≤48h':[],'Cleared, but late':[],'Never cleared':[]};
+  bl.forEach(d=>g[cls(d)].push(d));
+  const base=ret(nb);
+  let h='<thead><tr><th>Group</th><th class="num">Sellers</th><th class="num">W3 3K retention</th>'+
+        '<th class="num">vs never blocked</th></tr></thead><tbody>';
+  h+='<tr><td>Never blocked in W0–W3</td><td class="num">'+base.n+'</td>'+
+     '<td class="num">'+base.p.toFixed(1)+'%</td><td class="num">—</td></tr>';
+  ['Cleared ≤48h','Cleared, but late','Never cleared'].forEach(k=>{
+    const r=ret(g[k]); if(!r.n) return;
+    const d=r.p-base.p;
+    h+='<tr><td>'+k+'</td><td class="num">'+r.n+'</td><td class="num" style="background:'+
+       (d>=5?'#dff0e5':d<=-5?'#f8dfdb':'')+'">'+r.p.toFixed(1)+'%</td>'+
+       '<td class="num">'+(d>=0?'+':'')+d.toFixed(1)+'pp</td></tr>';
+  });
+  const all=ret(bl);
+  h+='<tr><td><b>Any block in W0–W3</b></td><td class="num"><b>'+all.n+'</b></td>'+
+     '<td class="num"><b>'+all.p.toFixed(1)+'%</b></td><td class="num"><b>'+
+     (all.p-base.p>=0?'+':'')+(all.p-base.p).toFixed(1)+'pp</b></td></tr>';
+  el.innerHTML=h+'</tbody>';
+  ft.innerHTML='Having a block barely moves W3 &mdash; you only get blocked if you are spending, so blocked sellers are '+
+    'selected for being active. What moves W3 is <b>how fast it clears</b>: '+
+    (g['Cleared ≤48h'].length&&g['Cleared, but late'].length?
+      '<b>'+ret(g['Cleared ≤48h']).p.toFixed(1)+'%</b> when cleared inside 48h against <b>'+
+      ret(g['Cleared, but late']).p.toFixed(1)+'%</b> when it drags. ':'')+
+    'Read the &ldquo;never cleared&rdquo; row with care &mdash; a seller who is churning stops chasing their ticket, '+
+    'so some of that gap is the churn causing the non-resolution rather than the reverse.';
+}
+
+function blkPlatform(){
+  const el=document.getElementById('blkPlatTable'), ft=document.getElementById('blkPlatFoot');
+  if(!BLKPLAT||!BLKPLAT.length){ el.innerHTML=''; ft.textContent='No platform-state data.'; return; }
+  const BLOCKING={DISABLED:1,UNSETTLED:1,ACCESS_DENIED:1,PENDING_CLOSURE:1};
+  const rows=BLKPLAT.filter(r=>BLOCKING[r[0]]&&r[3]>0).sort((a,b)=>b[3]-a[3]);
+  let h='<thead><tr><th>Platform state</th><th>Reason</th><th class="num">HIT sellers</th>'+
+        '<th class="num">With a ticket</th><th class="num">Coverage</th></tr></thead><tbody>';
+  let tot=0, cov=0;
+  rows.forEach(r=>{
+    const p=100*r[4]/r[3]; tot+=r[3]; cov+=r[4];
+    h+='<tr><td><b>'+r[0]+'</b></td><td><code style="font-size:11px">'+r[1]+'</code></td>'+
+      '<td class="num">'+r[3].toLocaleString()+'</td><td class="num">'+r[4].toLocaleString()+'</td>'+
+      '<td class="num" style="background:'+scoreColor(p)+'">'+p.toFixed(0)+'%</td></tr>';
+  });
+  h+='<tr><td colspan="2"><b>All blocking states</b></td><td class="num"><b>'+tot.toLocaleString()+
+     '</b></td><td class="num"><b>'+cov.toLocaleString()+'</b></td><td class="num"><b>'+
+     (100*cov/tot).toFixed(0)+'%</b></td></tr>';
+  el.innerHTML=h+'</tbody>';
+  ft.innerHTML='<b>'+(tot-cov).toLocaleString()+' HIT sellers sit in a blocking state on Meta with no ticket raised.</b> '+
+    'The ticket stream sees policy blocks well and is close to blind on the other two: <code>UNSETTLED</code> is an unpaid '+
+    'ad balance and <code>ACCESS_DENIED</code> means we have lost API access to the account, so nobody can even see it. '+
+    'This table is a live snapshot of current state, so the week filter does not apply. '+
+    '<code>fb_ad_account_block_history</code> cannot give duration &mdash; it logs accounts in trouble and records no '+
+    'recovery to <code>ACTIVE</code>, so there is no unblock event to measure against.';
+}
+
+function blkDownload(){
+  const U=blkUnits(blkRows()).sort((a,b)=>a.d-b.d);
+  const dt=d=>new Date(BLK_EPOCH+d*86400000).toISOString().slice(0,10);
+  const esc=v=>{const s=String(v==null?'':v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const td=blkToday();
+  let csv='unit,iso_week,raised_date,seller_id,category,sub_type,tickets_in_unit,cleared,'+
+          'tat_minutes,tat_hours,sla_minutes,within_48h,within_sla,age_days_if_open,'+
+          'rel_week_vs_golive,gc,gm\n';
+  U.forEach(u=>{
+    const x=u.res;
+    csv+=[blkSt.unit, BLK.weeks[u.wk], dt(u.d), BLK.sellers[u.sel], BLK.cats[u.cat], BLK.subs[u.sub],
+      u.n, x===null?'no':'yes', x===null?'':x, x===null?'':(x/60).toFixed(2), u.sla||'',
+      x===null?'no':(x<=2880?'yes':'no'), x===null?'no':(u.sla>0&&x<=u.sla?'yes':'no'),
+      x===null?(td-u.d):'', u.rel===-99?'':u.rel,
+      BLK.gcs[u.gc]||'Self serve', BLK.gms[u.gm]||''].map(esc).join(',')+'\n';
+  });
+  saveCsv('ad_account_bm_restrictions_'+blkSt.unit+'s.csv',csv);
+}
+
 function buildGcConsole(){
   const R=gcR();
   if(!R){ document.getElementById('gcKpis').innerHTML=

@@ -979,6 +979,163 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
     return {"days": [days[k] for k in order], "roles": roles}
 
 
+# ---------------------------------------------------------------------------
+# Ad-account / BM restriction tickets. Source: nushop.workboard_tasks, which is
+# the only ticket stream that carries these cases -- and it starts 2026-01-16
+# (the whole table does; nushop.tickets carried a Kapture path but it died in
+# 2026-05 after 96 tickets, so there is no earlier history to have).
+#
+# Two field traps, both verified on 19,519 rows:
+#   * completion_date is the SLA DUE date, not the resolution -- it equals
+#     created_at + sla_in_min on 19,519 of 19,519 rows. Never use it for TAT.
+#   * completed_at IS the resolution, 100% populated on status='completed' and
+#     94% on status='closed'. So 'closed' is a real terminal state, not an
+#     abandonment; the dashboard exposes both readings via a toggle.
+# The type-based catch-all (facebook_ad_account/business_manager/...) is NOT
+# used: it is 58% add_funds + 'other', which are funding tasks, not blocks.
+BLOCK_SQL = r"""
+WITH hit AS (
+  SELECT seller_id, MIN(IF(marketing_spend>1000, start_date, NULL)) AS golive_date
+  FROM nushop.gc_view_3
+  WHERE team_mapping='HIT' AND start_date >= DATE '2024-10-01'
+  GROUP BY 1
+),
+mgr AS (
+  SELECT seller_id, MAX(gc_name) gc, MAX(gm_name) gm
+  FROM `blitzscale-prod-project.analytics.seller_console_metrics_summary` GROUP BY 1
+),
+tix AS (
+  SELECT t.seller_id, t.sub_type, t.source, t.status, t.created_at, t.completed_at, t.sla_in_min
+  FROM nushop.workboard_tasks t
+  WHERE DATE(t.created_at) >= DATE '2026-01-01'
+    AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+    AND t.sub_type IN (
+      'ad_account_blocked','ad_account_suspension','account_restricted','account_permanently_restricted',
+      'ad_account_has_limit','ad_account_hacked','account_hacked',
+      'business_manager_restricted','business_manager_verification','business_manager_access','new_business_manager_creation',
+      'page_restricted','page_unpublished','page_hacked',
+      'pixel_inactive','catalogue_not_linked_with_pixel',
+      'advertiser_verification','verify_tax_info','gmc_suspension',
+      'ad_account_not_spending','new_ad_account_creation')
+)
+SELECT
+  FORMAT_DATE('%G-W%V', DATE(t.created_at,'Asia/Kolkata')) AS wk,
+  DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'), DATE '2026-01-01', DAY) AS dnum,
+  t.seller_id, t.sub_type, t.source, t.status,
+  CASE
+    WHEN t.sub_type IN ('ad_account_blocked','ad_account_suspension','account_restricted','account_permanently_restricted','ad_account_has_limit','ad_account_hacked','account_hacked') THEN 'Ad account blocked'
+    WHEN t.sub_type IN ('business_manager_restricted','business_manager_verification','business_manager_access','new_business_manager_creation') THEN 'BM restricted'
+    WHEN t.sub_type IN ('page_restricted','page_unpublished','page_hacked') THEN 'Page'
+    WHEN t.sub_type IN ('pixel_inactive','catalogue_not_linked_with_pixel') THEN 'Pixel'
+    WHEN t.sub_type IN ('advertiser_verification','verify_tax_info') THEN 'Verification / risk'
+    WHEN t.sub_type = 'gmc_suspension' THEN 'GMC suspension'
+    WHEN t.sub_type = 'ad_account_not_spending' THEN 'Not spending'
+    ELSE 'New ad account'
+  END AS cat,
+  TIMESTAMP_DIFF(t.completed_at, t.created_at, MINUTE) AS tat_min,
+  t.sla_in_min,
+  IF(h.seller_id IS NULL, 0, 1) AS in_hit,
+  DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'), h.golive_date, ISOWEEK) AS rel_week,
+  COALESCE(NULLIF(NULLIF(TRIM(m.gc),''),'-'),'') gc,
+  COALESCE(NULLIF(NULLIF(TRIM(m.gm),''),'-'),'') gm
+FROM tix t
+LEFT JOIN hit h USING(seller_id)
+LEFT JOIN mgr m USING(seller_id)
+ORDER BY dnum, t.seller_id
+"""
+
+# Platform-side truth, for the one question the ticket stream cannot answer:
+# how many sellers are in a blocking state with NO ticket raised.
+# fb_ad_account_block_history is a roster of accounts in trouble, not a state
+# machine -- ACTIVE appears 108 times in 214k rows and there is no DISABLED ->
+# ACTIVE transition anywhere, so it cannot measure block duration or recovery.
+# Its ad_account_id also only joins 598 of 4,090 accounts to
+# marketing_ad_accounts_configs, so scoping is done on seller_id.
+BLOCKFB_SQL = r"""
+WITH cur AS (
+  SELECT seller_id, ad_account_id, ad_account_issues st, reason,
+    ROW_NUMBER() OVER (PARTITION BY ad_account_id ORDER BY created_at DESC) rn
+  FROM `fb_marketings.fb_ad_account_block_history`
+),
+latest AS (SELECT * FROM cur WHERE rn=1),
+hit AS (SELECT DISTINCT seller_id FROM nushop.gc_view_3 WHERE team_mapping='HIT' AND start_date >= DATE '2024-10-01'),
+tick AS (
+  SELECT DISTINCT seller_id FROM nushop.workboard_tasks
+  WHERE DATE(created_at) >= DATE '2026-05-01' AND DATE(created_at) <= DATE_ADD(CURRENT_DATE(),INTERVAL 1 DAY)
+    AND sub_type IN ('ad_account_blocked','ad_account_suspension','account_restricted','account_permanently_restricted',
+      'ad_account_has_limit','ad_account_hacked','account_hacked','business_manager_restricted',
+      'business_manager_verification','business_manager_access','new_business_manager_creation',
+      'page_restricted','page_unpublished','page_hacked','pixel_inactive','catalogue_not_linked_with_pixel',
+      'advertiser_verification','verify_tax_info','gmc_suspension')
+)
+SELECT l.st AS state, COALESCE(NULLIF(l.reason,''),'NONE') reason,
+  COUNT(*) accounts,
+  COUNT(DISTINCT IF(h.seller_id IS NOT NULL, l.seller_id, NULL)) hit_sellers,
+  COUNT(DISTINCT IF(h.seller_id IS NOT NULL AND t.seller_id IS NOT NULL, l.seller_id, NULL)) hit_with_ticket
+FROM latest l
+LEFT JOIN hit h ON h.seller_id=l.seller_id
+LEFT JOIN tick t ON t.seller_id=l.seller_id
+GROUP BY 1,2 ORDER BY accounts DESC
+"""
+
+BLOCK_CATS = ["Ad account blocked", "BM restricted", "Page", "Pixel", "Verification / risk",
+              "GMC suspension", "Not spending", "New ad account"]
+BLOCK_STATUS = ["completed", "closed", "pending"]
+
+
+def parse_block(csv_text):
+    """weeks[]/sellers[]/subs[]/gcs[]/gms[] + rows of
+    [wkIdx, dnum, sellerIdx, catIdx, subIdx, statusIdx, tatMin(-1 null), slaMin, inHit, relWeek(-99 null), gcIdx, gmIdx]"""
+    rows = list(csvmod.DictReader(io.StringIO(csv_text)))
+    weeks, sellers, subs, gcs, gms = [], [], [], [], []
+    wi, si, bi, ci, mi = {}, {}, {}, {}, {}
+
+    def idx(v, arr, m):
+        if v not in m:
+            m[v] = len(arr); arr.append(v)
+        return m[v]
+
+    def gi(k, dflt=0):
+        v = r.get(k)
+        if v is None or v == "":
+            return dflt
+        try:
+            return int(round(float(v)))
+        except ValueError:
+            return dflt
+
+    out = []
+    for r in rows:
+        cat = (r.get("cat") or "").strip()
+        if cat not in BLOCK_CATS:
+            continue
+        st = (r.get("status") or "").strip()
+        out.append([
+            idx(r["wk"], weeks, wi), gi("dnum"), idx(r["seller_id"], sellers, si),
+            BLOCK_CATS.index(cat), idx((r.get("sub_type") or "").strip(), subs, bi),
+            BLOCK_STATUS.index(st) if st in BLOCK_STATUS else 2,
+            gi("tat_min", -1), gi("sla_in_min", 0), gi("in_hit"), gi("rel_week", -99),
+            idx(r.get("gc") or "", gcs, ci), idx(r.get("gm") or "", gms, mi),
+        ])
+    out.sort(key=lambda x: (x[1], x[2]))
+    return {"weeks": weeks, "sellers": sellers, "subs": subs, "gcs": gcs, "gms": gms,
+            "cats": BLOCK_CATS, "status": BLOCK_STATUS, "rows": out}
+
+
+def parse_blockfb(csv_text):
+    rows = list(csvmod.DictReader(io.StringIO(csv_text)))
+    out = []
+    for r in rows:
+        def gi(k):
+            try:
+                return int(round(float(r.get(k) or 0)))
+            except ValueError:
+                return 0
+        out.append([(r.get("state") or "").strip(), (r.get("reason") or "").strip(),
+                    gi("accounts"), gi("hit_sellers"), gi("hit_with_ticket")])
+    return out
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -992,6 +1149,8 @@ def main():
     tssop = parse_tssop(run_csv(session, TSSOP_SQL))
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
+    blocks = parse_block(run_csv(session, BLOCK_SQL))
+    blockfb = parse_blockfb(run_csv(session, BLOCKFB_SQL))
     tbe, tbn, tforced, tgme, tgmn = build_team_map(session)
     tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn, tforced, tgme, tgmn)
     _gc = tasksla["roles"].get("GC", {})
@@ -1002,7 +1161,8 @@ def main():
           f"GM from roster {_gmsrc.count('roster')}, inferred {_gmsrc.count('inferred')}, "
           f"none {_gmsrc.count('none')}")
 
-    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla}
+    payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
+               "blocks": blocks, "blockPlatform": blockfb}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -1012,7 +1172,9 @@ def main():
                 and old.get("gcgmSellers") == payload["gcgmSellers"]
                 and old.get("tsSop") == payload["tsSop"] and old.get("unassign") == payload["unassign"]
                 and old.get("weekActuals") == payload["weekActuals"]
-                and old.get("taskSla") == payload["taskSla"]):
+                and old.get("taskSla") == payload["taskSla"]
+                and old.get("blocks") == payload["blocks"]
+                and old.get("blockPlatform") == payload["blockPlatform"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -1025,7 +1187,9 @@ def main():
     print(f"Wrote {OUT}: {len(curve_csv.splitlines())-1} curve cohorts, {len(diag)} diagnosis sellers, "
           f"{len(gcgm['gc'])+len(gcgm['gm'])} GC/GM rows, {len(gcgms['rows'])} GC/GM sellers, "
           f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows, {len(weekact)} week-actual rows, "
-          f"{sum(len(v['rows']) for v in tasksla['roles'].values())} task-SLA rows.")
+          f"{sum(len(v['rows']) for v in tasksla['roles'].values())} task-SLA rows, "
+          f"{len(blocks['rows'])} block tickets over {len(blocks['weeks'])} weeks, "
+          f"{len(blockfb)} platform-state rows.")
 
 
 if __name__ == "__main__":
