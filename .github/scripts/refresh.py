@@ -810,6 +810,15 @@ HYPERCARE_EMAILS = {
 # Owner-supplied corrections (2026-09-04), applied AFTER the cards and taking
 # precedence over them. Matched on normalised name because the owner gave names,
 # not emails. Fold these into the mapping sheet once it is readable, then delete.
+# Owner-supplied removals (2026-09-11): not GCs carrying a real book. Dropped from
+# the GC task SLA tab only -- matched on normalised name, and only for role 'GC',
+# so a same-named KAM elsewhere is untouched.
+EXCLUDE_GCS = {
+    "vikash kumar",
+    "dummy mgsv gc",
+    "biplab kumar singh",
+}
+
 OWNER_OVERRIDES = {
     # Revival — confirmed by the owner; card 11911 only sees people who have
     # actually submitted a revival, so it under-reports the team.
@@ -828,6 +837,9 @@ OWNER_OVERRIDES = {
     "sadiya rajgoli": "Core GC",
     "saadiya rajgoli": "Core GC",
     "sadiya": "Core GC",
+    # 1-5K GL — owner-confirmed 2026-09-11; card 12100 does not carry her.
+    "shradha kumari": "1-5K GL",
+    "shradha": "1-5K GL",
 }
 
 
@@ -918,6 +930,8 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
     seen_gm = {}
     for r in csvmod.DictReader(io.StringIO(csv_text)):
         role = r["role"]
+        if role == "GC" and _norm_name(r.get("nm")) in EXCLUDE_GCS:
+            continue
         if role not in roles:
             roles[role] = {"tasks": [], "people": [], "_t": {}, "_p": {}, "rows": [],
                            "emails": [], "gms": [], "cats": [], "gmsrc": []}
@@ -1155,6 +1169,9 @@ def main():
     tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn, tforced, tgme, tgmn)
     _gc = tasksla["roles"].get("GC", {})
     _un = sum(1 for c in _gc.get("cats", []) if c == "Unmapped")
+    _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
+    if _left:
+        print(f"  ! EXCLUDE_GCS did not take effect for: {_left}", file=sys.stderr)
     _gmsrc = _gc.get("gmsrc", [])
     print(f"  team map: {len(tbe)} emails, {len(tbn)} names; "
           f"{_un} GC(s) unmapped of {len(_gc.get('people', []))}; "
