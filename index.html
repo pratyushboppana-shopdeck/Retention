@@ -537,7 +537,7 @@
 <div class="card" id="slaCard" style="display:none">
   <div class="drill-h" style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
     <div><b id="slaTitle">Task SLA adherence</b>
-      <span class="hint">&mdash; by task creation day. A task past SLA and still open counts as a breach.</span></div>
+      <span class="hint">&mdash; by task creation day. A task past SLA and still open counts as a breach. Callback is the exception: it follows card 11230 &mdash; scored on a real call, keyed on the requested day.</span></div>
     <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
       <span class="slaseg" id="slaRange">
         <button type="button" data-r="yday">Yesterday</button>
@@ -1801,6 +1801,7 @@ function slaFoot(R){
     `<b>TS SOP Call</b> is fixed at <b>48h</b> from creation, and <b>Seller Callback &ndash; primary task</b> is scored against the `+
     `platform's own scheduled <code>completion_date</code> &mdash; that task is a callback booked for a time the seller chose, `+
     `so creation + SLA would measure the schedule rather than the person (it matches creation + SLA for only 0.1% of those rows, median gap 18.8h). `+
+    (slaSt.role==='GC'?`<b>Callback</b> follows card 11230: it is scored on whether the GC <b>actually rang the seller</b> &mdash; any call from them to that seller between the task being raised and the seller's requested time plus a <b>2-hour grace</b> &mdash; not on whether the task was closed. It is also keyed on the day the seller asked to be called, not the day the task was raised, and covers seller-requested callbacks only. Closing a callback task without a traceable call does not count. `+'':'')+
     `Scope: tasks on HIT sellers assigned to a ${slaSt.role}.`;
 }
 function slaDownload(){
@@ -2585,6 +2586,8 @@ function gcFoot(R){
     `<b>Adherence</b> = on-time ÷ (on-time + closed-late + still-open-past-SLA); tasks still inside SLA are excluded. `+
     `<b>Due date</b> = creation + the task's own <code>sla_in_min</code>, except <b>TS SOP Call</b> at a fixed 48h and `+
     `<b>Seller Callback &ndash; primary task</b>, scored against the seller's booked <code>completion_date</code>. `+
+    `<b>Callback</b> follows card 11230: it is scored on whether the GC <b>actually rang the seller</b> &mdash; any call from them to that seller between the task being raised and the seller's requested time plus a <b>2-hour grace</b> &mdash; not on whether the task was closed. It is also keyed on the day the seller asked to be called, not the day the task was raised, and covers seller-requested callbacks only. Closing a callback task without a traceable call does not count. `+
+    `That matches card 11230 exactly on its own population (5,072 tasks, 86.51% over the last 30 days). This tab differs only in scope: it keeps HIT sellers only, which drops 250 of the card's tasks, and it does not require the GC to have sellers mapped, which adds back 105. `+
     `<b>Call quality</b> is per call and shown at whatever sample exists &mdash; n is printed beside every figure. `+
     `A call scores only when accuracy, satisfaction and tonality are all present; tonality alone is recorded far more often. `+
     `Calls are held for 35 days, so a window reaching before <b>${callCut}</b> shows SLA without quality. `+

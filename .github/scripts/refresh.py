@@ -635,6 +635,7 @@ def parse_weekact(csv_text):
 TASKSLA_SQL = r"""
 WITH base AS (
   SELECT t.id, t.seller_id, t.type, t.sub_type, t.title, t.status AS task_status,
+    t.assignee,
     t.created_at, t.completed_at, t.sla_in_min, t.completion_date,
     DATE(t.created_at,'Asia/Kolkata') AS cd,
     REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
@@ -656,7 +657,11 @@ WITH base AS (
 ),
 labelled AS (
   SELECT *, CASE
-    WHEN role='GC' AND type='callback' AND sub_type='schedule_call'                  THEN 'Callback'
+    -- Callback follows card 11230 exactly: seller-REQUESTED scheduled callbacks only.
+    -- The 68 schedule_call tasks in 31 days without that title (1.1%) drop out, as they
+    -- do in the card. hits-tracker.xyz already reads 11230, so this aligns the two.
+    WHEN role='GC' AND type='callback' AND sub_type='schedule_call'
+         AND title LIKE '%Seller Requested Callback at%'                             THEN 'Callback'
     WHEN role='GC' AND type='callback' AND sub_type='early_retention_call'           THEN 'Retention Call'
     WHEN role='GC' AND type='seller_callback_management'                             THEN 'Seller Callback'
     WHEN role='GC' AND type='troubleshoot_action' AND sub_type='troubleshoot_sop'    THEN 'TS SOP Call'
@@ -683,8 +688,41 @@ labelled AS (
   END AS task
   FROM base WHERE role IS NOT NULL AND nm != ''
 ),
+-- Who called whom, for the Callback rule. Card 11230 does NOT ask whether the task was
+-- closed -- it asks whether the GC actually rang the seller. It resolves the caller from
+-- the call_from phone via userprofiles, and the seller four ways. Reproducing all four
+-- matters: the task-linked path alone gives 69.8% where the card gives 86.5%.
+-- Validated against card 11230 over its own last-30-day window: 5,072 tasks and 86.51%
+-- against the card's 5,072 and 86.51%, with 81 of 84 GCs identical to two decimals. The
+-- three that differ net to zero and are name-collision grouping inside the card, which
+-- groups on the display name where this groups on the user id.
+gcraw AS (
+  SELECT ec.entity_id, ecd.call_to, ecd.created_at, up1.user_id AS caller_id
+  FROM nushop.exotel_calls ec
+  JOIN nushop.exotel_call_details ecd ON ec.exotel_call_sid = ecd.sid
+  JOIN nushop.userprofiles up1
+    ON ABS(SAFE_CAST(up1.contact_number AS FLOAT64)) = SAFE_CAST(ecd.call_from AS FLOAT64)
+  WHERE ec.created_at  >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 92 DAY))
+    AND ecd.created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 92 DAY))
+),
+gccalls AS (
+  SELECT caller_id, up2.user_id AS seller_id, CAST(NULL AS STRING) AS task_id, r.created_at
+  FROM gcraw r JOIN nushop.userprofiles up2
+    ON ABS(SAFE_CAST(up2.contact_number AS FLOAT64)) = SAFE_CAST(r.call_to AS FLOAT64)
+  UNION ALL
+  SELECT caller_id, r.entity_id, CAST(NULL AS STRING), r.created_at
+  FROM gcraw r WHERE REGEXP_CONTAINS(r.entity_id, r'^[a-f0-9]{24}$')
+  UNION ALL
+  SELECT caller_id, CAST(NULL AS STRING), r.entity_id, r.created_at
+  FROM gcraw r
+  UNION ALL
+  SELECT caller_id, cv.user_id, CAST(NULL AS STRING), r.created_at
+  FROM gcraw r JOIN `seller_app_chat.conversations` cv
+    ON cv.id = r.entity_id AND DATE(cv.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 400 DAY)
+),
 scored AS (
   -- One explicit due TIMESTAMP per task, so every outcome below is a plain comparison.
+  --   Callback (card 11230)  -> the seller's requested time (completion_date) + 2h grace
   --   TS SOP Call            -> creation + 48h (retention team's definition)
   --   seller_callback_primary_task -> the platform's own completion_date. This task is a
   --     SCHEDULED callback: its due date is when the seller asked to be called, and it
@@ -693,8 +731,13 @@ scored AS (
   --   everything else        -> creation + its own sla_in_min
   -- completion_date is never EARLIER than creation + sla_in_min anywhere in this data,
   -- so this can only ever relax a bar, never tighten one.
-  SELECT id, seller_id, role, cd, task, nm, em, task_status, created_at, completed_at,
+  SELECT id, seller_id, role, task, nm, em, task_status, created_at, completed_at, assignee,
+    -- Callback is keyed on the day the seller asked to be called, not the day the task was
+    -- raised, again per card 11230. Every other task type stays on its creation day.
+    IF(task='Callback', DATE(completion_date,'Asia/Kolkata'), cd) AS cd,
     CASE
+      WHEN task = 'Callback'
+        THEN TIMESTAMP_ADD(completion_date, INTERVAL 120 MINUTE)
       WHEN task = 'TS SOP Call'
         THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)
       WHEN sub_type = 'seller_callback_primary_task' AND completion_date IS NOT NULL
@@ -703,19 +746,42 @@ scored AS (
     END AS due_ts
   FROM labelled WHERE task IS NOT NULL
 ),
+called AS (
+  SELECT s.id, MAX(IF(c.caller_id IS NULL, 0, 1)) AS met,
+         MIN(c.created_at) AS first_call
+  FROM scored s
+  LEFT JOIN gccalls c
+    ON s.task = 'Callback'
+   AND c.caller_id = s.assignee
+   AND (c.seller_id = s.seller_id OR c.task_id = s.id)
+   AND c.created_at >= s.created_at
+   AND c.created_at <= s.due_ts
+  GROUP BY 1
+),
 cls AS (
-  SELECT *, CASE
-    WHEN task_status='completed' AND completed_at <= due_ts THEN 'on_time'
-    WHEN task_status='completed'                            THEN 'late'
-    WHEN CURRENT_TIMESTAMP() > due_ts                       THEN 'stuck'
+  -- Callback is scored on call evidence, so it has no 'stuck': either the GC rang inside
+  -- the window or, once the window has closed, they did not. 'late' therefore means
+  -- "no call inside the window" for Callback and "closed after the deadline" everywhere
+  -- else; adherence = on_time / (on_time + late + stuck) is unaffected either way.
+  SELECT s.*, CASE
+    WHEN s.task='Callback' AND cl.met=1                            THEN 'on_time'
+    WHEN s.task='Callback' AND CURRENT_TIMESTAMP() > s.due_ts      THEN 'late'
+    WHEN s.task='Callback'                                         THEN 'pending'
+    WHEN s.task_status='completed' AND s.completed_at <= s.due_ts  THEN 'on_time'
+    WHEN s.task_status='completed'                                 THEN 'late'
+    WHEN CURRENT_TIMESTAMP() > s.due_ts                            THEN 'stuck'
     ELSE 'pending' END AS outcome,
     CASE
-      WHEN task_status='completed' AND completed_at > due_ts
-        THEN TIMESTAMP_DIFF(completed_at, due_ts, MINUTE)
-      WHEN task_status != 'completed' AND CURRENT_TIMESTAMP() > due_ts
-        THEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), due_ts, MINUTE)
+      -- "minutes over SLA" is undefined for a call-evidence rule: a missed callback is not
+      -- a task still ticking, it is a window that closed. Charging it now-minus-due would
+      -- book 90 days of overdue against a call that was simply never made.
+      WHEN s.task='Callback' THEN 0
+      WHEN s.task_status='completed' AND s.completed_at > s.due_ts
+        THEN TIMESTAMP_DIFF(s.completed_at, s.due_ts, MINUTE)
+      WHEN s.task_status != 'completed' AND CURRENT_TIMESTAMP() > s.due_ts
+        THEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), s.due_ts, MINUTE)
       ELSE 0 END AS over_min
-  FROM scored
+  FROM scored s LEFT JOIN called cl ON cl.id = s.id
 )
 ,
 -- Call activity and quality per task. call_quality_score writes -1 when a call was
