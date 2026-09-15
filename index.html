@@ -224,8 +224,17 @@
   table.gcwide th:nth-child(-n+3),table.gcwide td:nth-child(-n+3){text-align:left;}
   table.gcwide td{padding:5px 7px;border-bottom:1px solid #efeee7;text-align:right;white-space:nowrap;}
   table.gcwide tbody tr:hover{background:#faf9f4;cursor:pointer;}
-  table.gcwide .nmw{font-weight:600;color:#23251f;}
+  table.gcwide .nmw{font-weight:600;color:#23251f;overflow:hidden;text-overflow:ellipsis;}
+  table.gcwide.trunc .nmw{max-width:var(--nmw,120px);}
   table.gcwide .gmw{color:var(--muted);font-size:10.5px;}
+  .gcwrapcols{display:grid;gap:16px;align-items:start;}
+  .gcwrapcols>div{min-width:0;}
+  .gcsplit.expanded table.gcwide{width:100%;}
+  table.gcwide.d1 td{padding:3px 6px;} table.gcwide.d1 th{padding:4px 6px;} table.gcwide.d1{font-size:11px;}
+  table.gcwide.d2 td{padding:1.5px 5px;} table.gcwide.d2 th{padding:3px 5px;} table.gcwide.d2{font-size:10.5px;}
+  table.gcwide.d3 td{padding:0.5px 4px;line-height:1.35;} table.gcwide.d3 th{padding:2px 4px;} table.gcwide.d3{font-size:9.5px;}
+  table.gcwide.d3 .gmw,table.gcwide.d2 .gmw{font-size:9.5px;}
+  .gcfit{font-size:11px;color:var(--muted);margin:0 0 8px;}
   .gcexp{border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11px;
     padding:3px 9px;cursor:pointer;color:#3d4036;}
   .gcexp.on{background:#23251f;color:#fff;border-color:#23251f;font-weight:650;}
@@ -516,6 +525,7 @@
             <span id="gcRosterHint">click a row &rarr;</span>
             <button type="button" class="gcexp" id="gcExpand">Expand all &#8599;</button>
           </span></div>
+        <div class="gcfit" id="gcFitNote" style="display:none;padding:0 13px"></div>
         <div class="gcroster" id="gcRoster"></div>
       </div>
       <div class="gcpanel" id="gcReportPanel">
@@ -2343,7 +2353,9 @@ function renderGc(){
     document.getElementById('gcRosterHint').textContent = ex
       ? 'every '+(gcSt.view==='gm'?'GM':'GC')+' and task type — one screenshot'
       : 'click a row →';
-    if(ex) gcRosterWide(); else { gcRoster(); gcReport(); }
+    if(ex) gcRosterWide();
+    else { const n=document.getElementById('gcFitNote'); if(n){n.textContent='';n.style.display='none';}
+           gcRoster(); gcReport(); }
   } else { gcDigest(); }
 }
 function gcTeamChips(R){
@@ -2424,38 +2436,127 @@ function gcRoster(){
 function gcRosterWide(){
   const R=gcR(), a=gcList(), pt=gcAgg('pt');
   const tasks=R.tasks.map((t,i)=>({t,i})).filter(x=>!gcSt.off[x.t]);
-  document.getElementById('gcRosterTitle').textContent=
-    (gcSt.view==='gm'?'All GMs':'All GCs')+' · '+a.length;
-  const head='<thead><tr><th>#</th><th>'+(gcSt.view==='gm'?'GM':'GC')+'</th>'+
-    (gcSt.view==='gm'?'<th>GCs</th>':'<th>GM</th>')+
-    '<th>Due</th><th>Late</th><th>Stuck</th>'+
-    tasks.map(x=>`<th title="${esc(x.t)}">${esc(x.t.length>12?x.t.slice(0,11)+'…':x.t)}</th>`).join('')+
-    '<th>Quality</th><th>Overall</th></tr></thead>';
-  const body=a.map((x,i)=>{
+  const who=gcSt.view==='gm'?'GM':'GC';
+  document.getElementById('gcRosterTitle').textContent=(gcSt.view==='gm'?'All GMs':'All GCs')+' · '+a.length;
+
+  // Task headers are the widest thing in the table and they set the floor on how narrow a
+  // panel can get, so they get abbreviated before any data column is dropped.
+  const ABBR={'Callback':'CB','Seller Callback':'SCB','Commitment Task':'CMT',
+    'POC Handover':'POC','TS SOP Call':'TSS','Retention Call':'RTN'};
+  const shortT=t=>ABBR[t]||t.split(/\s+/).map(w=>w[0]).join('').slice(0,3).toUpperCase();
+  const head=o=>'<thead><tr><th>#</th><th>'+who+'</th>'+
+    (o.gm?(gcSt.view==='gm'?'<th>GCs</th>':'<th>GM</th>'):'')+
+    '<th>Due</th>'+(o.late?'<th>Late</th>':'')+'<th>'+(o.ab?'Stk':'Stuck')+'</th>'+
+    tasks.map(x=>`<th title="${esc(x.t)}">${esc(o.ab?shortT(x.t):(x.t.length>12?x.t.slice(0,11)+'…':x.t))}</th>`).join('')+
+    '<th>'+(o.ab?'Q':'Qual')+'</th><th>'+(o.ab?'All':'Overall')+'</th></tr></thead>';
+
+  const row=(x,i,o)=>{
     const c=slaAdhColor(x.adh==null?0:x.adh);
     const who2 = gcSt.view==='gm' ? String(x.members.size) : esc(R.gms[x.k]||'(no GM)');
-    return `<tr data-k="${esc(String(x.k))}">
-      <td>${i+1}</td>
-      <td class="nmw">${esc(x.name)}</td>
-      <td class="gmw">${who2}</td>
-      <td>${x.due}</td><td>${x.late}</td>
-      <td${x.stuck?' style="color:#C0392B;font-weight:650"':''}>${x.stuck}</td>
-      ${tasks.map(t=>{
+    return `<tr data-k="${esc(String(x.k))}" title="${esc(x.name)}${gcSt.view==='gm'?'':' · '+esc(R.gms[x.k]||'(no GM)')} · ${x.late} late, ${x.stuck} stuck">`+
+      `<td>${i+1}</td><td class="nmw">${esc(x.name)}</td>`+
+      (o.gm?`<td class="gmw">${who2}</td>`:'')+
+      `<td>${x.due}</td>`+(o.late?`<td>${x.late}</td>`:'')+
+      `<td${x.stuck?' style="color:#C0392B;font-weight:650"':''}>${x.stuck}</td>`+
+      tasks.map(t=>{
         const v=pt.get(x.k+'|'+t.i);
         if(!v||!v.due) return '<td style="color:#c9c6b4">·</td>';
-        const cc=slaAdhColor(v.adh);
-        return `<td style="color:${cc};font-weight:650" title="${v.on}/${v.due} on time, ${v.stuck} stuck">${Math.round(100*v.adh)}</td>`;
-      }).join('')}
-      <td style="color:${gcQCol(x.q)};font-weight:650" title="${x.sc?x.sc+' scored calls':'no scored calls'}">${x.q==null?'·':x.q}</td>
-      <td style="color:${c};font-weight:750">${x.adh==null?'—':Math.round(100*x.adh)+'%'}</td>
-    </tr>`;}).join('');
-  document.getElementById('gcRoster').innerHTML='<table class="gcwide">'+head+'<tbody>'+body+'</tbody></table>';
-  // clicking a row still opens that person, by collapsing back to the split view
+        return `<td style="color:${slaAdhColor(v.adh)};font-weight:650" title="${esc(t.t)}: ${v.on}/${v.due} on time, ${v.stuck} stuck">${Math.round(100*v.adh)}</td>`;
+      }).join('')+
+      `<td style="color:${gcQCol(x.q)};font-weight:650" title="${x.sc?x.sc+' scored calls':'no scored calls'}">${x.q==null?'·':x.q}</td>`+
+      `<td style="color:${c};font-weight:750">${x.adh==null?'—':Math.round(100*x.adh)+'%'}</td></tr>`;
+  };
+
+  const host=document.getElementById('gcRoster');
+  const note=document.getElementById('gcFitNote');
+
+  // Lay the roster out so the whole thing lands in ONE screenshot: split it into as few
+  // side-by-side panels as will fit the width, then step the row density down until the
+  // tallest panel clears the viewport. Rank is baked into each row, so reading down panel 1
+  // and on to panel 2 keeps the order.
+  function paint(n, o){
+    const per=Math.ceil(a.length/n);
+    const cls='gcwide d'+o.d+(o.nm?' trunc':'');
+    const st=o.nm?' style="--nmw:'+o.nm+'px"':'';
+    let html='<div class="gcwrapcols" style="grid-template-columns:repeat('+n+',minmax(0,1fr))">';
+    for(let i=0;i<n;i++){
+      const slice=a.slice(i*per,(i+1)*per);
+      if(!slice.length) continue;
+      html+='<div><table class="'+cls+'"'+st+'>'+head(o)+'<tbody>'+
+            slice.map((x,j)=>row(x,i*per+j,o)).join('')+'</tbody></table></div>';
+    }
+    host.innerHTML=html+'</div>';
+  }
+  // A table only reports overflow on the cell that holds it -- the table element itself just
+  // grows past its 100% width -- so measure the grid cell, not the table.
+  function widthOk(){
+    return ![...host.querySelectorAll('.gcwrapcols>div')]
+      .some(d=>d.querySelector('table').offsetWidth > d.clientWidth+1);
+  }
+  // Budget height against the viewport, not against where the page happens to be scrolled;
+  // 150px covers the panel header, the fit note and a little browser chrome.
+  const budget=()=>Math.max(320, window.innerHeight-150);
+
+  // Ladder, ordered by how much is given up. Each rung is tried across 1..4 panels; more
+  // panels shortens the table but narrows each one, so a rung can fail on width and the
+  // next (narrower) rung succeeds.
+  const LADDER=[
+    {gm:1,late:1,nm:0,  d:0,ab:0},
+    {gm:1,late:1,nm:0,  d:1,ab:0},
+    {gm:1,late:1,nm:0,  d:1,ab:1},
+    {gm:0,late:1,nm:0,  d:1,ab:1},
+    {gm:0,late:1,nm:130,d:1,ab:1},
+    {gm:0,late:1,nm:105,d:2,ab:1},
+    {gm:0,late:0,nm:105,d:2,ab:1},
+    {gm:0,late:0,nm:85, d:3,ab:1},
+    {gm:0,late:0,nm:66, d:3,ab:1},
+  ];
+  // Each trial changes the page height, which makes the vertical scrollbar come and go and
+  // moves clientWidth by ~15px between trials -- enough to flip the answer between 2 and 3
+  // panels on the same window. Pin the scrollbar for the duration so every trial is measured
+  // against the same width.
+  const htmlEl=document.documentElement, prevOv=htmlEl.style.overflowY;
+  htmlEl.style.overflowY='scroll';
+  let chosen=null;
+  outer:
+  for(const o of LADDER){
+    for(let n=1;n<=4;n++){
+      paint(n,o);
+      if(!widthOk()) break;                       // narrower cells will only be worse
+      if(host.scrollHeight<=budget()){ chosen={n,o}; break outer; }
+    }
+  }
+  if(!chosen){
+    const o=LADDER[LADDER.length-1];
+    let best=1;
+    for(let n=4;n>=1;n--){ paint(n,o); if(widthOk()){ best=n; break; } }
+    paint(best,o); chosen={n:best,o};
+  }
+  htmlEl.style.overflowY=prevOv;
+  if(note){
+    const b=[];
+    if(chosen.n>1) b.push('split into '+chosen.n+' columns — read down the first, then on to the next');
+    if(chosen.o.ab) b.push('task columns abbreviated ('+tasks.map(x=>shortT(x.t)+' = '+x.t).join(', ')+')');
+    if(!chosen.o.gm) b.push('GM hidden');
+    if(!chosen.o.late) b.push('Late hidden');
+    if(chosen.o.nm) b.push('long names clipped');
+    const lost=!chosen.o.gm||!chosen.o.late||chosen.o.nm;
+    note.innerHTML = b.length
+      ? 'Fitted to one screen: '+b.join('; ')+'.'+(lost?' Hover any row for the full detail.':'')
+      : '';
+    note.style.display = b.length ? '' : 'none';
+  }
+
   document.querySelectorAll('#gcRoster tbody tr').forEach(tr=>tr.addEventListener('click',()=>{
     gcSt.sel = gcSt.view==='gm' ? tr.dataset.k : +tr.dataset.k;
     gcSt.expanded=false; renderGc();
     document.getElementById('gcReportPanel').scrollIntoView({behavior:'smooth',block:'nearest'});
   }));
+  if(!gcRosterWide._rs){
+    gcRosterWide._rs=true;
+    let t; window.addEventListener('resize',()=>{ clearTimeout(t);
+      t=setTimeout(()=>{ if(gcSt.expanded) gcRosterWide(); },180); });
+  }
 }
 function gcReport(){
   const R=gcR(), a=gcList(), el=document.getElementById('gcReport');
