@@ -247,7 +247,7 @@
   table.stk td.sn{max-width:230px;overflow:hidden;text-overflow:ellipsis;font-weight:600;color:#23251f;}
   table.stk td.sid{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--muted);}
   .stkpill{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;}
-  .stkpill.pend{background:#f8dfdb;color:#8d2c22;} .stkpill.closed{background:#f1efe8;color:#5f5e5a;}
+  .stkpill.pend{background:#f8dfdb;color:#8d2c22;} .stkpill.closed{background:#f1efe8;color:#5f5e5a;} .stkpill.unset{background:#f9efdd;color:#7a4e08;}
   .gcexp{border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11px;
     padding:3px 9px;cursor:pointer;color:#3d4036;}
   .gcexp.on{background:#23251f;color:#fff;border-color:#23251f;font-weight:650;}
@@ -2600,8 +2600,10 @@ function gcStuckTable(sel){
   if(rows===null) return '';
   if(!rows.length) return '<div class="drill-sub">No stuck tasks in this window for the task types selected.</div>';
   const pend=rows.filter(r=>STUCK.status[r[5]]==='pending').length;
+  const nost=rows.filter(r=>STUCK.status[r[5]]==='no status').length;
   const body=rows.map(r=>{
     const st=STUCK.status[r[5]], d=r[6]/1440;
+    const pc=st==='pending'?'pend':st==='closed'?'closed':'unset';
     return '<tr><td class="sn" title="'+esc(STUCK.names[r[3]]||'(no name)')+'">'+esc(STUCK.names[r[3]]||'(no name)')+'</td>'+
       '<td class="sid cpy" data-c="'+esc(STUCK.sellers[r[3]])+'" title="click to select, or copy">'+esc(STUCK.sellers[r[3]])+'</td>'+
       '<td class="sid cpy" data-c="'+esc(r[8]||'')+'" title="click to select, or copy">'+esc(r[8]||'—')+'</td>'+
@@ -2609,12 +2611,21 @@ function gcStuckTable(sel){
       '<td title="'+STUCK.days[r[0]]+'">'+STUCK.days[r[0]].slice(5)+'</td>'+
       '<td title="'+STUCK.days[r[7]]+'">'+STUCK.days[r[7]].slice(5)+'</td>'+
       '<td style="color:#C0392B;font-weight:700">'+(d<1?(r[6]/60).toFixed(1)+'h':d.toFixed(1)+'d')+'</td>'+
-      '<td><span class="stkpill '+(st==='pending'?'pend':'closed')+'">'+st+'</span></td></tr>';
+      '<td><span class="stkpill '+pc+'">'+st+'</span></td></tr>';
   }).join('');
+  // The count above comes from TASKSLA_SQL and this list from STUCK_SQL; they run seconds
+  // apart in the same refresh, so a bulk close in between can leave the two a few tasks
+  // adrift. Say so rather than let it read as a broken list.
+  const drift=rows.length-(sel.stuck||0);
+  const driftNote=drift?' <span style="color:#BA7517">The tile above says '+sel.stuck+
+    ' &mdash; it and this list are built by two queries run seconds apart, so a task closed '+
+    'in between shows in one and not the other. The list is the later of the two.</span>':'';
   return '<div class="drill-sub" style="margin:0 0 7px">'+rows.length+' stuck task'+(rows.length===1?'':'s')+
-    ' &mdash; <b>'+pend+' never touched</b> (pending) and '+(rows.length-pend)+
-    ' closed without being completed. Oldest first. '+
-    '<button type="button" class="gcexp" id="gcStuckCsv" style="margin-left:6px">Download CSV &#8595;</button></div>'+
+    ' &mdash; <b>'+pend+' never touched</b> (pending), '+(rows.length-pend-nost)+
+    ' closed without being completed'+(nost?', '+nost+' carrying no status at all':'')+
+    '. Oldest first. '+
+    '<button type="button" class="gcexp" id="gcStuckCsv" style="margin-left:6px">Download CSV &#8595;</button>'+
+    driftNote+'</div>'+
     '<div class="tablewrap" style="max-height:340px;overflow:auto"><table class="stk"><thead><tr>'+
     '<th>Seller</th><th>Seller ID</th><th>Task ID</th><th>Task</th><th>Raised</th><th>Due</th><th>Over by</th><th>Status</th>'+
     '</tr></thead><tbody>'+body+'</tbody></table></div>';

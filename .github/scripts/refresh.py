@@ -1242,7 +1242,10 @@ WITH base AS (
     AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
-    AND t.status != 'completed'
+    -- COALESCE is defensive only: status is NULL on 0 of 597k rows today, so this matches
+    -- a bare `!= 'completed'`. It guards the NULL-false case if that ever changes, since
+    -- TASKSLA_SQL's CASE would fall through and count such a row as stuck.
+    AND COALESCE(t.status,'') != 'completed'
 ),
 lab AS (
   SELECT *, CASE
@@ -1268,7 +1271,7 @@ FROM sc WHERE CURRENT_TIMESTAMP() > due_ts
 ORDER BY over_min DESC
 """
 
-STUCK_STATUS = ["pending", "closed"]
+STUCK_STATUS = ["pending", "closed", "no status"]
 
 
 def parse_stuck(csv_text):
@@ -1305,7 +1308,7 @@ def parse_stuck(csv_text):
             om = int(round(float(r.get("over_min") or 0)))
         except ValueError:
             om = 0
-        st = (r.get("task_status") or "").strip()
+        st = (r.get("task_status") or "").strip() or "no status"
         out.append([idx(r["d"], days, di), idx(r["task"], tasks, ti), idx(nm, people, pi),
                     si[sid], idx((r.get("sub_type") or "").strip(), subs, bi),
                     STUCK_STATUS.index(st) if st in STUCK_STATUS else 0, om,
