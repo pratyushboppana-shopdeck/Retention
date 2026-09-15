@@ -1216,6 +1216,102 @@ def parse_blockfb(csv_text):
     return out
 
 
+# ---------------------------------------------------------------------------
+# The stuck tasks themselves, so the GC report can list them rather than just
+# count them. Deliberately a separate query: it needs no call evidence and no
+# quality JSON, which is the expensive half of TASKSLA_SQL.
+#
+# The scoring must reproduce TASKSLA_SQL's 'stuck' bucket exactly or the list
+# will not tie out to the KPI above it: stuck = NOT completed AND past its due
+# timestamp, with TS SOP Call at a fixed 48h and seller_callback_primary_task
+# on the seller's booked completion_date. Callback is excluded outright -- it is
+# scored on call evidence, so it has no 'stuck' state at all.
+STUCK_SQL = r"""
+WITH base AS (
+  SELECT t.id, t.seller_id, t.type, t.sub_type, t.title, t.status AS task_status,
+    t.created_at, t.sla_in_min, t.completion_date,
+    DATE(t.created_at,'Asia/Kolkata') AS cd,
+    COALESCE(NULLIF(TRIM(s.display_name),''),
+             REGEXP_REPLACE(TRIM(CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,''))),r'\s+',' ')) AS sname,
+    REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
+    CASE WHEN LOWER(u.role) LIKE '%growth-consultant%' THEN 'GC' END AS role
+  FROM nushop.workboard_tasks t
+  JOIN nushop.sellers s ON t.seller_id = s._id AND s.seller_account_status='hit' AND s.user_type='seller'
+  LEFT JOIN nushop.users u ON t.assignee = u._id
+  WHERE DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY)
+    AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+    AND DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
+    AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
+    AND t.status != 'completed'
+),
+lab AS (
+  SELECT *, CASE
+    WHEN type='callback' AND sub_type='early_retention_call'        THEN 'Retention Call'
+    WHEN type='seller_callback_management'                          THEN 'Seller Callback'
+    WHEN type='troubleshoot_action' AND sub_type='troubleshoot_sop' THEN 'TS SOP Call'
+    WHEN type='seller_poc_handover'                                 THEN 'POC Handover'
+    WHEN type='other_request' AND title LIKE '[Post-call]%'         THEN 'Commitment Task'
+  END AS task FROM base WHERE role='GC' AND nm != ''
+),
+sc AS (
+  SELECT *, CASE
+    WHEN task='TS SOP Call' THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)
+    WHEN sub_type='seller_callback_primary_task' AND completion_date IS NOT NULL THEN completion_date
+    ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE) END AS due_ts
+  FROM lab WHERE task IS NOT NULL
+)
+SELECT FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm, seller_id,
+  COALESCE(sname,'') AS sname, sub_type, task_status,
+  FORMAT_TIMESTAMP('%Y-%m-%d', due_ts, 'Asia/Kolkata') AS due_d,
+  CAST(ROUND(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), due_ts, MINUTE)) AS INT64) AS over_min
+FROM sc WHERE CURRENT_TIMESTAMP() > due_ts
+ORDER BY over_min DESC
+"""
+
+STUCK_STATUS = ["pending", "closed"]
+
+
+def parse_stuck(csv_text):
+    """Task-level stuck rows with their OWN index arrays.
+
+    Deliberately not keyed into taskSla's arrays: doing that meant appending any
+    unseen name to taskSla.roles.GC.people, which would have quietly put the three
+    EXCLUDE_GCS names back into the roster with a row of zeroes. The UI joins these
+    to the aggregate by name and date string instead, and EXCLUDE_GCS is applied
+    here too so the two views agree on who exists.
+
+    Row = [dayIdx, taskIdx, personIdx, sellerIdx, subIdx, statusIdx, overMin, dueDayIdx]
+    """
+    days, people, tasks, sellers, snames, subs = [], [], [], [], [], []
+    di, pi, ti, si, bi = {}, {}, {}, {}, {}
+
+    def idx(v, arr, m):
+        if v not in m:
+            m[v] = len(arr); arr.append(v)
+        return m[v]
+
+    out = []
+    for r in csvmod.DictReader(io.StringIO(csv_text)):
+        nm = (r.get("nm") or "").strip()
+        if _norm_name(nm) in EXCLUDE_GCS:
+            continue
+        sid = r["seller_id"]
+        if sid not in si:
+            si[sid] = len(sellers); sellers.append(sid); snames.append(r.get("sname") or "")
+        try:
+            om = int(round(float(r.get("over_min") or 0)))
+        except ValueError:
+            om = 0
+        st = (r.get("task_status") or "").strip()
+        out.append([idx(r["d"], days, di), idx(r["task"], tasks, ti), idx(nm, people, pi),
+                    si[sid], idx((r.get("sub_type") or "").strip(), subs, bi),
+                    STUCK_STATUS.index(st) if st in STUCK_STATUS else 0, om,
+                    idx(r.get("due_d") or r["d"], days, di)])
+    out.sort(key=lambda x: -x[6])
+    return {"days": days, "people": people, "tasks": tasks, "sellers": sellers,
+            "names": snames, "subs": subs, "status": STUCK_STATUS, "rows": out}
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -1229,6 +1325,7 @@ def main():
     tssop = parse_tssop(run_csv(session, TSSOP_SQL))
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
+    stuck = parse_stuck(run_csv(session, STUCK_SQL))
     blocks = parse_block(run_csv(session, BLOCK_SQL))
     blockfb = parse_blockfb(run_csv(session, BLOCKFB_SQL))
     tbe, tbn, tforced, tgme, tgmn = build_team_map(session)
@@ -1245,7 +1342,7 @@ def main():
           f"none {_gmsrc.count('none')}")
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
-               "blocks": blocks, "blockPlatform": blockfb}
+               "blocks": blocks, "blockPlatform": blockfb, "stuck": stuck}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -1257,7 +1354,8 @@ def main():
                 and old.get("weekActuals") == payload["weekActuals"]
                 and old.get("taskSla") == payload["taskSla"]
                 and old.get("blocks") == payload["blocks"]
-                and old.get("blockPlatform") == payload["blockPlatform"]):
+                and old.get("blockPlatform") == payload["blockPlatform"]
+                and old.get("stuck") == payload["stuck"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -1272,7 +1370,7 @@ def main():
           f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows, {len(weekact)} week-actual rows, "
           f"{sum(len(v['rows']) for v in tasksla['roles'].values())} task-SLA rows, "
           f"{len(blocks['rows'])} block tickets over {len(blocks['weeks'])} weeks, "
-          f"{len(blockfb)} platform-state rows.")
+          f"{len(blockfb)} platform-state rows, {len(stuck['rows'])} stuck tasks.")
 
 
 if __name__ == "__main__":
