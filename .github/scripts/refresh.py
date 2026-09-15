@@ -1260,7 +1260,7 @@ sc AS (
     ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE) END AS due_ts
   FROM lab WHERE task IS NOT NULL
 )
-SELECT FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm, seller_id,
+SELECT id AS task_id, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm, seller_id,
   COALESCE(sname,'') AS sname, sub_type, task_status,
   FORMAT_TIMESTAMP('%Y-%m-%d', due_ts, 'Asia/Kolkata') AS due_d,
   CAST(ROUND(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), due_ts, MINUTE)) AS INT64) AS over_min
@@ -1280,7 +1280,10 @@ def parse_stuck(csv_text):
     to the aggregate by name and date string instead, and EXCLUDE_GCS is applied
     here too so the two views agree on who exists.
 
-    Row = [dayIdx, taskIdx, personIdx, sellerIdx, subIdx, statusIdx, overMin, dueDayIdx]
+    Row = [dayIdx, taskIdx, personIdx, sellerIdx, subIdx, statusIdx, overMin, dueDayIdx, taskId]
+
+    taskId is the raw workboard_tasks.id, carried inline rather than indexed: it is
+    unique per row, so an index table would be the same bytes plus a lookup.
     """
     days, people, tasks, sellers, snames, subs = [], [], [], [], [], []
     di, pi, ti, si, bi = {}, {}, {}, {}, {}
@@ -1306,7 +1309,7 @@ def parse_stuck(csv_text):
         out.append([idx(r["d"], days, di), idx(r["task"], tasks, ti), idx(nm, people, pi),
                     si[sid], idx((r.get("sub_type") or "").strip(), subs, bi),
                     STUCK_STATUS.index(st) if st in STUCK_STATUS else 0, om,
-                    idx(r.get("due_d") or r["d"], days, di)])
+                    idx(r.get("due_d") or r["d"], days, di), r.get("task_id") or ""])
     out.sort(key=lambda x: -x[6])
     return {"days": days, "people": people, "tasks": tasks, "sellers": sellers,
             "names": snames, "subs": subs, "status": STUCK_STATUS, "rows": out}

@@ -241,7 +241,8 @@
   table.stk{width:100%;border-collapse:collapse;font-size:11.5px;}
   table.stk th{position:sticky;top:0;z-index:1;background:#f3f2ea;color:#3d4036;font-weight:700;
     text-align:right;padding:5px 7px;border-bottom:1px solid var(--line);white-space:nowrap;}
-  table.stk th:nth-child(-n+3),table.stk td:nth-child(-n+3){text-align:left;}
+  table.stk th:nth-child(-n+4),table.stk td:nth-child(-n+4){text-align:left;}
+  table.stk td.cpy{cursor:pointer;} table.stk td.cpy:hover{background:#eef2f6;color:#185FA5;}
   table.stk td{padding:4px 7px;border-bottom:1px solid #efeee7;text-align:right;white-space:nowrap;}
   table.stk td.sn{max-width:230px;overflow:hidden;text-overflow:ellipsis;font-weight:600;color:#23251f;}
   table.stk td.sid{font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--muted);}
@@ -2602,9 +2603,11 @@ function gcStuckTable(sel){
   const body=rows.map(r=>{
     const st=STUCK.status[r[5]], d=r[6]/1440;
     return '<tr><td class="sn" title="'+esc(STUCK.names[r[3]]||'(no name)')+'">'+esc(STUCK.names[r[3]]||'(no name)')+'</td>'+
-      '<td class="sid">'+esc(STUCK.sellers[r[3]])+'</td>'+
+      '<td class="sid cpy" data-c="'+esc(STUCK.sellers[r[3]])+'" title="click to select, or copy">'+esc(STUCK.sellers[r[3]])+'</td>'+
+      '<td class="sid cpy" data-c="'+esc(r[8]||'')+'" title="click to select, or copy">'+esc(r[8]||'—')+'</td>'+
       '<td>'+esc(STUCK.tasks[r[1]])+(gcSt.view==='gm'?' <span style="color:var(--muted)">· '+esc(STUCK.people[r[2]])+'</span>':'')+'</td>'+
-      '<td>'+STUCK.days[r[0]]+'</td><td>'+STUCK.days[r[7]]+'</td>'+
+      '<td title="'+STUCK.days[r[0]]+'">'+STUCK.days[r[0]].slice(5)+'</td>'+
+      '<td title="'+STUCK.days[r[7]]+'">'+STUCK.days[r[7]].slice(5)+'</td>'+
       '<td style="color:#C0392B;font-weight:700">'+(d<1?(r[6]/60).toFixed(1)+'h':d.toFixed(1)+'d')+'</td>'+
       '<td><span class="stkpill '+(st==='pending'?'pend':'closed')+'">'+st+'</span></td></tr>';
   }).join('');
@@ -2613,14 +2616,14 @@ function gcStuckTable(sel){
     ' closed without being completed. Oldest first. '+
     '<button type="button" class="gcexp" id="gcStuckCsv" style="margin-left:6px">Download CSV &#8595;</button></div>'+
     '<div class="tablewrap" style="max-height:340px;overflow:auto"><table class="stk"><thead><tr>'+
-    '<th>Seller</th><th>ID</th><th>Task</th><th>Raised</th><th>Due</th><th>Over by</th><th>Status</th>'+
+    '<th>Seller</th><th>Seller ID</th><th>Task ID</th><th>Task</th><th>Raised</th><th>Due</th><th>Over by</th><th>Status</th>'+
     '</tr></thead><tbody>'+body+'</tbody></table></div>';
 }
 function gcStuckCsv(sel){
   const rows=gcStuckRows(sel)||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const out=[['gc','seller_name','seller_id','task_type','sub_type','raised','due','days_over','status'].join(',')];
-  rows.forEach(r=>out.push([STUCK.people[r[2]],STUCK.names[r[3]],STUCK.sellers[r[3]],
+  const out=[['task_id','gc','seller_name','seller_id','task_type','sub_type','raised','due','days_over','status'].join(',')];
+  rows.forEach(r=>out.push([r[8]||'',STUCK.people[r[2]],STUCK.names[r[3]],STUCK.sellers[r[3]],
     STUCK.tasks[r[1]],STUCK.subs[r[4]],STUCK.days[r[0]],STUCK.days[r[7]],
     (r[6]/1440).toFixed(2),STUCK.status[r[5]]].map(q).join(',')));
   saveCsv('stuck_tasks_'+String(sel.name).replace(/[^a-z0-9]+/gi,'_').toLowerCase()+'.csv', out.join('\n'));
@@ -2707,6 +2710,18 @@ function gcReport(){
   if(tile&&sel.stuck&&STUCK) tile.addEventListener('click',()=>{ gcSt.showStuck=!gcSt.showStuck; gcReport(); });
   const csv=document.getElementById('gcStuckCsv');
   if(csv) csv.addEventListener('click',e=>{ e.stopPropagation(); gcStuckCsv(sel); });
+  document.querySelectorAll('#gcReport table.stk td.cpy').forEach(td=>td.addEventListener('click',()=>{
+    const v=td.dataset.c; if(!v) return;
+    // Select the cell no matter what, so the click always has a visible result and Cmd-C
+    // works even where programmatic copy is refused; only claim "copied" when it is confirmed.
+    try{ const rg=document.createRange(); rg.selectNodeContents(td);
+         const sl=getSelection(); sl.removeAllRanges(); sl.addRange(rg); }catch(e){}
+    const done=()=>{ const o=td.textContent; td.textContent='copied'; setTimeout(()=>{td.textContent=o;},700); };
+    const legacy=()=>{ let ok=false; try{ ok=document.execCommand('copy'); }catch(e){} if(ok) done(); };
+    if(navigator.clipboard&&navigator.clipboard.writeText)
+      navigator.clipboard.writeText(v).then(done,legacy);
+    else legacy();
+  }));
 }
 function gcDigest(){
   const R=gcR();
