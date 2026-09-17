@@ -1583,19 +1583,29 @@ function slaHrs(m){ if(m==null) return ''; const h=m/60; return h>=48?(h/24).toF
 function slaRole(){ return (TSLA&&TSLA.roles&&TSLA.roles[slaSt.role])||null; }
 // Day indices inside the selected window. TSLA.days is ascending YYYY-MM-DD, and
 // the last entry is today (partial), so presets are anchored on yesterday.
+// Today in IST, as the data keys it. Anchoring relative ranges on the LAST DAY PRESENT in
+// the data was correct while every row was keyed on task-creation date, but Callback is now
+// keyed on the seller's REQUESTED date (card 11230), which runs days into the future -- so
+// "yesterday" silently became a future date with a handful of booked callbacks in it.
+function istToday(){
+  const p=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',
+    year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  const g=t=>p.find(x=>x.type===t).value;
+  return g('year')+'-'+g('month')+'-'+g('day');
+}
+function dayShift(iso,n){const d=new Date(iso+'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10);}
 function slaWindow(){
   if(!TSLA||!TSLA.days.length) return [null,null];
-  const days=TSLA.days, last=days[days.length-1];
-  // Do the arithmetic in UTC. Parsing 'YYYY-MM-DD' as local time and formatting
-  // back through toISOString() shifts the date by one in any non-UTC zone (IST
-  // included), which silently turned "last 7 days" into 8.
-  const shift=(iso,n)=>{const d=new Date(iso+'T00:00:00Z');
-                        d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10);};
-  const yday=shift(last,-1);
+  const days=TSLA.days;
+  // Arithmetic in UTC: parsing 'YYYY-MM-DD' as local time and formatting back through
+  // toISOString() shifts the date by one in any non-UTC zone, which once turned
+  // "last 7 days" into 8.
+  const yday=dayShift(istToday(),-1);
   if(slaSt.mode==='yday')   return [yday,yday];
   if(slaSt.mode==='custom') return [slaSt.from||days[0], slaSt.to||yday];
   const n=+slaSt.mode||7;                        // last N days ending yesterday
-  return [shift(yday,-(n-1)), yday];
+  return [dayShift(yday,-(n-1)), yday];
 }
 function slaDays(){
   if(!TSLA) return [];
@@ -1856,14 +1866,14 @@ function gcR(){ return (TSLA&&TSLA.roles&&TSLA.roles.GC)||null; }
 
 function gcWindow(){
   if(!TSLA||!TSLA.days.length) return [null,null];
-  const days=TSLA.days, last=days[days.length-1];
-  const shift=(iso,n)=>{const d=new Date(iso+'T00:00:00Z');
-                        d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10);};
-  const y=shift(last,-1);
+  const days=TSLA.days;
+  const y=dayShift(istToday(),-1);
   if(gcSt.range==='yday')   return [y,y];
-  if(gcSt.range==='custom') return [gcSt.from||days[0], gcSt.to||y];
+  // a custom range still gets capped at yesterday, so future-dated booked callbacks
+  // cannot wander into a window that is meant to describe work already done
+  if(gcSt.range==='custom') return [gcSt.from||days[0], (gcSt.to&&gcSt.to<y)?gcSt.to:y];
   const n=+gcSt.range||7;
-  return [shift(y,-(n-1)), y];
+  return [dayShift(y,-(n-1)), y];
 }
 function gcDays(){ if(!TSLA) return [];
   const [a,b]=gcWindow(); if(!a) return [];
