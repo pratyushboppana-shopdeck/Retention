@@ -663,7 +663,8 @@ labelled AS (
     WHEN role='GC' AND type='callback' AND sub_type='schedule_call'
          AND title LIKE '%Seller Requested Callback at%'                             THEN 'Callback'
     WHEN role='GC' AND type='callback' AND sub_type='early_retention_call'           THEN 'Retention Call'
-    WHEN role='GC' AND type='seller_callback_management'                             THEN 'Seller Callback'
+    WHEN role='GC' AND type='seller_callback_management'
+         AND sub_type != 'seller_callback_overdue_sub_task'                             THEN 'Seller Callback'
     WHEN role='GC' AND type='troubleshoot_action' AND sub_type='troubleshoot_sop'    THEN 'TS SOP Call'
     WHEN role='GC' AND type='seller_poc_handover'                                    THEN 'POC Handover'
     WHEN role='GC' AND type='other_request' AND title LIKE '[Post-call]%'            THEN 'Commitment Task'
@@ -674,7 +675,8 @@ labelled AS (
     WHEN role='KAM' AND type='hit_seller_shipping_issues' AND sub_type='seller_first_pickup' THEN 'First Pickup'
     WHEN role='KAM' AND type='hit_seller_shipping_issues'                            THEN 'Shipping Issue (other)'
     WHEN role='KAM' AND type='callback'                                              THEN 'Callback'
-    WHEN role='KAM' AND type='seller_callback_management'                            THEN 'Seller Callback'
+    WHEN role='KAM' AND type='seller_callback_management'
+         AND sub_type != 'seller_callback_overdue_sub_task'                            THEN 'Seller Callback'
     WHEN role='KAM' AND type='catalogue_website'                                     THEN 'Catalogue Request'
     WHEN role='KAM' AND type='go_live_call'                                          THEN 'Go-live Call'
     WHEN role='KAM' AND type='seller_tts_kam_churn_call'                             THEN 'Churn Call'
@@ -759,26 +761,32 @@ called AS (
   GROUP BY 1
 ),
 cls AS (
-  -- Callback is scored on call evidence, so it has no 'stuck': either the GC rang inside
-  -- the window or, once the window has closed, they did not. 'late' therefore means
-  -- "no call inside the window" for Callback and "closed after the deadline" everywhere
-  -- else; adherence = on_time / (on_time + late + stuck) is unaffected either way.
+  -- Completion is judged on completed_at, NOT on the status label. A timestamp is a record
+  -- that the work happened; the status is a label someone did or did not update, and the two
+  -- disagree constantly -- ~4,400 of 6,894 breached GC tasks carried status 'closed' together
+  -- with a real completed_at, and were being booked as never-finished. A task with a
+  -- completed_at is therefore on_time or late; only a task with NO completed_at can be stuck.
+  --
+  -- Callback is scored on call evidence, so it has no 'stuck': either the GC rang inside the
+  -- window or, once the window has closed, they did not. 'late' means "no call inside the
+  -- window" for Callback and "finished after the deadline" everywhere else; adherence =
+  -- on_time / (on_time + late + stuck) is unaffected either way.
   SELECT s.*, CASE
-    WHEN s.task='Callback' AND cl.met=1                            THEN 'on_time'
-    WHEN s.task='Callback' AND CURRENT_TIMESTAMP() > s.due_ts      THEN 'late'
-    WHEN s.task='Callback'                                         THEN 'pending'
-    WHEN s.task_status='completed' AND s.completed_at <= s.due_ts  THEN 'on_time'
-    WHEN s.task_status='completed'                                 THEN 'late'
-    WHEN CURRENT_TIMESTAMP() > s.due_ts                            THEN 'stuck'
+    WHEN s.task='Callback' AND cl.met=1                              THEN 'on_time'
+    WHEN s.task='Callback' AND CURRENT_TIMESTAMP() > s.due_ts        THEN 'late'
+    WHEN s.task='Callback'                                           THEN 'pending'
+    WHEN s.completed_at IS NOT NULL AND s.completed_at <= s.due_ts   THEN 'on_time'
+    WHEN s.completed_at IS NOT NULL                                  THEN 'late'
+    WHEN CURRENT_TIMESTAMP() > s.due_ts                              THEN 'stuck'
     ELSE 'pending' END AS outcome,
     CASE
       -- "minutes over SLA" is undefined for a call-evidence rule: a missed callback is not
       -- a task still ticking, it is a window that closed. Charging it now-minus-due would
       -- book 90 days of overdue against a call that was simply never made.
       WHEN s.task='Callback' THEN 0
-      WHEN s.task_status='completed' AND s.completed_at > s.due_ts
+      WHEN s.completed_at IS NOT NULL AND s.completed_at > s.due_ts
         THEN TIMESTAMP_DIFF(s.completed_at, s.due_ts, MINUTE)
-      WHEN s.task_status != 'completed' AND CURRENT_TIMESTAMP() > s.due_ts
+      WHEN s.completed_at IS NULL AND CURRENT_TIMESTAMP() > s.due_ts
         THEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), s.due_ts, MINUTE)
       ELSE 0 END AS over_min
   FROM scored s LEFT JOIN called cl ON cl.id = s.id
@@ -1222,10 +1230,13 @@ def parse_blockfb(csv_text):
 # quality JSON, which is the expensive half of TASKSLA_SQL.
 #
 # The scoring must reproduce TASKSLA_SQL's 'stuck' bucket exactly or the list
-# will not tie out to the KPI above it: stuck = NOT completed AND past its due
+# will not tie out to the KPI above it: stuck = NO completed_at AND past its due
 # timestamp, with TS SOP Call at a fixed 48h and seller_callback_primary_task
 # on the seller's booked completion_date. Callback is excluded outright -- it is
-# scored on call evidence, so it has no 'stuck' state at all.
+# scored on call evidence, so it has no 'stuck' state at all -- and so is
+# seller_callback_overdue_sub_task, a rolling 4h escalation alarm bolted onto a
+# primary callback rather than a unit of work (one stalled callback spawned a
+# chain of them across three different people).
 STUCK_SQL = r"""
 WITH base AS (
   SELECT t.id, t.seller_id, t.type, t.sub_type, t.title, t.status AS task_status,
@@ -1242,15 +1253,15 @@ WITH base AS (
     AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
-    -- COALESCE is defensive only: status is NULL on 0 of 597k rows today, so this matches
-    -- a bare `!= 'completed'`. It guards the NULL-false case if that ever changes, since
-    -- TASKSLA_SQL's CASE would fall through and count such a row as stuck.
-    AND COALESCE(t.status,'') != 'completed'
+    -- Stuck now means NO completed_at at all, matching TASKSLA_SQL's cls: a task carrying a
+    -- finish timestamp is on_time or late, never stuck, whatever its status label says.
+    AND t.completed_at IS NULL
 ),
 lab AS (
   SELECT *, CASE
     WHEN type='callback' AND sub_type='early_retention_call'        THEN 'Retention Call'
-    WHEN type='seller_callback_management'                          THEN 'Seller Callback'
+    WHEN type='seller_callback_management'
+         AND sub_type != 'seller_callback_overdue_sub_task'         THEN 'Seller Callback'
     WHEN type='troubleshoot_action' AND sub_type='troubleshoot_sop' THEN 'TS SOP Call'
     WHEN type='seller_poc_handover'                                 THEN 'POC Handover'
     WHEN type='other_request' AND title LIKE '[Post-call]%'         THEN 'Commitment Task'

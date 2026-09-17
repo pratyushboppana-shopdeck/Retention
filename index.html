@@ -1820,7 +1820,8 @@ function slaFoot(R){
     (slaSt.role==='GC'?`<b>Teams</b> come from the incentive rosters &mdash; core GC card 12101, 1k-5k card 12100, revival card 11911; `+
       `hypercare has no card, so it is GM Aaruni Vaidya's team taken from card 12477 and maintained by hand. `+
       `<b style="color:#C0392B">Unmapped</b> = present in none of those rosters (new joiner, leaver, or a team without a card) &mdash; worth reviewing. `:'')+
-    `<b>Adherence</b> = on-time ÷ (on-time + closed-late + still-open-past-SLA). Tasks still inside their SLA are excluded from the denominator, so the newest day or two is thin. `+
+    `<b>Adherence</b> = on-time ÷ (on-time + late + still-open-past-SLA). Tasks still inside their SLA are excluded from the denominator, so the newest day or two is thin. `+
+    `<b>Finished</b> means the task carries a <code>completed_at</code> timestamp, whatever its status label says &mdash; a timestamp records that the work happened, a status is a label someone may not have updated. Only a task with no timestamp at all can be &ldquo;still open past SLA&rdquo;. <b>Callback overdue sub-tasks are not scored</b>: they are a rolling 4-hour escalation alarm bolted onto a primary callback, not a unit of work, and one stalled callback used to spawn a chain of them across several people. `+
     `<b>Due date</b> = creation + the task's own <code>sla_in_min</code>, with two exceptions: `+
     `<b>TS SOP Call</b> is fixed at <b>48h</b> from creation, and <b>Seller Callback &ndash; primary task</b> is scored against the `+
     `platform's own scheduled <code>completion_date</code> &mdash; that task is a callback booked for a time the seller chose, `+
@@ -2783,7 +2784,8 @@ function gcFoot(R){
     return x.toISOString().slice(0,10);})();
   document.getElementById('gcFoot').innerHTML=
     `<b>Window:</b> ${a0} to ${b0} (${d.length} day${d.length===1?'':'s'}), by task <b>creation</b> date. `+
-    `<b>Adherence</b> = on-time ÷ (on-time + closed-late + still-open-past-SLA); tasks still inside SLA are excluded. `+
+    `<b>Adherence</b> = on-time ÷ (on-time + late + still-open-past-SLA); tasks still inside SLA are excluded. `+
+    `<b>Finished</b> means the task carries a <code>completed_at</code> timestamp, whatever its status label says &mdash; a timestamp records that the work happened, a status is a label someone may not have updated. Only a task with no timestamp at all can be &ldquo;still open past SLA&rdquo;. <b>Callback overdue sub-tasks are not scored</b>: they are a rolling 4-hour escalation alarm bolted onto a primary callback, not a unit of work, and one stalled callback used to spawn a chain of them across several people. `+
     `<b>Due date</b> = creation + the task's own <code>sla_in_min</code>, except <b>TS SOP Call</b> at a fixed 48h and `+
     `<b>Seller Callback &ndash; primary task</b>, scored against the seller's booked <code>completion_date</code>. `+
     `<b>Callback</b> follows card 11230: it is scored on whether the GC <b>actually rang the seller</b> &mdash; any call from them to that seller between the task being raised and the seller's requested time plus a <b>2-hour grace</b> &mdash; not on whether the task was closed. It is also keyed on the day the seller asked to be called, not the day the task was raised, and covers seller-requested callbacks only. Closing a callback task without a traceable call does not count. `+
