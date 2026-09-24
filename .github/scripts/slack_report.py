@@ -154,7 +154,11 @@ blk AS (
        'ad_account_not_spending','business_manager_restricted','pixel_inactive','page_restricted',
        'ad_account_hacked','business_manager_access','account_restricted','account_not_spending',
        'account_permanently_restricted','page_unpublished')
-    AND t.status != 'completed'
+    -- a task with a finish timestamp is finished, whatever the status label says:
+    -- `status != 'completed'` left 21% of these "open" blocks already closed, and
+    -- because BLOCKED wins the bucket CASE it also pushed those sellers out of the
+    -- "still spending" numerator
+    AND t.completed_at IS NULL
   GROUP BY 1),
 -- Ownership: seller_managers first, then the console summary, which carries a GC for
 -- 26 of the 27 sellers seller_managers has no GC for. Without the second source the
@@ -396,11 +400,147 @@ GROUP BY 1 ORDER BY 1
 """
 
 
+PRELIVE_SQL = r"""
+WITH glw AS (
+  SELECT seller_id, MIN(start_date) gwk FROM nushop.gc_view_3
+  WHERE marketing_spend > 1000 AND team_mapping='HIT'
+  GROUP BY 1 HAVING MIN(start_date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 34 DAY)),
+ds AS (
+  SELECT g.seller_id, DATE(m.date) d, m.spend/1.18 sp FROM glw g
+  JOIN nushop.marketing_spends m ON m.seller_id=g.seller_id
+  WHERE DATE(m.date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 41 DAY) AND m.marketing_channel!='whatsapp'
+  UNION ALL SELECT g.seller_id, f.spend_date, f.spend FROM glw g
+  JOIN nushop.google_marketing_insights_master f ON f.seller_id=g.seller_id
+  WHERE f.breakdown_key IS NULL AND f.spend_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 41 DAY)
+  UNION ALL SELECT g.seller_id, DATE(f.spend_date,'Asia/Kolkata'), f.spend FROM glw g
+  JOIN fb_marketings.fb_marketing_insights f ON f.seller_id=g.seller_id
+  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE(), INTERVAL 41 DAY)),
+gld AS (
+  SELECT s.seller_id, MIN(s.d) gd FROM (SELECT seller_id,d,SUM(sp) sp FROM ds GROUP BY 1,2) s
+  JOIN glw g USING(seller_id) WHERE s.sp>=100 AND s.d>=g.gwk GROUP BY 1),
+ev AS (
+  SELECT se.session_id, se.event,
+    COALESCE(REGEXP_EXTRACT(se.actor,r'^guest-([0-9a-f]{24})-'),
+             REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$')) eid,
+    CASE WHEN REGEXP_CONTAINS(se.actor,r'^EG_') OR se.actor='livekit' THEN 'bot'
+         WHEN u._id IS NULL THEN 'unknown'
+         WHEN REGEXP_CONTAINS(u.role,r'(^|,)\s*seller\s*(,|$)') THEN 'seller' ELSE 'poc' END party
+  FROM meet_service.session_events se
+  LEFT JOIN nushop.users u ON u._id=COALESCE(
+    REGEXP_EXTRACT(se.actor,r'^guest-([0-9a-f]{24})-'),REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$'))
+  WHERE se.use_case_key='pre_live_call' AND DATE(se.created_at) >= '2026-08-20'),
+sess AS (
+  SELECT session_id, MAX(IF(party='seller',eid,NULL)) seller_id,
+    COUNTIF(event='participant_joined' AND party='seller')>0 sj
+  FROM ev GROUP BY 1),
+per AS (SELECT seller_id, MAX(IF(sj,1,0)) sj, COUNTIF(sj) n_sess
+        FROM sess WHERE seller_id IS NOT NULL GROUP BY 1)
+SELECT FORMAT_DATE('%Y-%m-%d', d.gd) d, COUNT(*) golives,
+  SUM(COALESCE(p.sj,0)) seller_joined, SUM(COALESCE(p.n_sess,0)) sessions
+FROM gld d LEFT JOIN per p USING(seller_id)
+WHERE d.gd >= GREATEST(DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 8 DAY), DATE '2026-08-20')
+GROUP BY 1 ORDER BY 1
+"""
+
+TSSOP_DOD_SQL = r"""
+WITH t AS (
+  SELECT wt.id, DATE(wt.created_at,'Asia/Kolkata') d
+  FROM nushop.workboard_tasks wt
+  JOIN nushop.users u ON wt.assignee=u._id AND LOWER(u.role) LIKE '%growth-consultant%'
+  JOIN nushop.sellers s ON wt.seller_id=s._id AND s.seller_account_status='hit' AND s.user_type='seller'
+  WHERE DATE(wt.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 9 DAY)
+    AND DATE(wt.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+    AND wt.type='troubleshoot_action' AND wt.sub_type='troubleshoot_sop'),
+ec AS (SELECT entity_id, exotel_call_sid FROM nushop.exotel_calls
+       WHERE entity='workboard' AND created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 10 DAY))),
+ed AS (SELECT sid, duration,
+   NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.accuracy_of_answers') AS FLOAT64),-1) acc,
+   NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) sat,
+   NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) ton
+   FROM nushop.exotel_call_details
+   WHERE created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 10 DAY)))
+SELECT FORMAT_DATE('%Y-%m-%d', t.d) d,
+  COUNT(DISTINCT t.id) tasks, COUNT(ec.exotel_call_sid) calls,
+  COUNTIF(ed.duration>0) connected,
+  ROUND(AVG(IF(ed.duration>0, ed.duration, NULL))/60,1) avg_min,
+  ROUND(APPROX_QUANTILES(IF(ed.duration>0, ed.duration, NULL),2)[OFFSET(1)]/60,1) med_min,
+  COUNTIF(ed.acc IS NOT NULL AND ed.sat IS NOT NULL AND ed.ton IS NOT NULL) scored,
+  ROUND(AVG(IF(ed.acc IS NOT NULL AND ed.sat IS NOT NULL AND ed.ton IS NOT NULL, ed.acc,NULL)),0) acc,
+  ROUND(AVG(IF(ed.acc IS NOT NULL AND ed.sat IS NOT NULL AND ed.ton IS NOT NULL, ed.sat,NULL)),0) sat,
+  ROUND(AVG(IF(ed.acc IS NOT NULL AND ed.sat IS NOT NULL AND ed.ton IS NOT NULL, ed.ton,NULL)),0) ton
+FROM t LEFT JOIN ec ON ec.entity_id=t.id LEFT JOIN ed ON ed.sid=ec.exotel_call_sid
+GROUP BY 1 ORDER BY 1
+"""
+
+
 # ---------------------------------------------------------------------------- render
 def spark(vals, lo=68.0, hi=80.0):
     ch = "▁▂▃▄▅▆▇█"
     span = max(0.1, hi - lo)
     return "".join(ch[min(7, max(0, int((v - lo) / span * 8)))] for v in vals)
+
+
+def fmt_prelive(pl):
+    """Go-lives on the day against sellers who joined a pre-live video call.
+
+    The last day or two always read low: the canonical go-live needs the seller's
+    ISO week to clear 1,000, so late-week go-lives have not registered yet.
+    """
+    if not pl:
+        return []
+    rows = sorted(pl, key=lambda r: r["d"])
+    settled = [r for r in rows if int(r["golives"] or 0) >= 10]
+    if not settled:
+        return []
+    last = settled[-1]
+    g, j = int(last["golives"]), int(last["seller_joined"])
+    pct = 100 * j / g if g else 0
+    tot_g = sum(int(r["golives"] or 0) for r in settled)
+    tot_j = sum(int(r["seller_joined"] or 0) for r in settled)
+    trend = [100 * int(r["seller_joined"] or 0) / max(1, int(r["golives"] or 0)) for r in settled]
+    d = date.fromisoformat(last["d"])
+    L = ["", f"*📹 Pre-live video adoption — {d.strftime('%a %d %b')}*", "```",
+         f"go-lives on the day        {g:4d}",
+         f"seller joined a call       {j:4d}   {pct:4.1f}%",
+         "```",
+         f"Last {len(settled)} days  {spark(trend, 0, 45)}  {pct:.0f}%"
+         f"   ({len(settled)}d avg {100*tot_j/max(1,tot_g):.0f}%)"]
+    if pct < 30:
+        L.append(f"_{g-j} of {g} went live with no pre-live call the seller attended._")
+    L.append("_Newest day reads low until the go-live week clears ₹1,000._")
+    return L
+
+
+def fmt_tssop(ts):
+    """TS SOP call volume, duration and the three quality scores, day on day."""
+    # the post is about yesterday; today's row is a few hours old and reads as a
+    # collapse in call volume that has not happened
+    cut = (today_ist() - timedelta(days=1)).isoformat()
+    rows = [r for r in (ts or []) if int(r["tasks"] or 0) >= 20 and r["d"] <= cut]
+    if not rows:
+        return []
+    rows = sorted(rows, key=lambda r: r["d"])
+    last = rows[-1]
+
+    def f(r, k, dflt=0.0):
+        try:
+            return float(r.get(k) or dflt)
+        except (TypeError, ValueError):
+            return dflt
+    calls, conn = f(last, "calls"), f(last, "connected")
+    cpct = 100 * conn / calls if calls else 0
+    d = date.fromisoformat(last["d"])
+    L = ["", f"*📞 TS SOP calls — {d.strftime('%a %d %b')}*", "```",
+         "tasks  calls  conn    avg    med │ scored  acc  sat  ton",
+         f"{int(f(last,'tasks')):5d}  {int(calls):5d}  {cpct:3.0f}%  "
+         f"{f(last,'avg_min'):4.1f}m  {f(last,'med_min'):4.1f}m │ "
+         f"{int(f(last,'scored')):6d}  {f(last,'acc'):3.0f}  {f(last,'sat'):3.0f}  {f(last,'ton'):3.0f}",
+         "```"]
+    cs = [100 * f(r, "connected") / max(1.0, f(r, "calls")) for r in rows]
+    ds = [f(r, "avg_min") for r in rows]
+    ss = [f(r, "sat") for r in rows]
+    L.append(f"{len(rows)}d  connect {spark(cs,30,70)} · duration {spark(ds,2,8)} · satisfaction {spark(ss,55,75)}")
+    return L
 
 
 def fmt_daily(rows, cohort=None):
@@ -564,11 +704,17 @@ def main():
         rows = rows_of(run_csv(session, DAILY_SQL))
         cohort = rows_of(run_csv(session, DAILY_COHORT_SQL))
         text, restart = fmt_daily(rows, cohort)
+        # pre-live is a daily action item, so it stays in the main post; TS SOP is a
+        # trend rather than a to-do and goes in the thread to keep this readable
+        text = "\n".join([text] + fmt_prelive(rows_of(run_csv(session, PRELIVE_SQL))))
+        thread_extra = "\n".join(fmt_tssop(rows_of(run_csv(session, TSSOP_DOD_SQL)))).strip()
     else:
         rows = rows_of(run_csv(session, WEEKLY_SQL))
-        text, restart = fmt_weekly(rows), None
+        text, restart, thread_extra = fmt_weekly(rows), None, ""
 
     print(text)
+    if thread_extra:
+        print("\n--- thread ---\n" + thread_extra)
     if dry:
         print(f"\n[dry-run] {len(rows)} rows; nothing sent to Slack.")
         return
@@ -576,6 +722,9 @@ def main():
         sys.exit("SLACK_BOT_TOKEN / SLACK_CHANNEL_ID not set")
 
     ts = post_message(text)
+    if thread_extra:
+        slack_api("chat.postMessage",
+                  {"channel": SLACK_CHANNEL, "text": thread_extra, "thread_ts": ts})
     if mode == "daily" and restart:
         yday = today_ist() - timedelta(days=1)
         cols = ["action_bucket", "golive_week", "rel_week_now", "seller_id", "seller",

@@ -1329,6 +1329,123 @@ def parse_stuck(csv_text):
             "names": snames, "subs": subs, "status": STUCK_STATUS, "rows": out}
 
 
+# ---------------------------------------------------------------------------
+# Pre-live video-call adoption. Denominator = go-lives on the day; numerator =
+# sellers who had at least one pre_live_call session they actually joined
+# (seller_joined). Card 14642 is the reference for how a session is read.
+#
+# Go-live DAY is anchored on the canonical go-live WEEK (first ISO week over
+# 1000 on the HIT team) and then the first spending day inside it. Taking
+# MIN(spend day) straight off a short window would relabel an old seller as a
+# new go-live the moment the window cut off their real first day.
+#
+# Consequence worth knowing: the week has to clear 1000 before a seller counts,
+# so the newest day or two is always provisional and reads low.
+#
+# GC/GM are the seller's CURRENT mapping, per the owner -- not the POC who
+# actually ran the call.
+PRELIVE_SQL = r"""
+WITH glw AS (
+  SELECT seller_id, MIN(start_date) gwk
+  FROM nushop.gc_view_3 WHERE marketing_spend > 1000 AND team_mapping='HIT'
+  GROUP BY 1 HAVING MIN(start_date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 62 DAY)
+),
+ds AS (
+  SELECT g.seller_id, DATE(m.date) d, m.spend/1.18 sp
+  FROM glw g JOIN nushop.marketing_spends m ON m.seller_id=g.seller_id
+  WHERE DATE(m.date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 70 DAY) AND m.marketing_channel!='whatsapp'
+  UNION ALL
+  SELECT g.seller_id, f.spend_date, f.spend FROM glw g
+  JOIN nushop.google_marketing_insights_master f ON f.seller_id=g.seller_id
+  WHERE f.breakdown_key IS NULL AND f.spend_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 70 DAY)
+  UNION ALL
+  SELECT g.seller_id, DATE(f.spend_date,'Asia/Kolkata'), f.spend FROM glw g
+  JOIN fb_marketings.fb_marketing_insights f ON f.seller_id=g.seller_id
+  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE(), INTERVAL 70 DAY)
+),
+gld AS (
+  SELECT s.seller_id, MIN(s.d) gd
+  FROM (SELECT seller_id, d, SUM(sp) sp FROM ds GROUP BY 1,2) s
+  JOIN glw g USING(seller_id)
+  WHERE s.sp >= 100 AND s.d >= g.gwk GROUP BY 1
+),
+ev AS (
+  SELECT se.session_id, se.event,
+    COALESCE(REGEXP_EXTRACT(se.actor,r'^guest-([0-9a-f]{24})-'),
+             REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$')) eid,
+    CASE WHEN REGEXP_CONTAINS(se.actor,r'^EG_') OR se.actor='livekit' THEN 'bot'
+         WHEN u._id IS NULL THEN 'unknown'
+         WHEN REGEXP_CONTAINS(u.role,r'(^|,)\s*seller\s*(,|$)') THEN 'seller'
+         ELSE 'poc' END party
+  FROM meet_service.session_events se
+  LEFT JOIN nushop.users u ON u._id=COALESCE(
+    REGEXP_EXTRACT(se.actor,r'^guest-([0-9a-f]{24})-'),
+    REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$'))
+  WHERE se.use_case_key='pre_live_call' AND DATE(se.created_at) >= '2026-08-20'
+),
+sess AS (
+  SELECT session_id, MAX(IF(party='seller', eid, NULL)) seller_id,
+    COUNTIF(event='participant_joined' AND party='seller')>0 seller_joined,
+    COUNTIF(event='participant_joined' AND party='poc')>0    poc_joined
+  FROM ev GROUP BY 1
+),
+per AS (
+  SELECT seller_id, MAX(IF(seller_joined,1,0)) sj, MAX(IF(poc_joined,1,0)) pj,
+         COUNT(*) n_sessions
+  FROM sess WHERE seller_id IS NOT NULL GROUP BY 1
+),
+mgr AS (
+  SELECT seller_id,
+    MAX(IF(manager_type='growth_consultant',
+      REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '),NULL)) gc,
+    MAX(IF(manager_type='growth_manager',
+      REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '),NULL)) gm
+  FROM nushop.seller_managers sm LEFT JOIN nushop.users u ON sm.manager_id=u._id GROUP BY 1
+)
+SELECT FORMAT_DATE('%Y-%m-%d', d.gd) AS d,
+  COALESCE(NULLIF(TRIM(m.gc),''),'Self serve') AS gc,
+  COALESCE(NULLIF(TRIM(m.gm),''),'(no GM)')    AS gm,
+  COUNT(*)                        AS golives,
+  SUM(COALESCE(p.n_sessions,0))   AS sessions,
+  SUM(COALESCE(p.sj,0))           AS seller_joined,
+  SUM(COALESCE(p.pj,0))           AS poc_joined
+FROM gld d
+LEFT JOIN per p USING(seller_id)
+LEFT JOIN mgr m USING(seller_id)
+-- pre_live_call events only exist from 2026-08-20; earlier go-lives would read as 0%
+-- adoption when the truth is that there is no session data for them at all
+WHERE d.gd >= DATE '2026-08-20'
+GROUP BY 1,2,3 ORDER BY 1,2
+"""
+
+
+def parse_prelive(csv_text):
+    """days[]/gcs[]/gms[] + rows [dayIdx, gcIdx, gmIdx, golives, sessions, sellerJoined, pocJoined]"""
+    days, gcs, gms = [], [], []
+    di, ci, mi = {}, {}, {}
+
+    def idx(v, arr, m):
+        if v not in m:
+            m[v] = len(arr); arr.append(v)
+        return m[v]
+
+    out = []
+    for r in csvmod.DictReader(io.StringIO(csv_text)):
+        def gi(k):
+            try:
+                return int(round(float(r.get(k) or 0)))
+            except ValueError:
+                return 0
+        out.append([idx(r["d"], days, di), idx(r["gc"], gcs, ci), idx(r["gm"], gms, mi),
+                    gi("golives"), gi("sessions"), gi("seller_joined"), gi("poc_joined")])
+    order = sorted(range(len(days)), key=lambda k: days[k])
+    remap = {o: n for n, o in enumerate(order)}
+    for row in out:
+        row[0] = remap[row[0]]
+    out.sort()
+    return {"days": [days[k] for k in order], "gcs": gcs, "gms": gms, "rows": out}
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -1343,6 +1460,7 @@ def main():
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
     stuck = parse_stuck(run_csv(session, STUCK_SQL))
+    prelive = parse_prelive(run_csv(session, PRELIVE_SQL))
     blocks = parse_block(run_csv(session, BLOCK_SQL))
     blockfb = parse_blockfb(run_csv(session, BLOCKFB_SQL))
     tbe, tbn, tforced, tgme, tgmn = build_team_map(session)
@@ -1359,7 +1477,8 @@ def main():
           f"none {_gmsrc.count('none')}")
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
-               "blocks": blocks, "blockPlatform": blockfb, "stuck": stuck}
+               "blocks": blocks, "blockPlatform": blockfb, "stuck": stuck,
+               "prelive": prelive}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -1372,7 +1491,8 @@ def main():
                 and old.get("taskSla") == payload["taskSla"]
                 and old.get("blocks") == payload["blocks"]
                 and old.get("blockPlatform") == payload["blockPlatform"]
-                and old.get("stuck") == payload["stuck"]):
+                and old.get("stuck") == payload["stuck"]
+                and old.get("prelive") == payload["prelive"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -1387,7 +1507,8 @@ def main():
           f"{len(tssop['rows'])} TS-SOP rows, {len(unas['rows'])} unassign rows, {len(weekact)} week-actual rows, "
           f"{sum(len(v['rows']) for v in tasksla['roles'].values())} task-SLA rows, "
           f"{len(blocks['rows'])} block tickets over {len(blocks['weeks'])} weeks, "
-          f"{len(blockfb)} platform-state rows, {len(stuck['rows'])} stuck tasks.")
+          f"{len(blockfb)} platform-state rows, {len(stuck['rows'])} stuck tasks, "
+          f"{len(prelive['rows'])} pre-live day/GC rows.")
 
 
 if __name__ == "__main__":

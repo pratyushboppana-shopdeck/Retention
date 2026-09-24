@@ -555,6 +555,48 @@
   </div>
 
   <div class="drill-sub" id="gcFoot" style="margin-top:12px"></div>
+
+  <div class="gcsec" style="margin-top:26px;border-top:1px solid var(--line);padding-top:18px">
+    <div class="drill-h3">Pre-live video adoption
+      <span class="hint">&mdash; go-lives on the day against sellers who joined a pre-live call. GC/GM is the seller&rsquo;s current mapping.</span></div>
+    <div class="fl-row" style="margin:8px 0">
+      <span class="fl-label">Split by</span>
+      <span class="slaseg" id="plBy">
+        <button type="button" data-b="day" class="on">Day</button>
+        <button type="button" data-b="week">Week</button>
+        <button type="button" data-b="gc">GC</button>
+        <button type="button" data-b="gm">GM</button>
+      </span>
+      <label style="font-size:12px;color:var(--muted);margin-left:10px">
+        <input type="checkbox" id="plMin" checked> hide &lt;10 go-lives</label>
+      <button class="gcexp" id="plCsv" style="margin-left:auto">Download CSV &#8595;</button>
+    </div>
+    <div class="chart-box" style="height:250px"><canvas id="plChart" role="img"
+      aria-label="Pre-live video call adoption against go-lives."></canvas></div>
+    <div class="tablewrap" style="max-height:260px;overflow:auto;margin-top:10px"><table class="sla" id="plTable"></table></div>
+    <div class="drill-sub" id="plFoot" style="margin-top:6px"></div>
+  </div>
+
+  <div class="gcsec" style="margin-top:26px;border-top:1px solid var(--line);padding-top:18px">
+    <div class="drill-h3">SLA adherence over time
+      <span class="hint">&mdash; by task type. These filters are independent of the ones above.</span></div>
+    <div class="fl-row" style="margin:8px 0;flex-wrap:wrap">
+      <span class="slaseg" id="trGrain">
+        <button type="button" data-g="day" class="on">Day</button>
+        <button type="button" data-g="week">Week</button>
+      </span>
+      <label style="font-size:12px;color:var(--muted);margin-left:12px">GM
+        <select id="trGm" style="margin-left:5px"></select></label>
+      <label style="font-size:12px;color:var(--muted);margin-left:10px">GC
+        <select id="trGc" style="margin-left:5px"></select></label>
+      <button class="gcexp" id="trReset" style="margin-left:10px">Reset</button>
+      <button class="gcexp" id="trCsv" style="margin-left:auto">Download CSV &#8595;</button>
+    </div>
+    <div class="slaChips" id="trTaskChips"></div>
+    <div class="chart-box" style="height:280px"><canvas id="trChart" role="img"
+      aria-label="SLA adherence over time by task type."></canvas></div>
+    <div class="drill-sub" id="trFoot" style="margin-top:6px"></div>
+  </div>
 </div>
 
 <div class="card" id="slaCard" style="display:none">
@@ -967,6 +1009,7 @@ async function load(){
     UNAS=snap.unassign||null; unInit=false;
     BLK=snap.blocks||null; BLKPLAT=snap.blockPlatform||null; blkInit=false;
     STUCK=snap.stuck||null;
+    PRELIVE=snap.prelive||null;
     const rows=parseCSV(csv);
     buildWeMap(rows);
     const groups=rollup(rows,OPTS);
@@ -1919,7 +1962,9 @@ function gcList(){
 // ================= TAB: Ad-account & BM restrictions =================
 // Rows: [wkIdx, dnum, sellerIdx, catIdx, subIdx, statusIdx, tatMin(-1 null), slaMin, inHit, relWeek(-99 null), gcIdx, gmIdx]
 let BLK=null, BLKPLAT=null, blkInit=false, blkF=null, blkC1=null, blkC2=null;
-let STUCK=null;
+let STUCK=null, PRELIVE=null, plChart=null, trChart=null;
+const plSt={by:'day',min:true};
+const trSt={grain:'day',gm:'',gc:'',off:{}};
 const blkSt={strict:false, hitOnly:true, unit:'ticket', cats:new Set([0,1,2,3,4,5]), seller:null};
 const BLK_COLLAPSE=7;   // days: tickets this close, same seller + same category, are one incident
 const BLK_EPOCH=Date.UTC(2026,0,1);
@@ -2322,8 +2367,11 @@ function buildGcConsole(){
   if(!R){ document.getElementById('gcKpis').innerHTML=
       '<div class="kpi"><div class="k">No data</div><div class="s">This snapshot has no GC task rows.</div></div>';
     return; }
-  if(!gcInit){ gcWire(); gcInit=true; }
+  if(!gcInit){ gcWire(); initTrendControls(); gcInit=true; }
   renderGc();
+  // both sit below the console and carry their OWN filters, so they are painted
+  // once here rather than from renderGc(), which the console's controls drive
+  buildPrelive(); buildTrend();
 }
 function gcWire(){
   document.querySelectorAll('#gcRange button').forEach(b=>b.addEventListener('click',()=>{
@@ -2744,6 +2792,160 @@ function gcReport(){
       navigator.clipboard.writeText(v).then(done,legacy);
     else legacy();
   }));
+}
+// ================= Pre-live video adoption =================
+const isoWk=d=>{const t=new Date(d+'T00:00:00Z');
+  t.setUTCDate(t.getUTCDate()+4-(t.getUTCDay()||7));
+  const y=new Date(Date.UTC(t.getUTCFullYear(),0,1));
+  return t.getUTCFullYear()+'-W'+String(Math.ceil(((t-y)/86400000+1)/7)).padStart(2,'0');};
+
+function plAgg(){
+  if(!PRELIVE) return [];
+  const m=new Map();
+  PRELIVE.rows.forEach(r=>{
+    const k = plSt.by==='day' ? PRELIVE.days[r[0]]
+            : plSt.by==='week'? isoWk(PRELIVE.days[r[0]])
+            : plSt.by==='gc'  ? PRELIVE.gcs[r[1]] : PRELIVE.gms[r[2]];
+    let a=m.get(k); if(!a){a={k,gl:0,sess:0,sj:0,pj:0}; m.set(k,a);}
+    a.gl+=r[3]; a.sess+=r[4]; a.sj+=r[5]; a.pj+=r[6];
+  });
+  let out=[...m.values()];
+  out.forEach(a=>a.pct=a.gl?100*a.sj/a.gl:null);
+  if(plSt.min) out=out.filter(a=>a.gl>=10);
+  return (plSt.by==='day'||plSt.by==='week') ? out.sort((a,b)=>a.k<b.k?-1:1)
+                                             : out.sort((a,b)=>a.pct-b.pct);
+}
+function buildPrelive(){
+  const foot=document.getElementById('plFoot');
+  if(!PRELIVE||!PRELIVE.rows.length){ foot.textContent='No pre-live data in this snapshot.'; return; }
+  const A=plAgg(), byTime=(plSt.by==='day'||plSt.by==='week');
+  const lab=A.map(a=>byTime?a.k.slice(5):a.k);
+  const dark=false, surf='#fbfaf5';
+  if(plChart) plChart.destroy();
+  plChart=new Chart(document.getElementById('plChart'),{
+    data:{labels:lab,datasets:[
+      {type:'bar',label:'Go-lives',data:A.map(a=>a.gl),backgroundColor:'rgba(24,95,165,.18)',
+       borderColor:'#185FA5',borderWidth:1,yAxisID:'y',order:3,borderRadius:3},
+      {type:'bar',label:'Seller joined',data:A.map(a=>a.sj),backgroundColor:'#1D9E75',
+       yAxisID:'y',order:2,borderRadius:3},
+      {type:'line',label:'Adoption %',data:A.map(a=>a.pct),borderColor:'#BA7517',
+       backgroundColor:'#BA7517',borderWidth:2,tension:.25,yAxisID:'y1',order:1,
+       pointRadius:3,pointBorderColor:surf,pointBorderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}}},
+      scales:{y:{beginAtZero:true,title:{display:true,text:'sellers',color:AXIS_TITLE}},
+              y1:{position:'right',min:0,max:100,grid:{drawOnChartArea:false},
+                  ticks:{callback:v=>v+'%'},title:{display:true,text:'adoption',color:AXIS_TITLE}},
+              x:{ticks:{color:AXIS,maxRotation:60,minRotation:byTime?60:30,font:{size:9}},grid:{display:false}}}}});
+  let h='<thead><tr><th>'+(plSt.by==='gc'?'GC':plSt.by==='gm'?'GM':plSt.by==='week'?'Week':'Day')+
+        '</th><th class="num">Go-lives</th><th class="num">Sessions</th>'+
+        '<th class="num">Seller joined</th><th class="num">POC joined</th><th class="num">Adoption</th></tr></thead><tbody>';
+  A.slice().reverse().forEach(a=>{
+    h+='<tr><td>'+esc(a.k)+'</td><td class="num">'+a.gl+'</td><td class="num">'+a.sess+
+       '</td><td class="num">'+a.sj+'</td><td class="num">'+a.pj+
+       '</td><td class="num" style="color:'+slaAdhColor((a.pct||0)/100)+';font-weight:700">'+
+       (a.pct==null?'—':a.pct.toFixed(1)+'%')+'</td></tr>';
+  });
+  document.getElementById('plTable').innerHTML=h+'</tbody>';
+  const T=A.reduce((s,a)=>({gl:s.gl+a.gl,sj:s.sj+a.sj}),{gl:0,sj:0});
+  foot.innerHTML='<b>'+(T.gl?(100*T.sj/T.gl).toFixed(1):'0')+'%</b> across '+T.gl+
+    ' go-lives in the window. The loss is at link creation, not on the call &mdash; once a session exists the seller joins nearly every time. '+
+    'The newest day or two read low: the canonical go-live needs the seller&rsquo;s ISO week to clear &#8377;1,000. '+
+    '<b>GC/GM is the seller&rsquo;s current mapping</b>, so a seller later moved to a revival GC counts against that GC even though the pre-live window had passed.';
+}
+function plDownload(){
+  const A=plAgg(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[[plSt.by,'golives','sessions','seller_joined','poc_joined','adoption_pct'].join(',')];
+  A.forEach(a=>out.push([a.k,a.gl,a.sess,a.sj,a.pj,a.pct==null?'':a.pct.toFixed(1)].map(q).join(',')));
+  saveCsv('prelive_adoption_'+plSt.by+'.csv',out.join('\n'));
+}
+
+// ================= SLA adherence over time, independent filters =================
+function trAgg(){
+  const R=gcR(); if(!R) return {labels:[],series:new Map()};
+  const gmSel=trSt.gm, gcSel=trSt.gc;
+  const keys=[], m=new Map();
+  for(const r of R.rows){
+    const t=R.tasks[r[1]]; if(trSt.off[t]) continue;
+    if(gcSel && R.people[r[2]]!==gcSel) continue;
+    if(gmSel && String(R.gms[r[2]]||'(no GM)')!==gmSel) continue;
+    const d=TSLA.days[r[0]];
+    const k=trSt.grain==='day'?d:isoWk(d);
+    let byT=m.get(t); if(!byT){byT=new Map(); m.set(t,byT);}
+    let a=byT.get(k); if(!a){a={on:0,due:0}; byT.set(k,a);}
+    a.on+=r[4]; a.due+=r[4]+r[5]+r[6];
+  }
+  const all=new Set(); m.forEach(b=>b.forEach((_,k)=>all.add(k)));
+  return {labels:[...all].sort(), series:m};
+}
+const TR_COL=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#6250d6','#008300','#e34948'];
+function buildTrend(){
+  const R=gcR(), foot=document.getElementById('trFoot');
+  if(!R){ foot.textContent='No task data.'; return; }
+  const {labels,series}=trAgg();
+  const ds=[...series.entries()].map(([t,by],i)=>({
+    label:t, data:labels.map(k=>{const a=by.get(k); return a&&a.due>=3?100*a.on/a.due:null;}),
+    borderColor:TR_COL[i%8], backgroundColor:TR_COL[i%8], borderWidth:2, tension:.25,
+    spanGaps:true, pointRadius:2, pointHoverRadius:6,
+    _n:labels.map(k=>{const a=by.get(k); return a?a.due:0;})}));
+  if(trChart) trChart.destroy();
+  trChart=new Chart(document.getElementById('trChart'),{type:'line',
+    data:{labels:labels.map(k=>trSt.grain==='day'?k.slice(5):k.slice(5)),datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+
+          (c.parsed.y==null?'no tasks due':c.parsed.y.toFixed(1)+'% of '+c.dataset._n[c.dataIndex]+' due')}}},
+      scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%',color:AXIS},grid:{color:'#e9e7dd'},
+                 title:{display:true,text:'SLA adherence',color:AXIS_TITLE}},
+              x:{ticks:{color:AXIS,maxRotation:60,minRotation:60,font:{size:9}},grid:{display:false}}}}});
+  const tot=ds.reduce((s,d)=>s+d._n.reduce((x,y)=>x+y,0),0);
+  const who=[trSt.gm?'GM '+trSt.gm:'', trSt.gc?'GC '+trSt.gc:''].filter(Boolean).join(' · ')||'everyone';
+  foot.innerHTML='Showing <b>'+who+'</b> &middot; '+tot.toLocaleString()+' tasks due across '+
+    labels.length+' '+(trSt.grain==='day'?'days':'weeks')+
+    '. A point needs at least 3 tasks due or it is left out, so sparse GC&times;task combinations break the line rather than swing to 0 or 100.';
+}
+function trDownload(){
+  const {labels,series}=trAgg(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[['period','task_type','due','on_time','adherence_pct'].join(',')];
+  series.forEach((by,t)=>labels.forEach(k=>{const a=by.get(k); if(!a||!a.due) return;
+    out.push([k,t,a.due,a.on,(100*a.on/a.due).toFixed(1)].map(q).join(','));}));
+  saveCsv('sla_adherence_'+trSt.grain+'.csv',out.join('\n'));
+}
+function initTrendControls(){
+  const R=gcR(); if(!R) return;
+  const gmSel=document.getElementById('trGm'), gcSel=document.getElementById('trGc');
+  const gms=[...new Set(R.people.map((_,i)=>R.gms[i]||'(no GM)'))].sort();
+  gmSel.innerHTML='<option value="">All GMs</option>'+gms.map(g=>'<option value="'+esc(g)+'">'+esc(g)+'</option>').join('');
+  const fill=()=>{
+    const people=R.people.map((p,i)=>({p,gm:R.gms[i]||'(no GM)'}))
+      .filter(x=>!trSt.gm||x.gm===trSt.gm).map(x=>x.p).sort();
+    gcSel.innerHTML='<option value="">All GCs</option>'+people.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
+    if(trSt.gc && !people.includes(trSt.gc)) trSt.gc='';
+    gcSel.value=trSt.gc;
+  };
+  fill();
+  gmSel.addEventListener('change',e=>{trSt.gm=e.target.value; fill(); buildTrend();});
+  gcSel.addEventListener('change',e=>{trSt.gc=e.target.value; buildTrend();});
+  document.getElementById('trReset').addEventListener('click',()=>{
+    trSt.gm=''; trSt.gc=''; trSt.off={}; gmSel.value=''; fill();
+    document.querySelectorAll('#trTaskChips .item').forEach(c=>c.classList.remove('off'));
+    buildTrend();});
+  document.querySelectorAll('#trGrain button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#trGrain button').forEach(x=>x.classList.toggle('on',x===b));
+    trSt.grain=b.dataset.g; buildTrend();}));
+  document.getElementById('trCsv').addEventListener('click',trDownload);
+  const chips=document.getElementById('trTaskChips'); chips.innerHTML='';
+  R.tasks.forEach((t,i)=>{
+    const el=document.createElement('span'); el.className='item';
+    el.innerHTML='<span class="swatch" style="background:'+TR_COL[i%8]+'"></span>'+esc(t);
+    el.addEventListener('click',()=>{trSt.off[t]=!trSt.off[t]; el.classList.toggle('off'); buildTrend();});
+    chips.appendChild(el);
+  });
+  document.querySelectorAll('#plBy button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#plBy button').forEach(x=>x.classList.toggle('on',x===b));
+    plSt.by=b.dataset.b; buildPrelive();}));
+  document.getElementById('plMin').addEventListener('change',e=>{plSt.min=e.target.checked; buildPrelive();});
+  document.getElementById('plCsv').addEventListener('click',plDownload);
 }
 function gcDigest(){
   const R=gcR();
