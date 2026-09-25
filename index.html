@@ -3005,6 +3005,17 @@ const TRD_MIN_N=5;
 function buildTrendDuration(){
   const R=gcR(), foot=document.getElementById('trDFoot');
   if(!R){ foot.textContent='No task data.'; return; }
+  // durSum is the 16th field and only exists from the refresh that added it. On an older
+  // payload r[15] is undefined, which would quietly plot a flat zero line instead of
+  // saying the data is not there yet.
+  if(!R.rows.length || R.rows[0].length < 16){
+    if(trDChart){ trDChart.destroy(); trDChart=null; }
+    document.getElementById('trDChart').closest('.chart-box').style.display='none';
+    foot.innerHTML='Call duration was added to the pipeline after this snapshot was built, '+
+      'so it is not in the data yet &mdash; it fills in on the next refresh.';
+    return;
+  }
+  document.getElementById('trDChart').closest('.chart-box').style.display='';
   const m=new Map();
   for(const r of R.rows){
     const t=R.tasks[r[1]]; if(trSt.off[t]) continue;
