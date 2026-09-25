@@ -822,6 +822,8 @@ callm AS (
     COUNT(ec.exotel_call_sid) n_calls,
     COUNTIF(ed.duration>0) n_conn,
     COUNTIF(ed.q_ok) n_scored,
+    -- seconds over connected calls only; a 0-duration ring would drag the mean down
+    SUM(IF(ed.duration>0, ed.duration, NULL)) dur_sum,
     SUM(IF(ed.q_ok, ed.acc, NULL)) acc_sum,
     SUM(IF(ed.q_ok, ed.sat, NULL)) sat_sum,
     SUM(IF(ed.q_ok, ed.ton, NULL)) ton_sum
@@ -857,7 +859,8 @@ SELECT cls.role, FORMAT_DATE('%Y-%m-%d', cls.cd) AS d, cls.task, cls.nm,
   CAST(SUM(COALESCE(callm.n_scored,0)) AS INT64) AS scored,
   CAST(ROUND(SUM(COALESCE(callm.acc_sum,0))) AS INT64) AS acc_sum,
   CAST(ROUND(SUM(COALESCE(callm.sat_sum,0))) AS INT64) AS sat_sum,
-  CAST(ROUND(SUM(COALESCE(callm.ton_sum,0))) AS INT64) AS ton_sum
+  CAST(ROUND(SUM(COALESCE(callm.ton_sum,0))) AS INT64) AS ton_sum,
+  CAST(ROUND(SUM(COALESCE(callm.dur_sum,0))) AS INT64) AS dur_sum
 FROM cls
 LEFT JOIN callm ON callm.id = cls.id
 LEFT JOIN gcgm  ON gcgm.role = cls.role AND gcgm.nm = cls.nm
@@ -995,7 +998,9 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
     """Index days/tasks/people per role and emit compact integer rows.
 
     Row = [dayIdx, taskIdx, personIdx, created, on_time, late, stuck, pending,
-           overMinSum, calls, connected, scored, accSum, satSum, tonSum]
+           overMinSum, calls, connected, scored, accSum, satSum, tonSum, durSum]
+
+    durSum is seconds over CONNECTED calls; divide by `connected`, never by `calls`.
     Quality is stored as SUMS over scored calls so any aggregation stays correct --
     averaging pre-averaged rates would weight a 1-call day like a 40-call day.
     """
@@ -1034,7 +1039,7 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
                           i("created"), i("on_time"), i("late"), i("stuck"),
                           i("pending"), i("over_min_sum"),
                           i("calls"), i("connected"), i("scored"),
-                          i("acc_sum"), i("sat_sum"), i("ton_sum")])
+                          i("acc_sum"), i("sat_sum"), i("ton_sum"), i("dur_sum")])
 
     cbe, cbn, fx = cat_email or {}, cat_name or {}, forced or {}
     gbe, gbn = gm_email or {}, gm_name or {}

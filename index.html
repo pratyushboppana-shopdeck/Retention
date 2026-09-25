@@ -235,6 +235,10 @@
   table.gcwide.d3 td{padding:0.5px 4px;line-height:1.35;} table.gcwide.d3 th{padding:2px 4px;} table.gcwide.d3{font-size:9.5px;}
   table.gcwide.d3 .gmw,table.gcwide.d2 .gmw{font-size:9.5px;}
   .gcfit{font-size:11px;color:var(--muted);margin:0 0 8px;}
+  /* 14 weekly points stretched over 1,350px flattens every line; cap the plot so the
+     shape is readable and let it shrink on narrower screens */
+  .trwrap{max-width:980px;}
+  #trTaskChips{margin-bottom:2px;}
   #gcReport .gcfun .b.clk{cursor:pointer;}
   #gcReport .gcfun .b.clk:hover{background:#f6f5ee;}
   .stkcue{font-size:10px;font-weight:700;color:#185FA5;margin-left:5px;white-space:nowrap;}
@@ -595,9 +599,21 @@
       <button class="gcexp" id="trCsv" style="margin-left:auto">Download CSV &#8595;</button>
     </div>
     <div class="slaChips" id="trTaskChips"></div>
-    <div class="chart-box" style="height:280px"><canvas id="trChart" role="img"
+    <div class="chart-box trwrap" style="height:360px"><canvas id="trChart" role="img"
       aria-label="SLA adherence over time by task type."></canvas></div>
     <div class="drill-sub" id="trFoot" style="margin-top:6px"></div>
+
+    <div class="drill-h3" style="margin-top:22px">TS SOP call quality over time
+      <span class="hint">&mdash; the three components, on the same Team / GM / GC filters above.</span></div>
+    <div class="chart-box trwrap" style="height:300px"><canvas id="trQChart" role="img"
+      aria-label="Accuracy, seller satisfaction and tonality on TS SOP calls over time."></canvas></div>
+    <div class="drill-sub" id="trQFoot" style="margin-top:6px"></div>
+
+    <div class="drill-h3" style="margin-top:22px">Average call duration over time
+      <span class="hint">&mdash; minutes per connected call, by task type. Uses the task chips and the filters above.</span></div>
+    <div class="chart-box trwrap" style="height:300px"><canvas id="trDChart" role="img"
+      aria-label="Average connected-call duration in minutes, by task type, over time."></canvas></div>
+    <div class="drill-sub" id="trDFoot" style="margin-top:6px"></div>
   </div>
 </div>
 
@@ -1964,7 +1980,7 @@ function gcList(){
 // ================= TAB: Ad-account & BM restrictions =================
 // Rows: [wkIdx, dnum, sellerIdx, catIdx, subIdx, statusIdx, tatMin(-1 null), slaMin, inHit, relWeek(-99 null), gcIdx, gmIdx]
 let BLK=null, BLKPLAT=null, blkInit=false, blkF=null, blkC1=null, blkC2=null;
-let STUCK=null, PRELIVE=null, plChart=null, trChart=null;
+let STUCK=null, PRELIVE=null, plChart=null, trChart=null, trQChart=null, trDChart=null;
 const plSt={by:'day',min:true};
 const trSt={grain:'day',team:'',gm:'',gc:'',off:{}};
 const blkSt={strict:false, hitOnly:true, unit:'ticket', cats:new Set([0,1,2,3,4,5]), seller:null};
@@ -2373,7 +2389,7 @@ function buildGcConsole(){
   renderGc();
   // both sit below the console and carry their OWN filters, so they are painted
   // once here rather than from renderGc(), which the console's controls drive
-  buildPrelive(); buildTrend();
+  buildPrelive(); buildTrend(); buildTrendQuality(); buildTrendDuration();
 }
 function gcWire(){
   document.querySelectorAll('#gcRange button').forEach(b=>b.addEventListener('click',()=>{
@@ -2882,6 +2898,9 @@ function trAgg(){
   return {labels:[...all].sort(), series:m};
 }
 const TR_COL=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#6250d6','#008300','#e34948'];
+// Owner asked for a 30% floor so the 70-100% band is readable. That floor hides any
+// point below it, so the footnote names them rather than letting a real dip vanish.
+const TR_MIN=30;
 function buildTrend(){
   const R=gcR(), foot=document.getElementById('trFoot');
   if(!R){ foot.textContent='No task data.'; return; }
@@ -2895,18 +2914,136 @@ function buildTrend(){
   trChart=new Chart(document.getElementById('trChart'),{type:'line',
     data:{labels:labels.map(k=>trSt.grain==='day'?k.slice(5):k.slice(5)),datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}},
+      // the task chips above are already the legend AND the toggle, so Chart.js's own
+      // legend was a second copy of the same thing taking a line of chart height
+      plugins:{legend:{display:false},
         tooltip:{callbacks:{label:c=>c.dataset.label+': '+
           (c.parsed.y==null?'no tasks due':c.parsed.y.toFixed(1)+'% of '+c.dataset._n[c.dataIndex]+' due')}}},
-      scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%',color:AXIS},grid:{color:'#e9e7dd'},
+      scales:{y:{min:TR_MIN,max:100,
+                 ticks:{stepSize:5,color:AXIS,font:{size:10},
+                        // label every 10 so 15 gridlines do not turn into a wall of text
+                        callback:v=>v%10===0?v+'%':''},
+                 grid:{color:c=>c.tick.value%10===0?'#e4e2d8':'#f2f1ea'},
+                 border:{display:false},
                  title:{display:true,text:'SLA adherence',color:AXIS_TITLE}},
-              x:{ticks:{color:AXIS,maxRotation:60,minRotation:60,font:{size:9}},grid:{display:false}}}}});
+              x:{ticks:{color:AXIS,maxRotation:0,minRotation:0,font:{size:10},autoSkip:true,maxTicksLimit:16},
+                 grid:{display:false}}}}});
   const tot=ds.reduce((s,d)=>s+d._n.reduce((x,y)=>x+y,0),0);
   const who=[trSt.team||'', trSt.gm?'GM '+trSt.gm:'', trSt.gc?'GC '+trSt.gc:'']
     .filter(Boolean).join(' · ')||'everyone';
+  // anything under the floor is off the bottom of the plot -- say so and name it
+  const below=[];
+  ds.forEach(d=>d.data.forEach((v,i)=>{ if(v!=null && v<TR_MIN)
+    below.push(d.label+' '+labels[i].slice(5)+' '+v.toFixed(0)+'%'); }));
   foot.innerHTML='Showing <b>'+who+'</b> &middot; '+tot.toLocaleString()+' tasks due across '+
     labels.length+' '+(trSt.grain==='day'?'days':'weeks')+
-    '. A point needs at least 3 tasks due or it is left out, so sparse GC&times;task combinations break the line rather than swing to 0 or 100.';
+    '. A point needs at least 3 tasks due or it is left out, so sparse GC&times;task combinations break the line rather than swing to 0 or 100.'+
+    (below.length ? ' <b style="color:#C0392B">'+below.length+' point'+(below.length===1?'':'s')+
+      ' fall below the '+TR_MIN+'% floor and sit off the bottom of the plot:</b> '+
+      below.slice(0,6).join(' · ')+(below.length>6?' &hellip;':'')+'.' : '');
+}
+// TS SOP call quality. Quality lives on the same task rows as SLA (scored / accSum /
+// satSum / tonSum), so this needs no extra query -- but calls are only held for 35 days
+// while SLA keeps 90, so the series is shorter than the chart above on purpose.
+// Sums are divided by the scored count, never averaged from pre-averaged day values:
+// that would weight a 2-call day like a 60-call day.
+const TRQ_MIN_N=10;
+function buildTrendQuality(){
+  const R=gcR(), foot=document.getElementById('trQFoot');
+  if(!R){ foot.textContent='No task data.'; return; }
+  const ti=R.tasks.indexOf('TS SOP Call');
+  if(ti<0){ foot.textContent='No TS SOP Call tasks in this snapshot.'; return; }
+  const m=new Map();
+  for(const r of R.rows){
+    if(r[1]!==ti) continue;
+    if(trSt.gc && R.people[r[2]]!==trSt.gc) continue;
+    if(trSt.gm && String(R.gms[r[2]]||'(no GM)')!==trSt.gm) continue;
+    if(trSt.team && String((R.cats&&R.cats[r[2]])||'Unmapped')!==trSt.team) continue;
+    const d=TSLA.days[r[0]], k=trSt.grain==='day'?d:isoWk(d);
+    let a=m.get(k); if(!a){a={sc:0,acc:0,sat:0,ton:0,calls:0,conn:0}; m.set(k,a);}
+    a.calls+=r[9]; a.conn+=r[10]; a.sc+=r[11]; a.acc+=r[12]; a.sat+=r[13]; a.ton+=r[14];
+  }
+  const labels=[...m.keys()].filter(k=>m.get(k).sc>0).sort();
+  const pick=(k,f)=>{const a=m.get(k); return a.sc>=TRQ_MIN_N ? a[f]/a.sc : null;};
+  const mk=(lab,f,col,dash)=>({label:lab,data:labels.map(k=>pick(k,f)),borderColor:col,
+    backgroundColor:col,borderWidth:2,tension:.25,spanGaps:true,pointRadius:3,pointHoverRadius:7,
+    borderDash:dash||[], _n:labels.map(k=>m.get(k).sc)});
+  const ds=[mk('Accuracy','acc','#2a78d6'), mk('Seller satisfaction','sat','#eb6834',[6,4]),
+            mk('Tonality','ton','#1baf7a',[2,3])];
+  if(trQChart) trQChart.destroy();
+  trQChart=new Chart(document.getElementById('trQChart'),{type:'line',
+    data:{labels:labels.map(k=>k.slice(5)),datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}},
+        tooltip:{callbacks:{
+          label:c=>c.parsed.y==null?c.dataset.label+': too few scored calls'
+                  :c.dataset.label+': '+c.parsed.y.toFixed(1),
+          afterBody:i=>ds[0]._n[i[0].dataIndex]+' scored calls'}}},
+      scales:{y:{min:40,max:90,ticks:{stepSize:5,color:AXIS,font:{size:10},
+                   callback:v=>v%10===0?v:''},
+                 grid:{color:c=>c.tick.value%10===0?'#e4e2d8':'#f2f1ea'},border:{display:false},
+                 title:{display:true,text:'score (0–100)',color:AXIS_TITLE}},
+              x:{ticks:{color:AXIS,maxRotation:0,minRotation:0,font:{size:10},autoSkip:true,maxTicksLimit:16},
+                 grid:{display:false}}}}});
+  const T=labels.reduce((s,k)=>{const a=m.get(k);
+    return {sc:s.sc+a.sc,acc:s.acc+a.acc,sat:s.sat+a.sat,ton:s.ton+a.ton,calls:s.calls+a.calls,conn:s.conn+a.conn};},
+    {sc:0,acc:0,sat:0,ton:0,calls:0,conn:0});
+  const thin=labels.filter(k=>m.get(k).sc<TRQ_MIN_N).length;
+  foot.innerHTML = T.sc
+    ? '<b>'+T.sc.toLocaleString()+'</b> scored calls of '+T.conn.toLocaleString()+' connected ('+
+      (100*T.sc/Math.max(1,T.conn)).toFixed(0)+'%) &middot; accuracy <b>'+(T.acc/T.sc).toFixed(1)+
+      '</b> · satisfaction <b>'+(T.sat/T.sc).toFixed(1)+'</b> · tonality <b>'+(T.ton/T.sc).toFixed(1)+'</b>. '+
+      'A call scores only when all three components are present. Points with fewer than '+TRQ_MIN_N+
+      ' scored calls are dropped'+(thin?' ('+thin+' here)':'')+
+      '. Calls are held 35 days, so this is shorter than the chart above.'
+    : 'No scored calls for this selection.';
+}
+// Average connected-call duration by task type. Duration is a SUM of seconds over
+// connected calls (row[15]) divided by the connected count -- dividing by `calls` would
+// count rings nobody answered as zero-length conversations and halve the mean.
+const TRD_MIN_N=5;
+function buildTrendDuration(){
+  const R=gcR(), foot=document.getElementById('trDFoot');
+  if(!R){ foot.textContent='No task data.'; return; }
+  const m=new Map();
+  for(const r of R.rows){
+    const t=R.tasks[r[1]]; if(trSt.off[t]) continue;
+    if(trSt.gc && R.people[r[2]]!==trSt.gc) continue;
+    if(trSt.gm && String(R.gms[r[2]]||'(no GM)')!==trSt.gm) continue;
+    if(trSt.team && String((R.cats&&R.cats[r[2]])||'Unmapped')!==trSt.team) continue;
+    if(!r[10]) continue;                       // no connected calls, nothing to average
+    const d=TSLA.days[r[0]], k=trSt.grain==='day'?d:isoWk(d);
+    let byT=m.get(t); if(!byT){byT=new Map(); m.set(t,byT);}
+    let a=byT.get(k); if(!a){a={conn:0,dur:0}; byT.set(k,a);}
+    a.conn+=r[10]; a.dur+=(r[15]||0);
+  }
+  const all=new Set(); m.forEach(b=>b.forEach((_,k)=>all.add(k)));
+  const labels=[...all].sort();
+  const ds=[...m.entries()].map(([t,by],i)=>({
+    label:t, data:labels.map(k=>{const a=by.get(k); return a&&a.conn>=TRD_MIN_N?a.dur/a.conn/60:null;}),
+    borderColor:TR_COL[R.tasks.indexOf(t)%8], backgroundColor:TR_COL[R.tasks.indexOf(t)%8],
+    borderWidth:2, tension:.25, spanGaps:true, pointRadius:2, pointHoverRadius:6,
+    _n:labels.map(k=>{const a=by.get(k); return a?a.conn:0;})}));
+  if(trDChart) trDChart.destroy();
+  trDChart=new Chart(document.getElementById('trDChart'),{type:'line',
+    data:{labels:labels.map(k=>k.slice(5)),datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>c.parsed.y==null?c.dataset.label+': too few connected calls'
+          :c.dataset.label+': '+c.parsed.y.toFixed(1)+' min over '+c.dataset._n[c.dataIndex]+' calls'}}},
+      scales:{y:{beginAtZero:true,ticks:{color:AXIS,font:{size:10},callback:v=>v+'m'},
+                 grid:{color:'#f2f1ea'},border:{display:false},
+                 title:{display:true,text:'minutes per connected call',color:AXIS_TITLE}},
+              x:{ticks:{color:AXIS,maxRotation:0,minRotation:0,font:{size:10},autoSkip:true,maxTicksLimit:16},
+                 grid:{display:false}}}}});
+  let conn=0,dur=0;
+  m.forEach(by=>by.forEach(a=>{conn+=a.conn; dur+=a.dur;}));
+  foot.innerHTML = conn
+    ? 'Mean <b>'+(dur/conn/60).toFixed(1)+' min</b> across '+conn.toLocaleString()+
+      ' connected calls. Averaged over connected calls only &mdash; dividing by calls placed would '+
+      'count unanswered rings as zero-length conversations. Points under '+TRD_MIN_N+
+      ' connected calls are dropped, and the series is limited to the 35 days of call history.'
+    : 'No connected calls for this selection.';
 }
 function trDownload(){
   const {labels,series}=trAgg(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
@@ -2942,22 +3079,23 @@ function initTrendControls(){
     gcSel.value=trSt.gc;
   };
   fill();
-  teamSel.addEventListener('change',e=>{trSt.team=e.target.value; fill(); buildTrend();});
-  gmSel.addEventListener('change',e=>{trSt.gm=e.target.value; fill(); buildTrend();});
-  gcSel.addEventListener('change',e=>{trSt.gc=e.target.value; buildTrend();});
+  teamSel.addEventListener('change',e=>{trSt.team=e.target.value; fill(); buildTrend(); buildTrendQuality(); buildTrendDuration();});
+  gmSel.addEventListener('change',e=>{trSt.gm=e.target.value; fill(); buildTrend(); buildTrendQuality(); buildTrendDuration();});
+  gcSel.addEventListener('change',e=>{trSt.gc=e.target.value; buildTrend(); buildTrendQuality(); buildTrendDuration();});
   document.getElementById('trReset').addEventListener('click',()=>{
     trSt.team=''; trSt.gm=''; trSt.gc=''; trSt.off={}; teamSel.value=''; fill();
     document.querySelectorAll('#trTaskChips .item').forEach(c=>c.classList.remove('off'));
-    buildTrend();});
+    buildTrend(); buildTrendQuality(); buildTrendDuration();});
   document.querySelectorAll('#trGrain button').forEach(b=>b.addEventListener('click',()=>{
     document.querySelectorAll('#trGrain button').forEach(x=>x.classList.toggle('on',x===b));
-    trSt.grain=b.dataset.g; buildTrend();}));
+    trSt.grain=b.dataset.g; buildTrend(); buildTrendQuality(); buildTrendDuration();}));
   document.getElementById('trCsv').addEventListener('click',trDownload);
   const chips=document.getElementById('trTaskChips'); chips.innerHTML='';
   R.tasks.forEach((t,i)=>{
     const el=document.createElement('span'); el.className='item';
     el.innerHTML='<span class="swatch" style="background:'+TR_COL[i%8]+'"></span>'+esc(t);
-    el.addEventListener('click',()=>{trSt.off[t]=!trSt.off[t]; el.classList.toggle('off'); buildTrend();});
+    el.addEventListener('click',()=>{trSt.off[t]=!trSt.off[t]; el.classList.toggle('off');
+      buildTrend(); buildTrendDuration();});
     chips.appendChild(el);
   });
   document.querySelectorAll('#plBy button').forEach(b=>b.addEventListener('click',()=>{
