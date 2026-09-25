@@ -2898,6 +2898,8 @@ function trAgg(){
   return {labels:[...all].sort(), series:m};
 }
 const TR_COL=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#6250d6','#008300','#e34948'];
+// single source of truth for series colour -- chips, lines and duration all call this
+function trCol(task){const R=gcR(); const i=R?R.tasks.indexOf(task):-1; return TR_COL[(i<0?0:i)%8];}
 // The axis fits whatever the current filters actually plot, so selecting a few
 // high-adherence task types zooms into their band instead of wasting two thirds of the
 // plot, and a POC Handover dip to 21% is visible rather than clipped off the bottom.
@@ -2923,9 +2925,12 @@ function buildTrend(){
   const R=gcR(), foot=document.getElementById('trFoot');
   if(!R){ foot.textContent='No task data.'; return; }
   const {labels,series}=trAgg();
-  const ds=[...series.entries()].map(([t,by],i)=>({
+  // Colour keys off the task's own index, never its position in the filtered list.
+  // Using the loop index repainted every surviving line whenever a chip was switched
+  // off, so the chips and the chart disagreed exactly when you were filtering.
+  const ds=[...series.entries()].map(([t,by])=>({
     label:t, data:labels.map(k=>{const a=by.get(k); return a&&a.due>=3?100*a.on/a.due:null;}),
-    borderColor:TR_COL[i%8], backgroundColor:TR_COL[i%8], borderWidth:2, tension:.25,
+    borderColor:trCol(t), backgroundColor:trCol(t), borderWidth:2, tension:.25,
     spanGaps:true, pointRadius:2, pointHoverRadius:6,
     _n:labels.map(k=>{const a=by.get(k); return a?a.due:0;})}));
   const AX=niceAxis([].concat.apply([], ds.map(d=>d.data)));
@@ -2933,9 +2938,8 @@ function buildTrend(){
   trChart=new Chart(document.getElementById('trChart'),{type:'line',
     data:{labels:labels.map(k=>trSt.grain==='day'?k.slice(5):k.slice(5)),datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      // the task chips above are already the legend AND the toggle, so Chart.js's own
-      // legend was a second copy of the same thing taking a line of chart height
-      plugins:{legend:{display:false},
+      plugins:{legend:{display:true,position:'bottom',
+          labels:{boxWidth:10,boxHeight:10,font:{size:11},usePointStyle:true,pointStyle:'line'}},
         tooltip:{callbacks:{label:c=>c.dataset.label+': '+
           (c.parsed.y==null?'no tasks due':c.parsed.y.toFixed(1)+'% of '+c.dataset._n[c.dataIndex]+' due')}}},
       scales:{y:{min:AX.min,max:AX.max,
@@ -3050,14 +3054,15 @@ function buildTrendDuration(){
   const labels=[...all].sort();
   const ds=[...m.entries()].map(([t,by],i)=>({
     label:t, data:labels.map(k=>{const a=by.get(k); return a&&a.conn>=TRD_MIN_N?a.dur/a.conn/60:null;}),
-    borderColor:TR_COL[R.tasks.indexOf(t)%8], backgroundColor:TR_COL[R.tasks.indexOf(t)%8],
+    borderColor:trCol(t), backgroundColor:trCol(t),
     borderWidth:2, tension:.25, spanGaps:true, pointRadius:2, pointHoverRadius:6,
     _n:labels.map(k=>{const a=by.get(k); return a?a.conn:0;})}));
   if(trDChart) trDChart.destroy();
   trDChart=new Chart(document.getElementById('trDChart'),{type:'line',
     data:{labels:labels.map(k=>k.slice(5)),datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{display:false},
+      plugins:{legend:{display:true,position:'bottom',
+          labels:{boxWidth:10,boxHeight:10,font:{size:11},usePointStyle:true,pointStyle:'line'}},
         tooltip:{callbacks:{label:c=>c.parsed.y==null?c.dataset.label+': too few connected calls'
           :c.dataset.label+': '+c.parsed.y.toFixed(1)+' min over '+c.dataset._n[c.dataIndex]+' calls'}}},
       scales:{y:{beginAtZero:true,ticks:{color:AXIS,font:{size:10},callback:v=>v+'m'},
@@ -3122,7 +3127,7 @@ function initTrendControls(){
   const chips=document.getElementById('trTaskChips'); chips.innerHTML='';
   R.tasks.forEach((t,i)=>{
     const el=document.createElement('span'); el.className='item';
-    el.innerHTML='<span class="swatch" style="background:'+TR_COL[i%8]+'"></span>'+esc(t);
+    el.innerHTML='<span class="swatch" style="background:'+trCol(t)+'"></span>'+esc(t);
     el.addEventListener('click',()=>{trSt.off[t]=!trSt.off[t]; el.classList.toggle('off');
       buildTrend(); buildTrendDuration();});
     chips.appendChild(el);
