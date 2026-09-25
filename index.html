@@ -235,6 +235,12 @@
   table.gcwide.d3 td{padding:0.5px 4px;line-height:1.35;} table.gcwide.d3 th{padding:2px 4px;} table.gcwide.d3{font-size:9.5px;}
   table.gcwide.d3 .gmw,table.gcwide.d2 .gmw{font-size:9.5px;}
   .gcfit{font-size:11px;color:var(--muted);margin:0 0 8px;}
+  /* always-visible freshness stamp -- the old one was buried in the curve tab's
+     footnote, so six of the seven tabs gave no way to tell how old the data was */
+  .stamp{font-size:11.5px;color:var(--muted);border:1px solid var(--line);background:#fbfaf5;
+    border-radius:999px;padding:3px 11px;white-space:nowrap;}
+  .stamp.stale{border-color:#e6c9a8;background:#fdf3e5;color:#8a5a12;}
+  .stamp.old{border-color:#e8bdb5;background:#fbeae6;color:#9c3225;}
   /* 14 weekly points stretched over 1,350px flattens every line; cap the plot so the
      shape is readable and let it shrink on narrower screens */
   .trwrap{max-width:980px;}
@@ -298,7 +304,10 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>HIT Retention &amp; Servicing</h1>
+  <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+    <h1 style="margin-right:auto">HIT Retention &amp; Servicing</h1>
+    <span class="stamp" id="dataStamp" title="When this snapshot was built. The pipeline runs once daily at ~10 AM IST.">checking&hellip;</span>
+  </div>
   <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point</b> to see why those sellers didn&rsquo;t retain that week. Auto-synced from Metabase once daily (~10&nbsp;AM IST).</p>
 
   <div class="tabs" id="tabs">
@@ -995,6 +1004,23 @@ function render(groups,meta){
   document.getElementById('chartCard').style.display='block';
 }
 
+// Freshness stamp. Shows the age as well as the timestamp, because "24 Sep 10:02" tells
+// you nothing at a glance about whether the pipeline has run today -- and it has failed
+// silently often enough (quota, a push race) that the age is the number worth seeing.
+function setStamp(iso){
+  const el=document.getElementById('dataStamp'); if(!el) return;
+  const d=iso?new Date(iso):null;
+  if(!d||isNaN(d)){ el.textContent='data age unknown'; el.className='stamp old'; return; }
+  const hrs=(Date.now()-d.getTime())/36e5;
+  const age = hrs<1  ? Math.round(hrs*60)+' min ago'
+            : hrs<24 ? Math.round(hrs)+'h ago'
+                     : Math.round(hrs/24)+'d ago';
+  el.textContent='Data as of '+d.toLocaleString(undefined,
+    {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' · '+age;
+  el.className='stamp'+(hrs>48?' old':hrs>26?' stale':'');
+  el.title=(hrs>26?'The pipeline runs daily at ~10 AM IST and looks overdue. ':'')+
+    'Snapshot built '+d.toISOString();
+}
 function fail(m){
   const s=document.getElementById('state');
   s.className='state err';
@@ -1026,6 +1052,7 @@ async function load(){
     TSSOP=snap.tsSop||null; tsInit=false;
     UNAS=snap.unassign||null; unInit=false;
     BLK=snap.blocks||null; BLKPLAT=snap.blockPlatform||null; blkInit=false;
+    setStamp(snap.generated_at);
     STUCK=snap.stuck||null;
     PRELIVE=snap.prelive||null;
     const rows=parseCSV(csv);
