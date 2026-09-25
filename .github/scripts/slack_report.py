@@ -438,7 +438,7 @@ per AS (SELECT seller_id, MAX(IF(sj,1,0)) sj, COUNTIF(sj) n_sess
 SELECT FORMAT_DATE('%Y-%m-%d', d.gd) d, COUNT(*) golives,
   SUM(COALESCE(p.sj,0)) seller_joined, SUM(COALESCE(p.n_sess,0)) sessions
 FROM gld d LEFT JOIN per p USING(seller_id)
-WHERE d.gd >= GREATEST(DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 8 DAY), DATE '2026-08-20')
+WHERE d.gd >= GREATEST(DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 11 DAY), DATE '2026-08-20')
 GROUP BY 1 ORDER BY 1
 """
 
@@ -497,7 +497,12 @@ def fmt_prelive(pl):
     if not pl:
         return []
     rows = sorted(pl, key=lambda r: r["d"])
-    settled = [r for r in rows if int(r["golives"] or 0) >= 10]
+    # A go-live only registers once the seller's ISO week clears 1,000, so the count for
+    # a given day keeps climbing for a couple of days. Reporting the freshest day showed
+    # 24 Sep at 13 go-lives against a weekday norm of 40-70, which is a partial count
+    # dressed up as a low day. Report D-2 or older, and keep a volume floor for weekends.
+    cut = (today_ist() - timedelta(days=2)).isoformat()
+    settled = [r for r in rows if int(r["golives"] or 0) >= 10 and r["d"] <= cut]
     if not settled:
         return []
     last = settled[-1]
