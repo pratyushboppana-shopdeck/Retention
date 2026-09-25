@@ -2898,9 +2898,27 @@ function trAgg(){
   return {labels:[...all].sort(), series:m};
 }
 const TR_COL=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#6250d6','#008300','#e34948'];
-// Owner asked for a 30% floor so the 70-100% band is readable. That floor hides any
-// point below it, so the footnote names them rather than letting a real dip vanish.
-const TR_MIN=30;
+// The axis fits whatever the current filters actually plot, so selecting a few
+// high-adherence task types zooms into their band instead of wasting two thirds of the
+// plot, and a POC Handover dip to 21% is visible rather than clipped off the bottom.
+//
+// MIN_SPAN is the guard that makes it safe: without it the axis would shrink to the data
+// and a 3pp wobble on one GC would fill the chart, reading like a collapse. Nothing is
+// ever shown on a window narrower than 30 points.
+function niceAxis(values, minSpan, pad){
+  minSpan = minSpan||30; pad = pad==null?4:pad;
+  const v=values.filter(x=>x!=null&&isFinite(x));
+  if(!v.length) return {min:0,max:100,step:10};
+  let lo=Math.max(0, Math.floor((Math.min.apply(null,v)-pad)/5)*5);
+  let hi=Math.min(100, Math.ceil((Math.max.apply(null,v)+pad)/5)*5);
+  if(hi-lo < minSpan){
+    const mid=(hi+lo)/2;
+    lo=Math.max(0, Math.round((mid-minSpan/2)/5)*5);
+    hi=Math.min(100, lo+minSpan);
+    if(hi===100) lo=Math.max(0, 100-minSpan);
+  }
+  return {min:lo, max:hi, step:(hi-lo)>60?10:5};
+}
 function buildTrend(){
   const R=gcR(), foot=document.getElementById('trFoot');
   if(!R){ foot.textContent='No task data.'; return; }
@@ -2910,6 +2928,7 @@ function buildTrend(){
     borderColor:TR_COL[i%8], backgroundColor:TR_COL[i%8], borderWidth:2, tension:.25,
     spanGaps:true, pointRadius:2, pointHoverRadius:6,
     _n:labels.map(k=>{const a=by.get(k); return a?a.due:0;})}));
+  const AX=niceAxis([].concat.apply([], ds.map(d=>d.data)));
   if(trChart) trChart.destroy();
   trChart=new Chart(document.getElementById('trChart'),{type:'line',
     data:{labels:labels.map(k=>trSt.grain==='day'?k.slice(5):k.slice(5)),datasets:ds},
@@ -2919,10 +2938,11 @@ function buildTrend(){
       plugins:{legend:{display:false},
         tooltip:{callbacks:{label:c=>c.dataset.label+': '+
           (c.parsed.y==null?'no tasks due':c.parsed.y.toFixed(1)+'% of '+c.dataset._n[c.dataIndex]+' due')}}},
-      scales:{y:{min:TR_MIN,max:100,
-                 ticks:{stepSize:5,color:AXIS,font:{size:10},
-                        // label every 10 so 15 gridlines do not turn into a wall of text
-                        callback:v=>v%10===0?v+'%':''},
+      scales:{y:{min:AX.min,max:AX.max,
+                 ticks:{stepSize:AX.step,color:AXIS,font:{size:10},
+                        // with a 5-point step label every 10, so the gridlines stay
+                        // readable without becoming a wall of text
+                        callback:v=>(AX.step===10||v%10===0)?v+'%':''},
                  grid:{color:c=>c.tick.value%10===0?'#e4e2d8':'#f2f1ea'},
                  border:{display:false},
                  title:{display:true,text:'SLA adherence',color:AXIS_TITLE}},
@@ -2931,16 +2951,12 @@ function buildTrend(){
   const tot=ds.reduce((s,d)=>s+d._n.reduce((x,y)=>x+y,0),0);
   const who=[trSt.team||'', trSt.gm?'GM '+trSt.gm:'', trSt.gc?'GC '+trSt.gc:'']
     .filter(Boolean).join(' · ')||'everyone';
-  // anything under the floor is off the bottom of the plot -- say so and name it
-  const below=[];
-  ds.forEach(d=>d.data.forEach((v,i)=>{ if(v!=null && v<TR_MIN)
-    below.push(d.label+' '+labels[i].slice(5)+' '+v.toFixed(0)+'%'); }));
+
   foot.innerHTML='Showing <b>'+who+'</b> &middot; '+tot.toLocaleString()+' tasks due across '+
     labels.length+' '+(trSt.grain==='day'?'days':'weeks')+
-    '. A point needs at least 3 tasks due or it is left out, so sparse GC&times;task combinations break the line rather than swing to 0 or 100.'+
-    (below.length ? ' <b style="color:#C0392B">'+below.length+' point'+(below.length===1?'':'s')+
-      ' fall below the '+TR_MIN+'% floor and sit off the bottom of the plot:</b> '+
-      below.slice(0,6).join(' · ')+(below.length>6?' &hellip;':'')+'.' : '');
+    '. A point needs at least 3 tasks due or it is left out, so sparse GC&times;task combinations break the line rather than swing to 0 or 100. '+
+    'The axis fits the current selection (<b>'+AX.min+'&ndash;'+AX.max+'%</b>) and never narrows below 30 points, '+
+    'so a small wobble cannot be stretched to look like a collapse &mdash; but compare two selections by the numbers, not the shapes.';
 }
 // TS SOP call quality. Quality lives on the same task rows as SLA (scored / accSum /
 // satSum / tonSum), so this needs no extra query -- but calls are only held for 35 days
@@ -2970,6 +2986,7 @@ function buildTrendQuality(){
     borderDash:dash||[], _n:labels.map(k=>m.get(k).sc)});
   const ds=[mk('Accuracy','acc','#2a78d6'), mk('Seller satisfaction','sat','#eb6834',[6,4]),
             mk('Tonality','ton','#1baf7a',[2,3])];
+  const QAX=niceAxis([].concat.apply([], ds.map(d=>d.data)), 25, 3);
   if(trQChart) trQChart.destroy();
   trQChart=new Chart(document.getElementById('trQChart'),{type:'line',
     data:{labels:labels.map(k=>k.slice(5)),datasets:ds},
@@ -2979,8 +2996,9 @@ function buildTrendQuality(){
           label:c=>c.parsed.y==null?c.dataset.label+': too few scored calls'
                   :c.dataset.label+': '+c.parsed.y.toFixed(1),
           afterBody:i=>ds[0]._n[i[0].dataIndex]+' scored calls'}}},
-      scales:{y:{min:40,max:90,ticks:{stepSize:5,color:AXIS,font:{size:10},
-                   callback:v=>v%10===0?v:''},
+      scales:{y:{min:QAX.min,max:QAX.max,
+                 ticks:{stepSize:QAX.step,color:AXIS,font:{size:10},
+                   callback:v=>(QAX.step===10||v%10===0)?v:''},
                  grid:{color:c=>c.tick.value%10===0?'#e4e2d8':'#f2f1ea'},border:{display:false},
                  title:{display:true,text:'score (0–100)',color:AXIS_TITLE}},
               x:{ticks:{color:AXIS,maxRotation:0,minRotation:0,font:{size:10},autoSkip:true,maxTicksLimit:16},
