@@ -444,23 +444,31 @@ GROUP BY 1 ORDER BY 1
 
 TSSOP_DOD_SQL = r"""
 WITH t AS (
-  SELECT wt.id, DATE(wt.created_at,'Asia/Kolkata') d
+  -- TS SOP runs a fixed 48h SLA, so a task is only judgeable two days after it was
+  -- raised. Adherence is the dashboard's rule: finished is completed_at, not the
+  -- status label, and a task with no completed_at past due is a breach.
+  SELECT wt.id, DATE(wt.created_at,'Asia/Kolkata') d, wt.completed_at,
+         TIMESTAMP_ADD(wt.created_at, INTERVAL 2880 MINUTE) due_ts
   FROM nushop.workboard_tasks wt
   JOIN nushop.users u ON wt.assignee=u._id AND LOWER(u.role) LIKE '%growth-consultant%'
   JOIN nushop.sellers s ON wt.seller_id=s._id AND s.seller_account_status='hit' AND s.user_type='seller'
-  WHERE DATE(wt.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 9 DAY)
+  WHERE DATE(wt.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 DAY)
     AND DATE(wt.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
     AND wt.type='troubleshoot_action' AND wt.sub_type='troubleshoot_sop'),
 ec AS (SELECT entity_id, exotel_call_sid FROM nushop.exotel_calls
-       WHERE entity='workboard' AND created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 10 DAY))),
+       WHERE entity='workboard' AND created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 13 DAY))),
 ed AS (SELECT sid, duration,
    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.accuracy_of_answers') AS FLOAT64),-1) acc,
    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) sat,
    NULLIF(SAFE_CAST(JSON_VALUE(call_quality_score,'$.tonality_and_communication') AS FLOAT64),-1) ton
    FROM nushop.exotel_call_details
-   WHERE created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 10 DAY)))
+   WHERE created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 13 DAY)))
 SELECT FORMAT_DATE('%Y-%m-%d', t.d) d,
-  COUNT(DISTINCT t.id) tasks, COUNT(ec.exotel_call_sid) calls,
+  COUNT(DISTINCT t.id) tasks,
+  COUNT(DISTINCT IF(t.completed_at IS NOT NULL OR CURRENT_TIMESTAMP()>t.due_ts, t.id, NULL)) due,
+  COUNT(DISTINCT IF(t.completed_at IS NOT NULL AND t.completed_at<=t.due_ts, t.id, NULL)) on_time,
+  COUNT(DISTINCT IF(t.completed_at IS NULL AND CURRENT_TIMESTAMP()>t.due_ts, t.id, NULL)) stuck,
+  COUNT(ec.exotel_call_sid) calls,
   COUNTIF(ed.duration>0) connected,
   ROUND(AVG(IF(ed.duration>0, ed.duration, NULL))/60,1) avg_min,
   ROUND(APPROX_QUANTILES(IF(ed.duration>0, ed.duration, NULL),2)[OFFSET(1)]/60,1) med_min,
@@ -512,10 +520,13 @@ def fmt_prelive(pl):
 
 
 def fmt_tssop(ts):
-    """TS SOP call volume, duration and the three quality scores, day on day."""
-    # the post is about yesterday; today's row is a few hours old and reads as a
-    # collapse in call volume that has not happened
-    cut = (today_ist() - timedelta(days=1)).isoformat()
+    """TS SOP adherence, call volume, duration and the three quality scores.
+
+    Reported on tasks raised the DAY BEFORE YESTERDAY, not yesterday: the SLA is a
+    fixed 48h, so yesterday's tasks are still inside it and their adherence would
+    read as a collapse that has not happened.
+    """
+    cut = (today_ist() - timedelta(days=2)).isoformat()
     rows = [r for r in (ts or []) if int(r["tasks"] or 0) >= 20 and r["d"] <= cut]
     if not rows:
         return []
@@ -529,17 +540,24 @@ def fmt_tssop(ts):
             return dflt
     calls, conn = f(last, "calls"), f(last, "connected")
     cpct = 100 * conn / calls if calls else 0
+    due, on = f(last, "due"), f(last, "on_time")
+    adh = 100 * on / due if due else 0
     d = date.fromisoformat(last["d"])
-    L = ["", f"*📞 TS SOP calls — {d.strftime('%a %d %b')}*", "```",
-         "tasks  calls  conn    avg    med │ scored  acc  sat  ton",
-         f"{int(f(last,'tasks')):5d}  {int(calls):5d}  {cpct:3.0f}%  "
-         f"{f(last,'avg_min'):4.1f}m  {f(last,'med_min'):4.1f}m │ "
+    L = ["", f"*📞 TS SOP — raised {d.strftime('%a %d %b')}*  _(48h SLA, so this is D-2)_", "```",
+         "tasks   due  on time   SLA │  calls  conn    avg    med │ scored  acc  sat  ton",
+         f"{int(f(last,'tasks')):5d} {int(due):5d} {int(on):8d} {adh:5.0f}% │ "
+         f"{int(calls):6d}  {cpct:3.0f}%  {f(last,'avg_min'):4.1f}m  {f(last,'med_min'):4.1f}m │ "
          f"{int(f(last,'scored')):6d}  {f(last,'acc'):3.0f}  {f(last,'sat'):3.0f}  {f(last,'ton'):3.0f}",
          "```"]
+    ad = [100 * f(r, "on_time") / max(1.0, f(r, "due")) for r in rows]
     cs = [100 * f(r, "connected") / max(1.0, f(r, "calls")) for r in rows]
     ds = [f(r, "avg_min") for r in rows]
     ss = [f(r, "sat") for r in rows]
-    L.append(f"{len(rows)}d  connect {spark(cs,30,70)} · duration {spark(ds,2,8)} · satisfaction {spark(ss,55,75)}")
+    L.append(f"{len(rows)}d  SLA {spark(ad,40,95)} · connect {spark(cs,30,70)} · "
+             f"duration {spark(ds,2,8)} · satisfaction {spark(ss,55,75)}")
+    stuck = int(f(last, "stuck"))
+    if stuck:
+        L.append(f"_{stuck} of {int(due)} never got done inside the 48h._")
     return L
 
 

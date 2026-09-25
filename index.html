@@ -585,7 +585,9 @@
         <button type="button" data-g="day" class="on">Day</button>
         <button type="button" data-g="week">Week</button>
       </span>
-      <label style="font-size:12px;color:var(--muted);margin-left:12px">GM
+      <label style="font-size:12px;color:var(--muted);margin-left:12px">Team
+        <select id="trTeam" style="margin-left:5px"></select></label>
+      <label style="font-size:12px;color:var(--muted);margin-left:10px">GM
         <select id="trGm" style="margin-left:5px"></select></label>
       <label style="font-size:12px;color:var(--muted);margin-left:10px">GC
         <select id="trGc" style="margin-left:5px"></select></label>
@@ -1964,7 +1966,7 @@ function gcList(){
 let BLK=null, BLKPLAT=null, blkInit=false, blkF=null, blkC1=null, blkC2=null;
 let STUCK=null, PRELIVE=null, plChart=null, trChart=null;
 const plSt={by:'day',min:true};
-const trSt={grain:'day',gm:'',gc:'',off:{}};
+const trSt={grain:'day',team:'',gm:'',gc:'',off:{}};
 const blkSt={strict:false, hitOnly:true, unit:'ticket', cats:new Set([0,1,2,3,4,5]), seller:null};
 const BLK_COLLAPSE=7;   // days: tickets this close, same seller + same category, are one incident
 const BLK_EPOCH=Date.UTC(2026,0,1);
@@ -2863,12 +2865,13 @@ function plDownload(){
 // ================= SLA adherence over time, independent filters =================
 function trAgg(){
   const R=gcR(); if(!R) return {labels:[],series:new Map()};
-  const gmSel=trSt.gm, gcSel=trSt.gc;
-  const keys=[], m=new Map();
+  const gmSel=trSt.gm, gcSel=trSt.gc, teamSel=trSt.team;
+  const m=new Map();
   for(const r of R.rows){
     const t=R.tasks[r[1]]; if(trSt.off[t]) continue;
     if(gcSel && R.people[r[2]]!==gcSel) continue;
     if(gmSel && String(R.gms[r[2]]||'(no GM)')!==gmSel) continue;
+    if(teamSel && String((R.cats&&R.cats[r[2]])||'Unmapped')!==teamSel) continue;
     const d=TSLA.days[r[0]];
     const k=trSt.grain==='day'?d:isoWk(d);
     let byT=m.get(t); if(!byT){byT=new Map(); m.set(t,byT);}
@@ -2899,35 +2902,51 @@ function buildTrend(){
                  title:{display:true,text:'SLA adherence',color:AXIS_TITLE}},
               x:{ticks:{color:AXIS,maxRotation:60,minRotation:60,font:{size:9}},grid:{display:false}}}}});
   const tot=ds.reduce((s,d)=>s+d._n.reduce((x,y)=>x+y,0),0);
-  const who=[trSt.gm?'GM '+trSt.gm:'', trSt.gc?'GC '+trSt.gc:''].filter(Boolean).join(' · ')||'everyone';
+  const who=[trSt.team||'', trSt.gm?'GM '+trSt.gm:'', trSt.gc?'GC '+trSt.gc:'']
+    .filter(Boolean).join(' · ')||'everyone';
   foot.innerHTML='Showing <b>'+who+'</b> &middot; '+tot.toLocaleString()+' tasks due across '+
     labels.length+' '+(trSt.grain==='day'?'days':'weeks')+
     '. A point needs at least 3 tasks due or it is left out, so sparse GC&times;task combinations break the line rather than swing to 0 or 100.';
 }
 function trDownload(){
   const {labels,series}=trAgg(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const out=[['period','task_type','due','on_time','adherence_pct'].join(',')];
+  const out=[['team','gm','gc','period','task_type','due','on_time','adherence_pct'].join(',')];
   series.forEach((by,t)=>labels.forEach(k=>{const a=by.get(k); if(!a||!a.due) return;
-    out.push([k,t,a.due,a.on,(100*a.on/a.due).toFixed(1)].map(q).join(','));}));
+    out.push([trSt.team||'all',trSt.gm||'all',trSt.gc||'all',k,t,a.due,a.on,
+              (100*a.on/a.due).toFixed(1)].map(q).join(','));}));
   saveCsv('sla_adherence_'+trSt.grain+'.csv',out.join('\n'));
 }
 function initTrendControls(){
   const R=gcR(); if(!R) return;
-  const gmSel=document.getElementById('trGm'), gcSel=document.getElementById('trGc');
-  const gms=[...new Set(R.people.map((_,i)=>R.gms[i]||'(no GM)'))].sort();
-  gmSel.innerHTML='<option value="">All GMs</option>'+gms.map(g=>'<option value="'+esc(g)+'">'+esc(g)+'</option>').join('');
+  const teamSel=document.getElementById('trTeam'),
+        gmSel=document.getElementById('trGm'), gcSel=document.getElementById('trGc');
+  // every person carries a team and a GM, so the three selects cascade:
+  // team narrows the GM list, and team+GM narrow the GC list
+  const P=R.people.map((p,i)=>({p, gm:R.gms[i]||'(no GM)', team:(R.cats&&R.cats[i])||'Unmapped'}));
+  const counts={};
+  P.forEach(x=>{counts[x.team]=(counts[x.team]||0)+1;});
+  const teams=Object.keys(counts).sort((a,b)=>counts[b]-counts[a]);
+  teamSel.innerHTML='<option value="">All teams</option>'+
+    teams.map(t=>'<option value="'+esc(t)+'">'+esc(t)+' ('+counts[t]+')</option>').join('');
   const fill=()=>{
-    const people=R.people.map((p,i)=>({p,gm:R.gms[i]||'(no GM)'}))
-      .filter(x=>!trSt.gm||x.gm===trSt.gm).map(x=>x.p).sort();
-    gcSel.innerHTML='<option value="">All GCs</option>'+people.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
+    const inTeam=P.filter(x=>!trSt.team||x.team===trSt.team);
+    const gms=[...new Set(inTeam.map(x=>x.gm))].sort();
+    gmSel.innerHTML='<option value="">All GMs</option>'+
+      gms.map(g=>'<option value="'+esc(g)+'">'+esc(g)+'</option>').join('');
+    if(trSt.gm && !gms.includes(trSt.gm)) trSt.gm='';
+    gmSel.value=trSt.gm;
+    const people=inTeam.filter(x=>!trSt.gm||x.gm===trSt.gm).map(x=>x.p).sort();
+    gcSel.innerHTML='<option value="">All GCs</option>'+
+      people.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
     if(trSt.gc && !people.includes(trSt.gc)) trSt.gc='';
     gcSel.value=trSt.gc;
   };
   fill();
+  teamSel.addEventListener('change',e=>{trSt.team=e.target.value; fill(); buildTrend();});
   gmSel.addEventListener('change',e=>{trSt.gm=e.target.value; fill(); buildTrend();});
   gcSel.addEventListener('change',e=>{trSt.gc=e.target.value; buildTrend();});
   document.getElementById('trReset').addEventListener('click',()=>{
-    trSt.gm=''; trSt.gc=''; trSt.off={}; gmSel.value=''; fill();
+    trSt.team=''; trSt.gm=''; trSt.gc=''; trSt.off={}; teamSel.value=''; fill();
     document.querySelectorAll('#trTaskChips .item').forEach(c=>c.classList.remove('off'));
     buildTrend();});
   document.querySelectorAll('#trGrain button').forEach(b=>b.addEventListener('click',()=>{
