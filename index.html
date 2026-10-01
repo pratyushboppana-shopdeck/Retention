@@ -115,6 +115,8 @@
   table.rank th{position:sticky;top:0;background:var(--card);color:#3c3f37;font-weight:650;text-align:left;z-index:1;}
   table.rank td.num,table.rank th.num{text-align:right;}
   table.rank .rbar{height:12px;border-radius:3px;display:inline-block;vertical-align:middle;min-width:2px;}
+  .gcgm-ctl{display:flex;gap:6px;align-items:center;}
+  .gcgm-panel.expanded .tablewrap{max-height:none;}
   .gcgm-detail{font-size:12px;color:var(--muted);margin-top:8px;}
   table.matrix tr.actsep td{background:#efeee7;height:6px;padding:2px 6px;font-size:9.5px;color:var(--muted);font-weight:650;border-top:2px solid var(--accent);}
   table.rank tbody tr{cursor:pointer;}
@@ -332,12 +334,12 @@
     </div>
     <div class="gcgm-cols">
       <div class="gcgm-panel">
-        <div class="gcgm-head"><span>By go-live GC — low retention first</span><select id="gcSel"></select></div>
+        <div class="gcgm-head"><span>By go-live GC — low retention first</span><span class="gcgm-ctl"><select id="gcSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
         <div class="gcgm-detail" id="gcDetail"></div>
       </div>
       <div class="gcgm-panel">
-        <div class="gcgm-head"><span>By go-live GM — low retention first</span><select id="gmSel"></select></div>
+        <div class="gcgm-head"><span>By go-live GM — low retention first</span><span class="gcgm-ctl"><select id="gmSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
         <div class="gcgm-detail" id="gmDetail"></div>
       </div>
@@ -1515,6 +1517,11 @@ function buildGcgm(){
   renderGcgm();
 }
 function setupGcgmFilters(){
+  // Expand lifts the 360px scroll cap so the whole ranking shows (one screenshot).
+  document.querySelectorAll('#gcgmCard .gcgm-exp').forEach(b=>b.addEventListener('click',()=>{
+    const ex=b.closest('.gcgm-panel').classList.toggle('expanded');
+    b.classList.toggle('on',ex); b.innerHTML=ex?'Collapse &#8600;':'Expand &#8599;';
+  }));
   const weeks=Object.keys(GCGM.weeks).sort();
   // month buttons
   const months=[...new Set(weeks.map(wkMonthKey))].sort();
