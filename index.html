@@ -1066,6 +1066,8 @@ async function load(){
     await loadTeamMap();
     const csv=typeof snap==='string'?snap:snap.csv;
     if(!csv) throw new Error('Snapshot missing CSV payload.');
+    // cohort sizes from the curve, so the GC/GM tab can say how much of each cohort it attributes
+    window.COHORTN={}; csv.split('\n').slice(1).forEach(l=>{const c=l.split(','); if(c[0]) window.COHORTN[c[0]]=+c[1]||0;});
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
     GCGM=snap.gcgm||null; gcgmInit=false;
@@ -1664,7 +1666,9 @@ function renderGcgm(){
   const gmAgg=renderRank(GCGM.gm,'gmRows','gmDetail','gm',document.getElementById('gmSel'));
   const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
-  document.getElementById('gcgmSummary').textContent=`${nWk} mature week(s) selected · ${gcAgg.tot} go-lives (GC-attributed) · overall W${gcgmSel.metric} retention ${overall}%`;
+  const cohort=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).reduce((s,w)=>s+((window.COHORTN||{})[w]||0),0);
+  const cov=cohort?` of ${cohort} in the cohort (${(100*gcAgg.tot/cohort).toFixed(0)}% have a go-live GC)`:'';
+  document.getElementById('gcgmSummary').textContent=`${nWk} mature week(s) selected · ${gcAgg.tot} go-lives (GC-attributed)${cov} · overall W${gcgmSel.metric} retention ${overall}%`;
   renderSellerPanel();
 }
 // ---- selected GC/GM -> their not-retained sellers: reason coding + open pointers ----

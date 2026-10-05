@@ -199,7 +199,9 @@ total_spend AS (
 ),
 daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
 go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
-sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2026-01-01'),
+-- the first Rs100 day can fall a few days before the first >1000 ISO week, and 2026-W01 starts on
+-- 29 Dec: a 2026-01-01 cut here left 108 of W01's 140 go-lives with no go-live GC
+sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2025-12-01'),
 ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
    IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
    IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
@@ -215,7 +217,7 @@ resolved AS (SELECT k.evt_key, k.role, COALESCE(b.person_id, IF(b.evt_key IS NUL
   LEFT JOIN b USING(evt_key,role) LEFT JOIN b_held bh USING(evt_key,role) LEFT JOIN a USING(evt_key,role)),
 gl AS (SELECT s.seller_id, gc.person_id golive_gc_id, gm.person_id golive_gm_id FROM sellers s
   LEFT JOIN resolved gc ON gc.evt_key=s.seller_id AND gc.role='GC' LEFT JOIN resolved gm ON gm.evt_key=s.seller_id AND gm.role='GM'),
-mygl AS (SELECT seller_id, MIN(start_date) gd, FORMAT_DATE('%G-W%V',MIN(start_date)) gw FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1 HAVING MIN(start_date)>=DATE '2026-01-01'),
+mygl AS (SELECT seller_id, MIN(start_date) gd, FORMAT_DATE('%G-W%V',MIN(start_date)) gw FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1 HAVING MIN(start_date)>=DATE '2025-12-29'),  -- 2026-W01 starts 29 Dec
 wk AS (SELECT m.seller_id, m.gw, DATE_DIFF(CURRENT_DATE(), m.gd, ISOWEEK) we,
    SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=1,v.marketing_spend,0)) s1, SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=2,v.marketing_spend,0)) s2,
    SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=3,v.marketing_spend,0)) s3, SUM(IF(DATE_DIFF(v.start_date,m.gd,ISOWEEK)=4,v.marketing_spend,0)) s4,
@@ -259,7 +261,9 @@ total_spend AS (
 ),
 daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
 go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
-sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2026-01-01'),
+-- the first Rs100 day can fall a few days before the first >1000 ISO week, and 2026-W01 starts on
+-- 29 Dec: a 2026-01-01 cut here left 108 of W01's 140 go-lives with no go-live GC
+sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2025-12-01'),
 ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
    IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
    IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
