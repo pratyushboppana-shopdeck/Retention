@@ -46,7 +46,8 @@ jobs:
           fi
           echo "today=$TODAY now=$NOW IST  last ok=$OK_DATE $OK_TIME IST"
           TITLE="Retention dashboard not refreshed by $DEADLINE_IST IST — $TODAY"
-          ISSUE=$(gh issue list --state all --search "\"$TODAY\" in:title" --json number,title,state \
+          # list, not search: search lags issue creation, and a missed match would alert twice
+          ISSUE=$(gh issue list --state all -L 30 --json number,title,state \
                   -q ".[] | select(.title==\"$TITLE\") | \"\(.number) \(.state)\"" | head -1)
           NUM=${ISSUE%% *}; STATE=${ISSUE##* }
           LAST=$(gh run list -w refresh.yml -L 8 --json databaseId,conclusion,status,createdAt,url \
@@ -68,11 +69,12 @@ jobs:
             # refreshed today, but after the deadline
             MSG="Refreshed **late** today, at $OK_TIME IST (deadline $DEADLINE_IST)."
             if [ -z "${NUM:-}" ]; then
-              gh issue create -t "$TITLE" -a "$OWNER" -b "@$OWNER $MSG
+              # close by the URL create prints: issue search lags creation by a few seconds
+              URL=$(gh issue create -t "$TITLE" -a "$OWNER" -b "@$OWNER $MSG
 
           Last refresh run: $LAST
-          The dashboard is current now; this is the record that today's deadline was missed." && \
-              N=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number -q '.[0].number') && gh issue close "$N"
+          The dashboard is current now; this is the record that today's deadline was missed.")
+              gh issue close "$URL" || true
             elif [ "$STATE" = "OPEN" ]; then
               gh issue close "$NUM" -c "@$OWNER $MSG"
             fi
