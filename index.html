@@ -582,6 +582,13 @@
         <button type="button" data-b="gc">GC</button>
         <button type="button" data-b="gm">GM</button>
       </span>
+      <span class="slaseg" id="plOver" style="display:none" title="Break each GC/GM down by go-live day or week">
+        <button type="button" data-o="total" class="on">Total</button>
+        <button type="button" data-o="day">&times; Day</button>
+        <button type="button" data-o="week">&times; Week</button>
+      </span>
+      <select id="plGc" style="font:inherit;font-size:12px;max-width:160px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff"></select>
+      <select id="plGm" style="font:inherit;font-size:12px;max-width:160px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff"></select>
       <label style="font-size:12px;color:var(--muted);margin-left:10px">
         <input type="checkbox" id="plMin" checked> hide &lt;10 go-lives</label>
       <button class="gcexp" id="plCsv" style="margin-left:auto">Download CSV &#8595;</button>
@@ -590,6 +597,15 @@
       aria-label="Pre-live video call adoption against go-lives."></canvas></div>
     <div class="tablewrap" style="max-height:260px;overflow:auto;margin-top:10px"><table class="sla" id="plTable"></table></div>
     <div class="drill-sub" id="plFoot" style="margin-top:6px"></div>
+    <div id="plSellers" style="display:none;margin-top:14px">
+      <div class="fl-row" style="margin:4px 0">
+        <b id="plSTitle" style="font-size:13px"></b>
+        <button class="gcexp" id="plSCsv" style="margin-left:auto">Download CSV &#8595;</button>
+        <button class="gcexp" id="plSClose">Close &times;</button>
+      </div>
+      <div class="drill-sub" id="plSSum" style="margin-bottom:6px"></div>
+      <div class="tablewrap" style="max-height:420px;overflow:auto"><table class="sla" id="plSTable"></table></div>
+    </div>
   </div>
 
   <div class="gcsec" style="margin-top:26px;border-top:1px solid var(--line);padding-top:18px">
@@ -2015,7 +2031,7 @@ function gcList(){
 // Rows: [wkIdx, dnum, sellerIdx, catIdx, subIdx, statusIdx, tatMin(-1 null), slaMin, inHit, relWeek(-99 null), gcIdx, gmIdx]
 let BLK=null, BLKPLAT=null, blkInit=false, blkF=null, blkC1=null, blkC2=null;
 let STUCK=null, PRELIVE=null, plChart=null, trChart=null, trQChart=null, trDChart=null;
-const plSt={by:'day',min:true};
+const plSt={by:'day',min:true,over:'total',gc:'',gm:'',pick:null,selInit:false};
 const trSt={grain:'day',team:'',gm:'',gc:'',off:{}};
 const blkSt={strict:false, hitOnly:true, unit:'ticket', cats:new Set([0,1,2,3,4,5]), seller:null};
 const BLK_COLLAPSE=7;   // days: tickets this close, same seller + same category, are one incident
@@ -2846,33 +2862,71 @@ function gcReport(){
   }));
 }
 // ================= Pre-live video adoption =================
+// A seller is counted on their GO-LIVE day. Any pre-live session since 2026-08-20 counts, whenever it
+// happened, so a call on the 29th for a seller who goes live on the 4th lands on the 4th, never the 29th.
 const isoWk=d=>{const t=new Date(d+'T00:00:00Z');
   t.setUTCDate(t.getUTCDate()+4-(t.getUTCDay()||7));
   const y=new Date(Date.UTC(t.getUTCFullYear(),0,1));
   return t.getUTCFullYear()+'-W'+String(Math.ceil(((t-y)/86400000+1)/7)).padStart(2,'0');};
-
+const plPerson=()=>plSt.by==='gc'||plSt.by==='gm';
+const plMatrix=()=>plPerson()&&plSt.over!=='total';
+function plPass(gcI,gmI){
+  return (!plSt.gc||PRELIVE.gcs[gcI]===plSt.gc)&&(!plSt.gm||PRELIVE.gms[gmI]===plSt.gm);}
+function plTimeKey(dayI,g){const d=PRELIVE.days[dayI]; return g==='week'?isoWk(d):d;}
 function plAgg(){
   if(!PRELIVE) return [];
-  const m=new Map();
+  const m=new Map(), tg=plPerson()?null:plSt.by;
   PRELIVE.rows.forEach(r=>{
-    const k = plSt.by==='day' ? PRELIVE.days[r[0]]
-            : plSt.by==='week'? isoWk(PRELIVE.days[r[0]])
-            : plSt.by==='gc'  ? PRELIVE.gcs[r[1]] : PRELIVE.gms[r[2]];
+    if(!plPass(r[1],r[2])) return;
+    const k = tg ? plTimeKey(r[0],tg) : plSt.by==='gc' ? PRELIVE.gcs[r[1]] : PRELIVE.gms[r[2]];
     let a=m.get(k); if(!a){a={k,gl:0,sess:0,sj:0,pj:0}; m.set(k,a);}
     a.gl+=r[3]; a.sess+=r[4]; a.sj+=r[5]; a.pj+=r[6];
   });
   let out=[...m.values()];
   out.forEach(a=>a.pct=a.gl?100*a.sj/a.gl:null);
-  if(plSt.min) out=out.filter(a=>a.gl>=10);
-  return (plSt.by==='day'||plSt.by==='week') ? out.sort((a,b)=>a.k<b.k?-1:1)
-                                             : out.sort((a,b)=>a.pct-b.pct);
+  // the <10 cut is for ranking people; on a time axis filtered to one GC/GM it would hide every day
+  if(plSt.min&&(plPerson()||(!plSt.gc&&!plSt.gm))) out=out.filter(a=>a.gl>=10);
+  return tg ? out.sort((a,b)=>a.k<b.k?-1:1) : out.sort((a,b)=>a.pct-b.pct);
+}
+// person x day/week grid: {people:[{k,gl,sj,pct,cells:{period:{gl,sj}}}], periods:[]}
+function plGrid(){
+  const g=plSt.over, people=new Map(), periods=new Set();
+  PRELIVE.rows.forEach(r=>{
+    if(!plPass(r[1],r[2])) return;
+    const k=plSt.by==='gc'?PRELIVE.gcs[r[1]]:PRELIVE.gms[r[2]], t=plTimeKey(r[0],g);
+    periods.add(t);
+    let p=people.get(k); if(!p){p={k,gl:0,sj:0,cells:{}}; people.set(k,p);}
+    const c=p.cells[t]||(p.cells[t]={gl:0,sj:0});
+    p.gl+=r[3]; p.sj+=r[5]; c.gl+=r[3]; c.sj+=r[5];
+  });
+  let list=[...people.values()]; list.forEach(p=>p.pct=p.gl?100*p.sj/p.gl:null);
+  if(plSt.min) list=list.filter(p=>p.gl>=10);
+  list.sort((a,b)=>a.pct-b.pct);
+  return {people:list, periods:[...periods].sort().reverse()};
+}
+const plPctCell=(sj,gl)=>gl?'<span style="color:'+slaAdhColor(sj/gl)+';font-weight:700">'+(100*sj/gl).toFixed(0)+
+  '%</span> <span style="color:var(--faint);font-size:10.5px">'+sj+'/'+gl+'</span>':'<span style="color:var(--faint)">·</span>';
+function plFillSelects(){
+  if(plSt.selInit) return; plSt.selInit=true;
+  const opt=(arr,all)=>'<option value="">'+all+'</option>'+[...new Set(arr)].sort((a,b)=>a.localeCompare(b))
+    .map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+  document.getElementById('plGc').innerHTML=opt(PRELIVE.gcs,'All GCs');
+  document.getElementById('plGm').innerHTML=opt(PRELIVE.gms,'All GMs');
+}
+function plPickFrom(k){
+  // what a click on row/bar k selects for the seller table
+  if(plPerson()) plSt.pick={[plSt.by]:k};
+  else plSt.pick={g:plSt.by,t:k};
+  buildPlSellers();
 }
 function buildPrelive(){
   const foot=document.getElementById('plFoot');
   if(!PRELIVE||!PRELIVE.rows.length){ foot.textContent='No pre-live data in this snapshot.'; return; }
-  const A=plAgg(), byTime=(plSt.by==='day'||plSt.by==='week');
+  plFillSelects();
+  document.getElementById('plOver').style.display=plPerson()?'inline-flex':'none';
+  const A=plAgg(), byTime=!plPerson();
   const lab=A.map(a=>byTime?a.k.slice(5):a.k);
-  const dark=false, surf='#fbfaf5';
+  const surf='#fbfaf5';
   if(plChart) plChart.destroy();
   plChart=new Chart(document.getElementById('plChart'),{
     data:{labels:lab,datasets:[
@@ -2884,29 +2938,102 @@ function buildPrelive(){
        backgroundColor:'#BA7517',borderWidth:2,tension:.25,yAxisID:'y1',order:1,
        pointRadius:3,pointBorderColor:surf,pointBorderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      onClick:(e,els)=>{ if(els&&els.length) plPickFrom(A[els[0].index].k); },
+      onHover:(e,els)=>{ e.native.target.style.cursor=els&&els.length?'pointer':'default'; },
       plugins:{legend:{labels:{boxWidth:10,font:{size:11}}}},
       scales:{y:{beginAtZero:true,title:{display:true,text:'sellers',color:AXIS_TITLE}},
               y1:{position:'right',min:0,max:100,grid:{drawOnChartArea:false},
                   ticks:{callback:v=>v+'%'},title:{display:true,text:'adoption',color:AXIS_TITLE}},
               x:{ticks:{color:AXIS,maxRotation:60,minRotation:byTime?60:30,font:{size:9}},grid:{display:false}}}}});
-  let h='<thead><tr><th>'+(plSt.by==='gc'?'GC':plSt.by==='gm'?'GM':plSt.by==='week'?'Week':'Day')+
-        '</th><th class="num">Go-lives</th><th class="num">Sessions</th>'+
-        '<th class="num">Seller joined</th><th class="num">POC joined</th><th class="num">Adoption</th></tr></thead><tbody>';
-  A.slice().reverse().forEach(a=>{
-    h+='<tr><td>'+esc(a.k)+'</td><td class="num">'+a.gl+'</td><td class="num">'+a.sess+
-       '</td><td class="num">'+a.sj+'</td><td class="num">'+a.pj+
-       '</td><td class="num" style="color:'+slaAdhColor((a.pct||0)/100)+';font-weight:700">'+
-       (a.pct==null?'—':a.pct.toFixed(1)+'%')+'</td></tr>';
-  });
-  document.getElementById('plTable').innerHTML=h+'</tbody>';
+  const who=plSt.by==='gc'?'GC':'GM';
+  let h;
+  if(plMatrix()){
+    const G=plGrid(), wk=plSt.over==='week';
+    h='<thead><tr><th>'+who+'</th><th class="num">Total</th>'+
+      G.periods.map(t=>'<th class="num">'+(wk?t.slice(5):t.slice(5))+'</th>').join('')+'</tr></thead><tbody>';
+    G.people.forEach(p=>{
+      h+='<tr data-k="'+esc(p.k)+'"><td>'+esc(p.k)+'</td><td class="num">'+plPctCell(p.sj,p.gl)+'</td>'+
+        G.periods.map(t=>{const c=p.cells[t];
+          return '<td class="num" data-t="'+t+'">'+(c?plPctCell(c.sj,c.gl):plPctCell(0,0))+'</td>';}).join('')+'</tr>';
+    });
+  }else{
+    h='<thead><tr><th>'+(plPerson()?who:plSt.by==='week'?'Week':'Day')+
+      '</th><th class="num">Go-lives</th><th class="num">Sessions</th>'+
+      '<th class="num">Seller joined</th><th class="num">POC joined</th><th class="num">Adoption</th></tr></thead><tbody>';
+    A.slice().reverse().forEach(a=>{
+      h+='<tr data-k="'+esc(a.k)+'"><td>'+esc(a.k)+'</td><td class="num">'+a.gl+'</td><td class="num">'+a.sess+
+         '</td><td class="num">'+a.sj+'</td><td class="num">'+a.pj+
+         '</td><td class="num" style="color:'+slaAdhColor((a.pct||0)/100)+';font-weight:700">'+
+         (a.pct==null?'—':a.pct.toFixed(1)+'%')+'</td></tr>';
+    });
+  }
+  const tb=document.getElementById('plTable'); tb.innerHTML=h+'</tbody>';
+  tb.querySelectorAll('tbody tr').forEach(tr=>tr.addEventListener('click',ev=>{
+    const td=ev.target.closest('td'), k=tr.dataset.k;
+    if(plMatrix()&&td&&td.dataset.t){ plSt.pick={[plSt.by]:k,g:plSt.over,t:td.dataset.t}; buildPlSellers(); }
+    else plPickFrom(k);
+  }));
   const T=A.reduce((s,a)=>({gl:s.gl+a.gl,sj:s.sj+a.sj}),{gl:0,sj:0});
   foot.innerHTML='<b>'+(T.gl?(100*T.sj/T.gl).toFixed(1):'0')+'%</b> across '+T.gl+
-    ' go-lives in the window. The loss is at link creation, not on the call &mdash; once a session exists the seller joins nearly every time. '+
+    ' go-lives in the window. <b>Click a bar, row or cell</b> for the seller list. '+
+    'Each seller counts on their <b>go-live day</b>; a pre-live call any time before that (or after) marks them as joined, '+
+    'so a call on the 29th for a seller who goes live on the 4th shows up on the 4th. Sellers who had a call but never went live are not in this view. '+
+    'The loss is at link creation, not on the call &mdash; once a session exists the seller joins nearly every time. '+
     'The newest day or two read low: the canonical go-live needs the seller&rsquo;s ISO week to clear &#8377;1,000. '+
     '<b>GC/GM is the seller&rsquo;s current mapping</b>, so a seller later moved to a revival GC counts against that GC even though the pre-live window had passed.';
+  buildPlSellers();
+}
+// ---- seller-level drilldown ----
+function plSellerList(){
+  const P=PRELIVE, k=plSt.pick; if(!k||!P.sellers) return [];
+  return P.sellers.filter(s=>plPass(s[3],s[4])
+    &&(!k.gc||P.gcs[s[3]]===k.gc)&&(!k.gm||P.gms[s[4]]===k.gm)
+    &&(!k.t||plTimeKey(s[2],k.g)===k.t));
+}
+const plStatus=s=>s[6]?'Video call':(s[5]?'Link sent, not joined':'No link');
+function buildPlSellers(){
+  const box=document.getElementById('plSellers'), k=plSt.pick;
+  if(!k){ box.style.display='none'; return; }
+  box.style.display='block';
+  const P=PRELIVE, bits=[k.gc,k.gm,k.t&&((k.g==='week'?'week ':'')+k.t)].filter(Boolean);
+  if(plSt.gc&&!k.gc) bits.push(plSt.gc); if(plSt.gm&&!k.gm) bits.push(plSt.gm);
+  const title=document.getElementById('plSTitle');
+  if(!P.sellers){ title.textContent=bits.join(' · ');
+    document.getElementById('plSTable').innerHTML='';
+    document.getElementById('plSSum').textContent='The seller list arrives with the next data refresh.'; return; }
+  const L=plSellerList().sort((a,b)=>a[6]-b[6]||(a[5]?1:0)-(b[5]?1:0)||(a[2]<b[2]?1:a[2]>b[2]?-1:0));
+  const n=L.length, vc=L.filter(s=>s[6]).length, ln=L.filter(s=>!s[6]&&s[5]).length;
+  title.textContent=bits.join(' · ')+' — '+n+' go-live seller'+(n===1?'':'s');
+  document.getElementById('plSSum').innerHTML=n?('<b>'+vc+'</b> on a video call ('+(100*vc/n).toFixed(1)+'%) · <b>'+ln+
+    '</b> link sent but seller never joined · <b>'+(n-vc-ln)+'</b> no pre-live link. Not-on-video sellers listed first.'):'No sellers.';
+  const pill=s=>{const st=plStatus(s), c=s[6]?'#dff0e5':(s[5]?'#fdf3e0':'#f8dfdb');
+    return '<span class="pill" style="background:'+c+';min-width:0">'+(s[6]?'Yes':'No')+'</span> <span style="color:var(--muted);font-size:11px">'+st+'</span>';};
+  const lag=s=>{if(!s[9]) return '—'; const d=Math.round((new Date(P.days[s[2]])-new Date(s[9]))/86400000);
+    return d===0?'same day':d>0?d+'d before':(-d)+'d after';};
+  let h='<thead><tr><th>Seller ID</th><th>Seller</th><th>Go-live</th><th>GC</th><th>GM</th>'+
+    '<th>Video call</th><th>Call date</th><th>Call vs go-live</th><th>First link</th><th class="num">Sessions</th><th>POC joined</th></tr></thead><tbody>';
+  L.forEach(s=>{
+    h+='<tr><td style="font-family:ui-monospace,monospace;font-size:11.5px">'+esc(s[0])+'</td><td>'+esc(s[1]||'(unnamed)')+
+      '</td><td>'+P.days[s[2]]+'</td><td>'+esc(P.gcs[s[3]])+'</td><td>'+esc(P.gms[s[4]])+
+      '</td><td>'+pill(s)+'</td><td>'+(s[9]||'—')+'</td><td>'+lag(s)+'</td><td>'+(s[8]||'—')+
+      '</td><td class="num">'+s[5]+'</td><td>'+(s[7]?'Yes':'—')+'</td></tr>';
+  });
+  document.getElementById('plSTable').innerHTML=h+'</tbody>';
+}
+function plSellersCsv(){
+  const P=PRELIVE, q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[['seller_id','seller','golive_date','gc','gm','video_call','status','call_date','first_link_date','sessions','poc_joined'].join(',')];
+  plSellerList().forEach(s=>out.push([s[0],s[1],P.days[s[2]],P.gcs[s[3]],P.gms[s[4]],s[6]?'Y':'N',plStatus(s),s[9],s[8],s[5],s[7]?'Y':'N'].map(q).join(',')));
+  saveCsv('prelive_sellers.csv',out.join('\n'));
 }
 function plDownload(){
-  const A=plAgg(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  if(plMatrix()){
+    const G=plGrid(), out=[[plSt.by,'total_golives','total_joined'].concat(G.periods.flatMap(t=>[t+'_golives',t+'_joined'])).join(',')];
+    G.people.forEach(p=>out.push([p.k,p.gl,p.sj].concat(G.periods.flatMap(t=>{const c=p.cells[t]||{gl:0,sj:0};return [c.gl,c.sj];})).map(q).join(',')));
+    saveCsv('prelive_adoption_'+plSt.by+'_by_'+plSt.over+'.csv',out.join('\n')); return;
+  }
+  const A=plAgg();
   const out=[[plSt.by,'golives','sessions','seller_joined','poc_joined','adoption_pct'].join(',')];
   A.forEach(a=>out.push([a.k,a.gl,a.sess,a.sj,a.pj,a.pct==null?'':a.pct.toFixed(1)].map(q).join(',')));
   saveCsv('prelive_adoption_'+plSt.by+'.csv',out.join('\n'));
@@ -3168,7 +3295,14 @@ function initTrendControls(){
   });
   document.querySelectorAll('#plBy button').forEach(b=>b.addEventListener('click',()=>{
     document.querySelectorAll('#plBy button').forEach(x=>x.classList.toggle('on',x===b));
-    plSt.by=b.dataset.b; buildPrelive();}));
+    plSt.by=b.dataset.b; plSt.pick=null; buildPrelive();}));
+  document.querySelectorAll('#plOver button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#plOver button').forEach(x=>x.classList.toggle('on',x===b));
+    plSt.over=b.dataset.o; plSt.pick=null; buildPrelive();}));
+  document.getElementById('plGc').addEventListener('change',e=>{plSt.gc=e.target.value; plSt.pick=null; buildPrelive();});
+  document.getElementById('plGm').addEventListener('change',e=>{plSt.gm=e.target.value; plSt.pick=null; buildPrelive();});
+  document.getElementById('plSClose').addEventListener('click',()=>{plSt.pick=null; buildPlSellers();});
+  document.getElementById('plSCsv').addEventListener('click',plSellersCsv);
   document.getElementById('plMin').addEventListener('change',e=>{plSt.min=e.target.checked; buildPrelive();});
   document.getElementById('plCsv').addEventListener('click',plDownload);
 }

@@ -1375,7 +1375,7 @@ gld AS (
   WHERE s.sp >= 100 AND s.d >= g.gwk GROUP BY 1
 ),
 ev AS (
-  SELECT se.session_id, se.event,
+  SELECT se.session_id, se.event, se.created_at ts,
     COALESCE(REGEXP_EXTRACT(se.actor,r'^guest-([0-9a-f]{24})-'),
              REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$')) eid,
     CASE WHEN REGEXP_CONTAINS(se.actor,r'^EG_') OR se.actor='livekit' THEN 'bot'
@@ -1391,12 +1391,13 @@ ev AS (
 sess AS (
   SELECT session_id, MAX(IF(party='seller', eid, NULL)) seller_id,
     COUNTIF(event='participant_joined' AND party='seller')>0 seller_joined,
-    COUNTIF(event='participant_joined' AND party='poc')>0    poc_joined
+    COUNTIF(event='participant_joined' AND party='poc')>0    poc_joined,
+    MIN(ts) t0, MIN(IF(event='participant_joined' AND party='seller', ts, NULL)) sj_ts
   FROM ev GROUP BY 1
 ),
 per AS (
   SELECT seller_id, MAX(IF(seller_joined,1,0)) sj, MAX(IF(poc_joined,1,0)) pj,
-         COUNT(*) n_sessions
+         COUNT(*) n_sessions, MIN(t0) first_sess, MIN(sj_ts) first_join
   FROM sess WHERE seller_id IS NOT NULL GROUP BY 1
 ),
 mgr AS (
@@ -1407,25 +1408,33 @@ mgr AS (
       REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '),NULL)) gm
   FROM nushop.seller_managers sm LEFT JOIN nushop.users u ON sm.manager_id=u._id GROUP BY 1
 )
-SELECT FORMAT_DATE('%Y-%m-%d', d.gd) AS d,
+-- One row per go-live seller; parse_prelive rolls these up into the day/GC/GM rows and keeps the
+-- seller list for the drilldown. A seller counts on their GO-LIVE day, whenever the call happened.
+SELECT d.seller_id,
+  COALESCE(NULLIF(TRIM(s.display_name),''),'') AS name,
+  FORMAT_DATE('%Y-%m-%d', d.gd) AS d,
   COALESCE(NULLIF(TRIM(m.gc),''),'Self serve') AS gc,
   COALESCE(NULLIF(TRIM(m.gm),''),'(no GM)')    AS gm,
-  COUNT(*)                        AS golives,
-  SUM(COALESCE(p.n_sessions,0))   AS sessions,
-  SUM(COALESCE(p.sj,0))           AS seller_joined,
-  SUM(COALESCE(p.pj,0))           AS poc_joined
+  COALESCE(p.n_sessions,0) AS sessions,
+  COALESCE(p.sj,0)         AS seller_joined,
+  COALESCE(p.pj,0)         AS poc_joined,
+  FORMAT_DATE('%Y-%m-%d', DATE(p.first_sess,'Asia/Kolkata')) AS link_d,
+  FORMAT_DATE('%Y-%m-%d', DATE(p.first_join,'Asia/Kolkata')) AS call_d
 FROM gld d
 LEFT JOIN per p USING(seller_id)
 LEFT JOIN mgr m USING(seller_id)
+LEFT JOIN nushop.sellers s ON s._id=d.seller_id
 -- pre_live_call events only exist from 2026-08-20; earlier go-lives would read as 0%
 -- adoption when the truth is that there is no session data for them at all
 WHERE d.gd >= DATE '2026-08-20'
-GROUP BY 1,2,3 ORDER BY 1,2
+ORDER BY 3,4,1
 """
 
 
 def parse_prelive(csv_text):
-    """days[]/gcs[]/gms[] + rows [dayIdx, gcIdx, gmIdx, golives, sessions, sellerJoined, pocJoined]"""
+    """Per-seller CSV -> days[]/gcs[]/gms[] +
+    rows    [dayIdx, gcIdx, gmIdx, golives, sessions, sellerJoined, pocJoined]  (day x GC x GM rollup)
+    sellers [sellerId, name, dayIdx, gcIdx, gmIdx, sessions, sellerJoined, pocJoined, linkDate, callDate]"""
     days, gcs, gms = [], [], []
     di, ci, mi = {}, {}, {}
 
@@ -1434,21 +1443,27 @@ def parse_prelive(csv_text):
             m[v] = len(arr); arr.append(v)
         return m[v]
 
-    out = []
+    sellers = []
     for r in csvmod.DictReader(io.StringIO(csv_text)):
         def gi(k):
             try:
                 return int(round(float(r.get(k) or 0)))
             except ValueError:
                 return 0
-        out.append([idx(r["d"], days, di), idx(r["gc"], gcs, ci), idx(r["gm"], gms, mi),
-                    gi("golives"), gi("sessions"), gi("seller_joined"), gi("poc_joined")])
+        sellers.append([r["seller_id"], r.get("name") or "", idx(r["d"], days, di),
+                        idx(r["gc"], gcs, ci), idx(r["gm"], gms, mi),
+                        gi("sessions"), gi("seller_joined"), gi("poc_joined"),
+                        r.get("link_d") or "", r.get("call_d") or ""])
     order = sorted(range(len(days)), key=lambda k: days[k])
     remap = {o: n for n, o in enumerate(order)}
-    for row in out:
-        row[0] = remap[row[0]]
-    out.sort()
-    return {"days": [days[k] for k in order], "gcs": gcs, "gms": gms, "rows": out}
+    agg = {}
+    for s in sellers:
+        s[2] = remap[s[2]]
+        a = agg.setdefault((s[2], s[3], s[4]), [0, 0, 0, 0])
+        a[0] += 1; a[1] += s[5]; a[2] += s[6]; a[3] += s[7]
+    out = sorted([list(k) + v for k, v in agg.items()])
+    sellers.sort(key=lambda s: (s[2], s[0]))
+    return {"days": [days[k] for k in order], "gcs": gcs, "gms": gms, "rows": out, "sellers": sellers}
 
 
 def main():
