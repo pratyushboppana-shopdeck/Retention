@@ -1,0 +1,1212 @@
+{
+"source": "HITS Team Mapping Validation - Rolling / 'current mapping' (sheet 1WWhOTXPMHGvKE3U32PUxBozyLuHbs5MBi5jMQ02xs-g)",
+"fetched": "2026-10-05",
+"note": "Rows with active=true carry an S. No. and a Role on the sheet; the unnumbered rows below them are past GCs, kept so historical go-lives still find a CL. Re-export this file when the sheet changes.",
+"roles": {
+"GC": "Core GC",
+"GL": "1-5K GL",
+"HGC": "Hypercare GC",
+"Revival": "Revival GC"
+},
+"aliases": {
+"aanchal agrawal": "aanchal agarwal",
+"dhiraj kumar dhiraj kumar khandelwal": "dhiraj kumar khandelwal",
+"kiran m": "kiran",
+"nikita s gc": "nikita s",
+"saiprasad shet": "saiprasad chandru shet",
+"aakash a": "aakash aakash",
+"tanaya rajkumar gore": "tanaya gore"
+},
+"rows": [
+{
+"gc": "Aditi Gupta",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "AYUSH JAIN",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Eva Ambust",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Rohan Sagar",
+"gm": "Aashirbad Sabat",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Saiprasad Chandru Shet",
+"gm": "Aashirbad Sabat",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Ayushi Agarwal",
+"gm": "Aniket Bhujang",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Himanshu Mall",
+"gm": "Aniket Bhujang",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Yuvraj Sikarwar",
+"gm": "Aniket Bhujang",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Sachin Srivastava",
+"gm": "Anshika Satpathy",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Jatin Kuchhal",
+"gm": "Ayushi Yadav",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Piyush Patil",
+"gm": "Ayushi Yadav",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Shivangi Kumari",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Shubham Kumar",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Somoshri Sarkar",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Surendra Pal",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Vedant Mandwariya",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Amit Jana",
+"gm": "Gaurav Mittal",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Prajwal Alagawadi",
+"gm": "Gaurav Mittal",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Vaibhavi Waghmare",
+"gm": "Gaurav Mittal",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Ankit Jaiswal",
+"gm": "Maloo Pratibha",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Anshul Verma",
+"gm": "Maloo Pratibha",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "HARSHIT SHARMA",
+"gm": "Maloo Pratibha",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Aditya Ranjan",
+"gm": "Manisha Choudhury",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Dhiraj Kumar Khandelwal",
+"gm": "Manisha Choudhury",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Richa Pandey",
+"gm": "Manisha Choudhury",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Shivansh Chaturvedi",
+"gm": "Manisha Choudhury",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Animesh Tiwari",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Ashutosh Ranjan",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Prabhansha Vyas",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Aditya Bargotra",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "MUSADDIK KURUNDWAD",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Prerna Kedia",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Sadiya Rajgoli",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Ameen AR",
+"gm": "Priyanshu Nandan",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Chinu Garg",
+"gm": "Priyanshu Nandan",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Rinkesh Mandal",
+"gm": "Priyanshu Nandan",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "AADITYA KUMAR SINGH",
+"gm": "Rebecca Raechel Anil",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Sanjib Kumar Bhagabati",
+"gm": "Rebecca Raechel Anil",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Seema Paroha",
+"gm": "Rebecca Raechel Anil",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "ANUGRAH JETHI",
+"gm": "Roshita Dulani",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Priyal Gupta",
+"gm": "Roshita Dulani",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Tanisha Mangal",
+"gm": "Roshita Dulani",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Aseer Akhtar",
+"gm": "Sagar Sharma",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Pridhi s",
+"gm": "Sagar Sharma",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "SHREYA YADAV",
+"gm": "Sagar Sharma",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "MANISH GUPTA",
+"gm": "Sahana Rajesh",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "RONAK AGARWAL",
+"gm": "Sahana Rajesh",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Ekta Choudhary",
+"gm": "Satyaveer Kumar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Rahul Anand",
+"gm": "Satyaveer Kumar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Rohit Kumar",
+"gm": "Satyaveer Kumar",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Kiran",
+"gm": "Shubham Goyal",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Patan Nafisa",
+"gm": "Shubham Goyal",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Shweta Mohatewar",
+"gm": "Shubham Goyal",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "ADITYA UPADHYAY",
+"gm": "SWASTIKA MAITY",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Asif s",
+"gm": "SWASTIKA MAITY",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Dev Modi",
+"gm": "SWASTIKA MAITY",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "GOURAV  GOYAL",
+"gm": "SWASTIKA MAITY",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Pratima Yadav",
+"gm": "SWASTIKA MAITY",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "AMITESH MANI TRIPATHI",
+"gm": "Umesh Sahu",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Rakesh Mondal",
+"gm": "Umesh Sahu",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Yash Joshi",
+"gm": "Umesh Sahu",
+"cl": "Roopesh B",
+"role": "GC",
+"active": true
+},
+{
+"gc": "ANSH THAKRAL",
+"gm": "Vatsal Sharma",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Mahima Shah",
+"gm": "Vatsal Sharma",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "NIYAM VINAY KUPPAST",
+"gm": "Vatsal Sharma",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Pathan khadeer",
+"gm": "Vipin gautam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "SHITIJ KALIA",
+"gm": "Vipin gautam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Shruti Nair",
+"gm": "Vipin gautam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Shubham Nayak",
+"gm": "Vipin gautam",
+"cl": "Jivraj K",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Bibi khadeeja",
+"gm": "Yash Sureshbhai",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Divyanshi Panjikar",
+"gm": "Yash Sureshbhai",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Vikas Tribhuwan Pandey",
+"gm": "Yash Sureshbhai",
+"cl": "Pratiksha Y",
+"role": "GC",
+"active": true
+},
+{
+"gc": "Komal Giri",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Naina Kumari",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Harshita Gupta",
+"gm": "Aashirbad Sabat",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Shivam Kumar",
+"gm": "Aashirbad Sabat",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Aitesam Khan",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Ayushi Sonkar",
+"gm": "Yash Sureshbhai",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Hardik Grover",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Parth Mohanty",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Priyanshu Raj",
+"gm": "Aastha Jha",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Sankhajit Ghosh",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "SHRADHA KUMARI",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Mannat Chawla",
+"gm": "Aniket Bhujang",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Saurabh Kumar",
+"gm": "Aniket Bhujang",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Piyush Dubey",
+"gm": "Anshika Satpathy",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Rayala Bhanu Sriraj",
+"gm": "Anshika Satpathy",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Sandhya Narwade",
+"gm": "Anshika Satpathy",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Shivon Bansal",
+"gm": "Ayushi Yadav",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Tuleshwar Sahu",
+"gm": "Ayushi Yadav",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Patil Jayesh",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Shashank Agrahari",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "GL",
+"active": true
+},
+{
+"gc": "LEHAR GUPTA",
+"gm": "Priyanshu Nandan",
+"cl": "Jivraj K",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Tanvi Parihar",
+"gm": "Priyanshu Nandan",
+"cl": "Jivraj K",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Aarushi Kumar",
+"gm": "Roshita Dulani",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Pushp Raj",
+"gm": "Roshita Dulani",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Anushka Agrawal",
+"gm": "Satyaveer Kumar",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Jaison s",
+"gm": "Satyaveer Kumar",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Sejal Somani",
+"gm": "Shubham Goyal",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "SHREYASH KOTLAWAR",
+"gm": "Shubham Goyal",
+"cl": "Roopesh B",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Ayushi Sonkar",
+"gm": "Yash Sureshbhai",
+"cl": "Pratiksha Y",
+"role": "GL",
+"active": true
+},
+{
+"gc": "Nikita S",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "HGC",
+"active": true
+},
+{
+"gc": "SANDIPAN SARKAR",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "HGC",
+"active": true
+},
+{
+"gc": "Sargunpreet Singh",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "HGC",
+"active": true
+},
+{
+"gc": "Tanaya Gore",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "HGC",
+"active": true
+},
+{
+"gc": "Aanchal Agarwal",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "Revival",
+"active": true
+},
+{
+"gc": "Debasish Das",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "Revival",
+"active": true
+},
+{
+"gc": "Kavita Rai",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "Revival",
+"active": true
+},
+{
+"gc": "Vishal Thapa",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "Revival",
+"active": true
+},
+{
+"gc": "Davidson Udayakumar",
+"gm": "Good Seller",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Sanjana Doddamani",
+"gm": "Rebecca Raechel Anil",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Anish Dash",
+"gm": "Vatsal Sharma",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Pujarchana Nayak",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Sourabh Yadav",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Vrijendra Balaji",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Krishna Kumar Singh",
+"gm": "Rebecca Raechel Anil",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Saurabh Thenua",
+"gm": "Ayushi Yadav",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Ameya Bhingurde",
+"gm": "Md Azharul Imam",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Pihuni Jain",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Biplab Kumar Singh",
+"gm": "Pawan Kumar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Anshuman Jha",
+"gm": "Sparsh Agarwal",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Vikash Kumar",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Mayank Singh",
+"gm": "Shirin Rizvi",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Rohan Agrawal",
+"gm": "Ayushi Yadav",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Arpit Katiyar",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Abhinav Rana",
+"gm": "Anshika Satpathy",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Sakshi Kumari",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Jitu Raj",
+"gm": "Fatir Khan",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Manjot Singh",
+"gm": "Aakash Aakash",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Rishabh Kumar",
+"gm": "Anshika Satpathy",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Deepak Mourya",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Swati Singh",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Nitya Arawindan",
+"gm": "Nitya Arawindan",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Sanket Singh Godara",
+"gm": "Shirin Rizvi",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "SRISHTI s",
+"gm": "Anshika Satpathy",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Hamza Tufail Rohila",
+"gm": "Fatir Khan",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Pratyush Joshi",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Rebecca Raechel Anil",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Rahul Kumar",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Saurav Singh",
+"gm": "Md Azharul Imam",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Preetisha Chowdhury",
+"gm": "Pawan Kumar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Vishal Sen",
+"gm": "Ayushi Yadav",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Shivani Priya",
+"gm": "Pawan Kumar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Aditya Kumar Prasad",
+"gm": "Pawan Kumar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Akanksha Bansal",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Dummy MGSV GC",
+"gm": "Dummy MGSV GM",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Gurkirat Singh",
+"gm": "Shubham Goyal",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Amrit Raj",
+"gm": "Pawan Kumar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Faraz Pasha",
+"gm": "Pawan Kumar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Kanchi Dixit",
+"gm": "Bhavana Ahirwar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Pranav Pillai",
+"gm": "Aniket Bhujang",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Rahul Jangid",
+"gm": "Akshita Srivastava",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Nimisha Baruah",
+"gm": "Roshita Dulani",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Lakshya Pandey",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "KRISHNA KUMAR SINGH",
+"gm": "Yash Sureshbhai",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Pavan Kumar",
+"gm": "Rebecca Raechel Anil",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Sejal  Negi",
+"gm": "Pawan Kumar",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Yash Mitkar",
+"gm": "Vipin gautam",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Susmit Ghosh",
+"gm": "Aniket Bhujang",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Pankaj Yadav",
+"gm": "Anshika Satpathy",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Rahul Kumar",
+"gm": "Aastha Jha",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Vanshika Nigam",
+"gm": "Rebecca Raechel Anil",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Ridhima Khatri",
+"gm": "Aakash Aakash",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Dev Vashisth",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "NAMANJEET SINGH",
+"gm": "Vipin gautam",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Nishan Bandekar",
+"gm": "Aaruni Vaidya",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "SOHAN LOBO",
+"gm": "Roshita Dulani",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+},
+{
+"gc": "Pooja M Krishna",
+"gm": "Aniket Bhujang",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Harsh Shukla",
+"gm": "Mayank Nagar",
+"cl": "Jivraj K",
+"role": "",
+"active": false
+},
+{
+"gc": "Rahul Saini",
+"gm": "Ayushi Yadav",
+"cl": "Pratiksha Y",
+"role": "",
+"active": false
+},
+{
+"gc": "Ravi Dotaniya",
+"gm": "Sagar Sharma",
+"cl": "Roopesh B",
+"role": "",
+"active": false
+}
+]
+}

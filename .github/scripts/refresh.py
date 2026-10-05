@@ -937,6 +937,31 @@ def _pick(row, *names):
     return ""
 
 
+# GC -> GM -> CL source of truth: the 'current mapping' tab of the HITS Team Mapping sheet,
+# snapshotted into team_mapping.json at the repo root (CI has no Google credentials). The page
+# reads the same file for CL, so this only decides GM and team for the task-SLA console.
+TEAM_MAP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "team_mapping.json")
+
+
+def load_sheet_map():
+    """norm GC name -> (gm, cl, team) from the ACTIVE sheet rows only. Past-GC rows are
+    left out here: their GM on the sheet is wherever they last sat, which is no better than
+    the roster/inferred GM the task rows already carry."""
+    try:
+        with open(TEAM_MAP_FILE) as f:
+            tm = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"  ! team_mapping.json unreadable ({e}); falling back to the roster cards")
+        return {}, {}
+    roles = tm.get("roles", {})
+    out = {}
+    for r in tm.get("rows", []):
+        if r.get("active") and r.get("gc"):
+            out.setdefault(_norm_name(r["gc"]), (r.get("gm") or "", r.get("cl") or "",
+                                                 roles.get(r.get("role") or "", "")))
+    return out, tm.get("aliases", {})
+
+
 def build_team_map(session):
     """Team category and GM per GC.
 
@@ -1043,12 +1068,27 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
 
     cbe, cbn, fx = cat_email or {}, cat_name or {}, forced or {}
     gbe, gbn = gm_email or {}, gm_name or {}
+    sheet, alias = load_sheet_map()
+    # one display spelling per GM, so the sheet's "Vipin gautam" and a roster "Vipin Gautam"
+    # do not become two rows in the By GM view
+    canon = {}
+    for v in list(gbe.values()) + list(gbn.values()) + list(seen_gm.values()):
+        if v:
+            canon.setdefault(_norm_name(v), v)
+    n_sheet = 0
     for role, R in roles.items():
         ems = R.pop("emails", [])
         for i2, nm in enumerate(R["people"]):
             e = ems[i2] if i2 < len(ems) else ""
             key = _norm_name(nm)
             if role == "GC":
+                sm = sheet.get(alias.get(key, key))
+                if sm and sm[0]:
+                    # the mapping sheet is the source of truth for anyone it lists as active
+                    n_sheet += 1
+                    R["cats"].append(sm[2] or fx.get(key) or cbe.get(e) or cbn.get(key) or "Unmapped")
+                    R["gms"].append(canon.get(_norm_name(sm[0]), sm[0])); R["gmsrc"].append("sheet")
+                    continue
                 R["cats"].append(fx.get(key) or cbe.get(e) or cbn.get(key) or "Unmapped")
                 # card 12101 is authoritative; the seller-derived GM only fills gaps
                 gm = gbe.get(e) or gbn.get(key)
@@ -1062,6 +1102,8 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
                 R["gms"].append("")
                 R["gmsrc"].append("")
         R.pop("_t"); R.pop("_p")
+    if "GC" in roles:
+        print(f"  mapping sheet: {n_sheet} of {len(roles['GC']['people'])} GCs take GM/team from team_mapping.json")
 
     order = sorted(range(len(days)), key=lambda k: days[k])
     remap = {old: new for new, old in enumerate(order)}
@@ -1493,7 +1535,7 @@ def main():
     _gmsrc = _gc.get("gmsrc", [])
     print(f"  team map: {len(tbe)} emails, {len(tbn)} names; "
           f"{_un} GC(s) unmapped of {len(_gc.get('people', []))}; "
-          f"GM from roster {_gmsrc.count('roster')}, inferred {_gmsrc.count('inferred')}, "
+          f"GM from sheet {_gmsrc.count('sheet')}, roster {_gmsrc.count('roster')}, inferred {_gmsrc.count('inferred')}, "
           f"none {_gmsrc.count('none')}")
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,

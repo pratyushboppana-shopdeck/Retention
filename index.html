@@ -332,6 +332,11 @@
         <label style="font-size:12px;color:var(--muted)"><input type="checkbox" id="gcgmMinN" checked> hide &lt;5 go-lives</label>
         <span class="hint" id="gcgmSummary"></span></div>
     </div>
+    <div class="gcgm-panel" style="margin-bottom:16px">
+      <div class="gcgm-head"><span>By CL of the go-live GC — low retention first</span><span class="gcgm-ctl"><select id="clSel"></select></span></div>
+      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
+      <div class="gcgm-detail" id="clDetail"></div>
+    </div>
     <div class="gcgm-cols">
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GC — low retention first</span><span class="gcgm-ctl"><select id="gcSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
@@ -370,6 +375,7 @@
       <div class="fl-row"><span class="fl-label">View by</span>
         <button class="mbtn on" id="tsByGc" type="button">GC (assignee)</button>
         <button class="mbtn" id="tsByGm" type="button">GM (rollup)</button>
+        <button class="mbtn" id="tsByCl" type="button">CL (rollup)</button>
         <span class="fl-label" style="min-width:44px;margin-left:10px">Role</span>
         <select id="tsBucket"></select>
         <label style="font-size:12.5px;color:var(--muted)"><input type="checkbox" id="tsMinN" checked> hide &lt;5 tasks</label>
@@ -407,6 +413,7 @@
       <div class="fl-row"><span class="fl-label">Attribute to</span>
         <button class="mbtn on" id="unByGc" type="button">GC</button>
         <button class="mbtn" id="unByGm" type="button">GM</button>
+        <button class="mbtn" id="unByCl" type="button" title="GC rows rolled up to the GC's CL">CL</button>
         <span class="fl-label" style="min-width:52px;margin-left:10px">Period</span>
         <button class="mbtn on" id="unPerWk" type="button">Year-week</button>
         <button class="mbtn" id="unPerMo" type="button">Month</button>
@@ -530,6 +537,7 @@
     <span class="slaseg" id="gcRoleSeg">
       <button type="button" data-v="gc" class="on">By GC</button>
       <button type="button" data-v="gm">By GM</button>
+      <button type="button" data-v="cl">By CL</button>
     </span>
     <span class="slaseg" id="gcSortSeg">
       <button type="button" data-s="adh" class="on">Worst adherence</button>
@@ -581,12 +589,14 @@
         <button type="button" data-b="week">Week</button>
         <button type="button" data-b="gc">GC</button>
         <button type="button" data-b="gm">GM</button>
+        <button type="button" data-b="cl">CL</button>
       </span>
       <span class="slaseg" id="plOver" style="display:none" title="Break each GC/GM down by go-live day or week">
         <button type="button" data-o="total" class="on">Total</button>
         <button type="button" data-o="day">&times; Day</button>
         <button type="button" data-o="week">&times; Week</button>
       </span>
+      <select id="plCl" style="font:inherit;font-size:12px;max-width:160px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff"></select>
       <select id="plGc" style="font:inherit;font-size:12px;max-width:160px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff"></select>
       <select id="plGm" style="font:inherit;font-size:12px;max-width:160px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff"></select>
       <label style="font-size:12px;color:var(--muted);margin-left:10px">
@@ -618,6 +628,8 @@
       </span>
       <label style="font-size:12px;color:var(--muted);margin-left:12px">Team
         <select id="trTeam" style="margin-left:5px"></select></label>
+      <label style="font-size:12px;color:var(--muted);margin-left:10px">CL
+        <select id="trCl" style="margin-left:5px"></select></label>
       <label style="font-size:12px;color:var(--muted);margin-left:10px">GM
         <select id="trGm" style="margin-left:5px"></select></label>
       <label style="font-size:12px;color:var(--muted);margin-left:10px">GC
@@ -1051,6 +1063,7 @@ async function load(){
     const res=await fetch('data.json?ts='+Date.now(),{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
     const snap=await res.json();
+    await loadTeamMap();
     const csv=typeof snap==='string'?snap:snap.csv;
     if(!csv) throw new Error('Snapshot missing CSV payload.');
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
@@ -1102,6 +1115,32 @@ function renderDefs(){
     BUCKET_DEFS.map((x,i)=>'<div class="defrow"><div class="defname"><span class="defdot" style="background:'+BUCKET_COLORS[i]+'"></span>'+esc(x.n)+'</div><div class="defrule"><b>'+x.d+'</b><br>'+x.r+'</div></div>').join('');
 }
 let CURDRILL=null;
+// ---- GC -> GM -> CL mapping (team_mapping.json, snapshotted from the HITS Team Mapping sheet) ----
+// A GC's CL comes from their own sheet row; anyone not on the sheet falls back to the CL most of
+// their GM's GCs sit under. Past GCs are on the sheet too, so point-in-time go-live GCs still resolve.
+let TEAMMAP=null;
+const nrm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
+async function loadTeamMap(){
+  try{
+    const r=await fetch('team_mapping.json?ts='+Date.now(),{cache:'no-store'}); if(!r.ok) return;
+    const tm=await r.json(), gc={}, gmVotes={};
+    (tm.rows||[]).forEach(x=>{
+      const k=nrm(x.gc); if(!k||/^dummy/.test(k)) return;
+      if(!gc[k]||(x.active&&!gc[k].active)) gc[k]={gm:x.gm,cl:x.cl,role:(tm.roles||{})[x.role]||'',active:!!x.active};
+      if(x.cl){const g=nrm(x.gm),v=gmVotes[g]||(gmVotes[g]={a:{},all:{}});
+        v.all[x.cl]=(v.all[x.cl]||0)+1; if(x.active) v.a[x.cl]=(v.a[x.cl]||0)+1;}
+    });
+    const top=o=>Object.entries(o).sort((a,b)=>b[1]-a[1])[0];
+    const gmCl={}; Object.entries(gmVotes).forEach(([g,v])=>{const t=top(v.a)||top(v.all); if(t) gmCl[g]=t[0];});
+    TEAMMAP={gc,gmCl,alias:tm.aliases||{},fetched:tm.fetched||''};
+  }catch(e){ TEAMMAP=null; }
+}
+function clOf(gcName,gmName){
+  if(!TEAMMAP) return '(no CL)';
+  const a=k=>TEAMMAP.alias[k]||k;
+  const g=TEAMMAP.gc[a(nrm(gcName))]; if(g&&g.cl) return g.cl;
+  return TEAMMAP.gmCl[a(nrm(gmName))]||'(no CL)';
+}
 function esc(s){return (s==null?'':(''+s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 // Save `text` as `name`. The anchor MUST be in the document: a detached <a>.click()
 // is ignored by Safari and Firefox, so the button appeared dead outside Chrome.
@@ -1302,7 +1341,7 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
 
 // ===== GC & GM retention view =====
 let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={}, WEEKACT=null;
-const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All'};
+const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All', cl:'All'};
 const MONTH2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function wkMonthKey(w){const co=parseCohort(w); return co?co.my*100+co.mm:0;}
 function wkMonthLabel(w){const co=parseCohort(w); return co?MONTH2[co.mm-1]+' '+String(co.my).slice(2):w;}
@@ -1375,6 +1414,7 @@ function buildTs(){
     bs.addEventListener('change',e=>{tsSt.bucket=e.target.value;renderTs();});
     document.getElementById('tsByGc').addEventListener('click',()=>{tsSt.by='gc';renderTs();});
     document.getElementById('tsByGm').addEventListener('click',()=>{tsSt.by='gm';renderTs();});
+    document.getElementById('tsByCl').addEventListener('click',()=>{tsSt.by='cl';renderTs();});
     document.getElementById('tsMinN').addEventListener('change',renderTs);
     document.querySelectorAll('#tsTable th[data-k]').forEach(th=>th.addEventListener('click',()=>{
       const k=th.dataset.k; if(tsSt.sort===k) tsSt.asc=!tsSt.asc; else {tsSt.sort=k;tsSt.asc=(k==='name');}
@@ -1388,7 +1428,7 @@ function tsAgg(){
   TSSOP.rows.forEach(r=>{
     if(!tsF.sel.has(r[3])) return;
     if(tsSt.bucket!=='all' && r[2]!==tsSt.bucket) return;
-    const key=N[tsSt.by==='gc'?r[0]:r[1]];
+    const key=tsSt.by==='cl'?clOf(N[r[0]],N[r[1]]):N[tsSt.by==='gc'?r[0]:r[1]];
     const a=acc[key]||(acc[key]={name:key,tasks:0,completed:0,sla:0,attempted:0,conn:0,scored:0,dur:0,
       accS:0,accN:0,satS:0,satN:0,tonS:0,tonN:0,people:new Set()});
     a.tasks+=r[4];a.completed+=r[5];a.sla+=r[6];a.attempted+=r[7];a.conn+=r[8];a.scored+=r[9];a.dur+=r[10];
@@ -1417,9 +1457,10 @@ function renderTs(){
     th.classList.toggle('sorted',th.dataset.k===tsSt.sort); th.classList.toggle('asc',th.dataset.k===tsSt.sort&&tsSt.asc);});
   document.getElementById('tsByGc').classList.toggle('on',tsSt.by==='gc');
   document.getElementById('tsByGm').classList.toggle('on',tsSt.by==='gm');
+  document.getElementById('tsByCl').classList.toggle('on',tsSt.by==='cl');
   document.getElementById('tsRows').innerHTML=list.map((x,i)=>{
     const dm=x.durAvg==null?'—':Math.floor(x.durAvg/60)+'m '+String(Math.round(x.durAvg%60)).padStart(2,'0')+'s';
-    return `<tr><td>${esc(x.name)}${tsSt.by==='gm'?` <span style="color:var(--faint)">(${x.nPeople})</span>`:''}</td>`+
+    return `<tr><td>${esc(x.name)}${tsSt.by!=='gc'?` <span style="color:var(--faint)">(${x.nPeople})</span>`:''}</td>`+
       `<td class="num">${x.tasks}</td><td class="num">${x.completed}</td>`+
       `<td class="num"><span class="pill" style="background:${scoreColor(x.adh==null?null:100*x.adh)}">${fmtPct(x.adh)}</span></td>`+
       `<td class="num"><span class="pill" style="background:${scoreColor(x.slaPct==null?null:100*x.slaPct)}">${fmtPct(x.slaPct)}</span></td>`+
@@ -1433,7 +1474,7 @@ function renderTs(){
     .forEach(k=>s[k]=(s[k]||0)+x[k]);return s;},{});
   const q=(T.accN+T.satN+T.tonN)?(T.accS+T.satS+T.tonS)/(T.accN+T.satN+T.tonN):null;
   const dur=T.conn?T.dur/T.conn:null;
-  document.getElementById('tsFoot').innerHTML=`<tr><td>TOTAL — ${list.length} ${tsSt.by==='gc'?'people':'GMs'}</td>`+
+  document.getElementById('tsFoot').innerHTML=`<tr><td>TOTAL — ${list.length} ${tsSt.by==='gc'?'people':tsSt.by==='cl'?'CLs':'GMs'}</td>`+
     `<td class="num">${T.tasks||0}</td><td class="num">${T.completed||0}</td>`+
     `<td class="num">${fmtPct(T.tasks?T.completed/T.tasks:null)}</td><td class="num">${fmtPct(T.tasks?T.sla/T.tasks:null)}</td>`+
     `<td class="num">${T.attempted||0}</td><td class="num">${T.conn||0}</td><td class="num">${fmtPct(T.attempted?T.conn/T.attempted:null)}</td>`+
@@ -1441,11 +1482,11 @@ function renderTs(){
     `<td class="num">${fmtNum(T.accN?T.accS/T.accN:null)}</td><td class="num">${fmtNum(T.satN?T.satS/T.satN:null)}</td>`+
     `<td class="num">${fmtNum(T.tonN?T.tonS/T.tonN:null)}</td>`+
     `<td class="num">${dur==null?'—':Math.floor(dur/60)+'m '+String(Math.round(dur%60)).padStart(2,'0')+'s'}</td></tr>`;
-  document.getElementById('tsSummary').textContent=`${tsF.sel.size} week(s) selected · role ${tsSt.bucket} · ${list.length} ${tsSt.by==='gc'?'assignees':'GMs'} · ${T.tasks||0} TS SOP tasks`;
+  document.getElementById('tsSummary').textContent=`${tsF.sel.size} week(s) selected · role ${tsSt.bucket} · ${list.length} ${tsSt.by==='gc'?'assignees':tsSt.by==='cl'?'CLs':'GMs'} · ${T.tasks||0} TS SOP tasks`;
 }
 document.getElementById('tsCsv').addEventListener('click',()=>{
   if(!TSVIEW.length) return; const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const csv=[`${tsSt.by==='gc'?'assignee':'gm'},tasks,completed,task_adherence_pct,sla_adherence_pct,calls_attempted,calls_connected,connect_pct,calls_scored,avg_quality,avg_accuracy,avg_satisfaction,avg_tonality,avg_duration_sec`]
+  const csv=[`${tsSt.by==='gc'?'assignee':tsSt.by},tasks,completed,task_adherence_pct,sla_adherence_pct,calls_attempted,calls_connected,connect_pct,calls_scored,avg_quality,avg_accuracy,avg_satisfaction,avg_tonality,avg_duration_sec`]
     .concat(TSVIEW.map(x=>[x.name,x.tasks,x.completed,x.adh==null?'':(100*x.adh).toFixed(1),x.slaPct==null?'':(100*x.slaPct).toFixed(1),
       x.attempted,x.conn,x.connpct==null?'':(100*x.connpct).toFixed(1),x.scored,
       x.quality==null?'':x.quality.toFixed(1),x.accAvg==null?'':x.accAvg.toFixed(1),
@@ -1464,6 +1505,7 @@ function buildUn(){
       allId:'unAll',clearId:'unClear',onChange:renderUn});
     document.getElementById('unByGc').addEventListener('click',()=>{unSt.role='GC';renderUn();});
     document.getElementById('unByGm').addEventListener('click',()=>{unSt.role='GM';renderUn();});
+    document.getElementById('unByCl').addEventListener('click',()=>{unSt.role='CL';renderUn();});
     document.getElementById('unPerWk').addEventListener('click',()=>{unSt.period='week';renderUn();});
     document.getElementById('unPerMo').addEventListener('click',()=>{unSt.period='month';renderUn();});
     document.querySelectorAll('#unPersonTable th[data-uk]').forEach(th=>th.addEventListener('click',()=>{
@@ -1476,8 +1518,7 @@ function buildUn(){
 let UNVIEW=[];
 function renderUn(){
   const N=UNAS.names;
-  ['unByGc','unByGm'].forEach(id=>document.getElementById(id).classList.toggle('on',
-    (id==='unByGc')===(unSt.role==='GC')));
+  ['GC','GM','CL'].forEach(k=>document.getElementById('unBy'+k[0]+k[1].toLowerCase()).classList.toggle('on',unSt.role===k));
   ['unPerWk','unPerMo'].forEach(id=>document.getElementById(id).classList.toggle('on',
     (id==='unPerWk')===(unSt.period==='week')));
   document.getElementById('unRoleLbl').textContent=unSt.role;
@@ -1485,11 +1526,11 @@ function renderUn(){
   const byPeriod={}, byPerson={};
   UNAS.rows.forEach(r=>{
     const [wk,role,kind,pi,n]=r;
-    if(role!==unSt.role) return;
+    if(role!==(unSt.role==='CL'?'GC':unSt.role)) return;
     if(!unF.sel.has(wk)) return;
     const per=unSt.period==='week'?wk:unF.monthLabel(wk);
     (byPeriod[per]=byPeriod[per]||{per,golive:0,unassign:0,ord:unSt.period==='week'?wk:String(unF.monthOf(wk))})[kind]+=n;
-    const nm=N[pi];
+    const nm=unSt.role==='CL'?clOf(N[pi],''):N[pi];
     (byPerson[nm]=byPerson[nm]||{name:nm,golive:0,unassign:0})[kind]+=n;
   });
   const pers=Object.values(byPeriod).sort((a,b)=>a.ord<b.ord?-1:a.ord>b.ord?1:0);
@@ -1560,15 +1601,18 @@ function setupGcgmFilters(){
   document.getElementById('gcgmMinN').addEventListener('change',renderGcgm);
   document.getElementById('gcgmAll').addEventListener('click',()=>{weeks.forEach(w=>gcgmSel.weeks.add(w)); renderGcgm();});
   document.getElementById('gcgmClear').addEventListener('click',()=>{gcgmSel.weeks.clear(); renderGcgm();});
-  document.getElementById('gcSel').addEventListener('change',e=>{gcgmSel.gc=e.target.value;
-    if(e.target.value!=='All'){document.getElementById('gmSel').value='All'; gcgmSel.gm='All';} renderGcgm();});
-  document.getElementById('gmSel').addEventListener('change',e=>{gcgmSel.gm=e.target.value;
-    if(e.target.value!=='All'){document.getElementById('gcSel').value='All'; gcgmSel.gc='All';} renderGcgm();});
+  ['gc','gm','cl'].forEach(k=>document.getElementById(k+'Sel').addEventListener('change',e=>gcgmPick(k,e.target.value)));
   // default: latest month whose every week is already W3-mature (a complete month)
   const byMonth={}; weeks.forEach(w=>{(byMonth[wkMonthKey(w)]=byMonth[wkMonthKey(w)]||[]).push(w);});
   const fullMature=Object.keys(byMonth).map(Number).filter(k=>byMonth[k].every(w=>GCGM.weeks[w]>3)).sort((a,b)=>a-b);
   const defMk=fullMature[fullMature.length-1];
   (byMonth[defMk]||[]).forEach(w=>gcgmSel.weeks.add(w));
+}
+// GC, GM and CL are alternate views of the same go-lives, so picking one clears the other two
+function gcgmPick(k,val){
+  ['gc','gm','cl'].forEach(o=>{ if(o===k) gcgmSel[o]=val; else if(val!=='All') gcgmSel[o]='All';
+    document.getElementById(o+'Sel').value=gcgmSel[o]; });
+  renderGcgm();
 }
 function aggRole(rows){ // rows: [gw,name,n,r1..r7]; returns map name->{n,ret} over mature selected weeks
   const m=gcgmSel.metric, need=gcgmSel.metric;
@@ -1583,11 +1627,11 @@ function renderRank(rows, tbodyId, detailId, sel, selEl){
   const minN=document.getElementById('gcgmMinN').checked;
   let list=Object.entries(acc).map(([name,a])=>({name,n:a.n,p:a.n?a.ret/a.n:0,rr:a.rr,mn:a.mn}));
   // dropdown options (all names, alphabetic)
-  const cur=gcgmSel[selEl.id==='gcSel'?'gc':'gm']||selEl.value||'All';
+  const cur=gcgmSel[sel]||selEl.value||'All';
   selEl.innerHTML='<option value="All">All</option>'+list.slice().sort((a,b)=>a.name.localeCompare(b.name))
     .map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
   selEl.value=[...selEl.options].some(o=>o.value===cur)?cur:'All';
-  const selName=gcgmSel[selEl.id==='gcSel'?'gc':'gm']||'All';
+  const selName=gcgmSel[sel]||'All';
   if(selEl.value!==selName) selEl.value=selName;
   // keep the full ranking visible even when one person is selected (just highlight them)
   let shown=list.filter(x=>x.n>=(minN?5:1) || x.name===selName);
@@ -1599,12 +1643,7 @@ function renderRank(rows, tbodyId, detailId, sel, selEl){
       `<td><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></td>`;
     // click a row = select that person (shows their not-retained sellers below)
     // clicking a row selects that person; GC and GM are alternate views, so pick one at a time
-    tr.addEventListener('click',()=>{const isGc=selEl.id==='gcSel';
-      const cur=gcgmSel[isGc?'gc':'gm'];
-      const val=(cur===x.name)?'All':x.name;
-      gcgmSel[isGc?'gc':'gm']=val; selEl.value=val;
-      if(val!=='All'){ gcgmSel[isGc?'gm':'gc']='All'; document.getElementById(isGc?'gmSel':'gcSel').value='All'; }
-      renderGcgm();});
+    tr.addEventListener('click',()=>{gcgmPick(sel,(gcgmSel[sel]===x.name)?'All':x.name);});
     tb.appendChild(tr);});
   // detail: W1-W7 for the selected one
   const det=document.getElementById(detailId);
@@ -1620,6 +1659,8 @@ function renderGcgm(){
   const weeks=Object.keys(GCGM.weeks);
   document.querySelectorAll('#gcgmMonths .mbtn').forEach(b=>{const wks=weeks.filter(w=>wkMonthKey(w)==+b.dataset.mk); b.classList.toggle('on',wks.length&&wks.every(w=>gcgmSel.weeks.has(w)));});
   const gcAgg=renderRank(GCGM.gc,'gcRows','gcDetail','gc',document.getElementById('gcSel'));
+  // CL rows are the GC rows relabelled by the go-live GC's CL (team_mapping.json), so they sum exactly
+  renderRank(GCGM.gc.map(r=>[r[0],clOf(r[1],'')].concat(r.slice(2))),'clRows','clDetail','cl',document.getElementById('clSel'));
   const gmAgg=renderRank(GCGM.gm,'gmRows','gmDetail','gm',document.getElementById('gmSel'));
   const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
@@ -1639,8 +1680,9 @@ function fmtOps(ops){
 let SPROWS=[];
 function renderSellerPanel(){
   const panel=document.getElementById('sellerPanel');
-  const gcName=gcgmSel.gc||'All', gmName=gcgmSel.gm||'All';
+  const gcName=gcgmSel.gc||'All', gmName=gcgmSel.gm||'All', clName=gcgmSel.cl||'All';
   const picked=[]; if(gcName&&gcName!=='All')picked.push('GC '+gcName); if(gmName&&gmName!=='All')picked.push('GM '+gmName);
+  if(clName!=='All')picked.push('CL '+clName);
   if(!picked.length||!GCGMS){ panel.style.display='none'; SPROWS=[]; return; }
   const m=gcgmSel.metric;
   const out=[];
@@ -1648,6 +1690,7 @@ function renderSellerPanel(){
     const g=GCGMS[sid];
     if(gcName!=='All' && g.gc!==gcName) continue;
     if(gmName!=='All' && g.gm!==gmName) continue;
+    if(clName!=='All' && clOf(g.gc,'')!==clName) continue;
     const d=DIAGBY[sid]; if(!d) continue;                       // needs spend/bucket detail
     if(!gcgmSel.weeks.has(d.w)) continue;                        // selected go-live weeks only
     if(!(GCGM.weeks[d.w]>m)) continue;                           // that week must be mature
@@ -1973,7 +2016,13 @@ const gcSt={view:'gc', mode:'console', sort:'adh', sel:null, team:null, off:{},
             range:'7', from:null, to:null, expanded:false, showStuck:false};
 let gcInit=false;
 function gcQCol(v){return v==null?'#c9c6b4':v<60?'#C0392B':v<70?'#BA7517':'#2f6d4f';}
-function gcR(){ return (TSLA&&TSLA.roles&&TSLA.roles.GC)||null; }
+function gcR(){ const R=(TSLA&&TSLA.roles&&TSLA.roles.GC)||null;
+  if(R&&!R.cls) R.cls=R.people.map((p,i)=>clOf(p,R.gms[i]));
+  return R; }
+// By GM and By CL are both roll-ups of GC rows; these keep the 28 call sites view-agnostic
+const gcGrp=()=>gcSt.view!=='gc';
+const gcNoun=pl=>(gcSt.view==='cl'?'CL':gcGrp()?'GM':'GC')+(pl?'s':'');
+function gcGroupOf(p){ const R=gcR(); return gcSt.view==='cl'?R.cls[p]:(R.gms[p]||'(no GM)'); }
 
 function gcWindow(){
   if(!TSLA||!TSLA.days.length) return [null,null];
@@ -1999,7 +2048,7 @@ function gcAgg(by){
     if(gcSt.off[R.tasks[r[1]]]) continue;
     const cat=R.cats?R.cats[r[2]]:'';
     if(gcSt.team && cat!==gcSt.team) continue;
-    const who = gcSt.view==='gm' ? (R.gms[r[2]]||'(no GM)') : r[2];
+    const who = gcGrp() ? gcGroupOf(r[2]) : r[2];
     const k = by==='task' ? r[1] : by==='day' ? r[0] : by==='pt' ? who+'|'+r[1] : who;
     let a=m.get(k);
     if(!a){a={created:0,on:0,late:0,stuck:0,pend:0,over:0,calls:0,conn:0,sc:0,acc:0,sat:0,ton:0,
@@ -2017,7 +2066,7 @@ function gcAgg(by){
   });
   return m;
 }
-function gcLabel(k){ const R=gcR(); return gcSt.view==='gm'?k:(R.people[k]||''); }
+function gcLabel(k){ const R=gcR(); return gcGrp()?k:(R.people[k]||''); }
 function gcList(){
   const m=gcAgg('who');
   const arr=[...m.entries()].map(([k,a])=>({k,name:gcLabel(k),...a}));
@@ -2031,8 +2080,8 @@ function gcList(){
 // Rows: [wkIdx, dnum, sellerIdx, catIdx, subIdx, statusIdx, tatMin(-1 null), slaMin, inHit, relWeek(-99 null), gcIdx, gmIdx]
 let BLK=null, BLKPLAT=null, blkInit=false, blkF=null, blkC1=null, blkC2=null;
 let STUCK=null, PRELIVE=null, plChart=null, trChart=null, trQChart=null, trDChart=null;
-const plSt={by:'day',min:true,over:'total',gc:'',gm:'',pick:null,selInit:false};
-const trSt={grain:'day',team:'',gm:'',gc:'',off:{}};
+const plSt={by:'day',min:true,over:'total',cl:'',gc:'',gm:'',pick:null,selInit:false};
+const trSt={grain:'day',team:'',cl:'',gm:'',gc:'',off:{}};
 const blkSt={strict:false, hitOnly:true, unit:'ticket', cats:new Set([0,1,2,3,4,5]), seller:null};
 const BLK_COLLAPSE=7;   // days: tickets this close, same seller + same category, are one incident
 const BLK_EPOCH=Date.UTC(2026,0,1);
@@ -2493,7 +2542,7 @@ function renderGc(){
     document.getElementById('gcExpand').classList.toggle('on',ex);
     document.getElementById('gcExpand').innerHTML = ex?'Collapse &#8600;':'Expand all &#8599;';
     document.getElementById('gcRosterHint').textContent = ex
-      ? 'every '+(gcSt.view==='gm'?'GM':'GC')+' and task type — one screenshot'
+      ? 'every '+gcNoun()+' and task type — one screenshot'
       : 'click a row →';
     if(ex) gcRosterWide();
     else { const n=document.getElementById('gcFitNote'); if(n){n.textContent='';n.style.display='none';}
@@ -2534,7 +2583,7 @@ function gcKpis(){
   const adh=T.due?100*T.on/T.due:null;
   const q=T.sc?Math.round((T.acc+T.sat+T.ton)/(3*T.sc)):null;
   const below=a.filter(x=>x.adh!=null&&x.adh<0.5).length;
-  const noun=gcSt.view==='gm'?'GMs':'GCs';
+  const noun=gcNoun(1);
   document.getElementById('gcKpis').innerHTML=[
     ['Adherence', adh==null?'—':adh.toFixed(1)+'%', T.due.toLocaleString()+' tasks due', adh!=null&&adh<60?'bad':''],
     ['Below 50%', below, 'of '+a.length+' '+noun, below?'bad':'good'],
@@ -2547,10 +2596,10 @@ function gcKpis(){
 function gcRoster(){
   const R=gcR(), a=gcList();
   document.getElementById('gcRosterTitle').textContent=
-    (gcSt.view==='gm'?'All GMs':'All GCs')+' · '+a.length;
+    ('All '+gcNoun(1))+' · '+a.length;
   document.getElementById('gcRoster').innerHTML=a.map((x,i)=>{
     const p=x.adh==null?0:x.adh, c=slaAdhColor(p);
-    const meta = gcSt.view==='gm'
+    const meta = gcGrp()
       ? x.members.size+' GCs · '+x.due+' due · '+x.stuck+' stuck'
       : (R.gms[x.k]||'(no GM)')+' · '+x.due+' due · '+x.stuck+' stuck';
     const inf = gcSt.view==='gc' && R.gmsrc && R.gmsrc[x.k]==='inferred';
@@ -2567,7 +2616,7 @@ function gcRoster(){
   }).join('');
   document.querySelectorAll('#gcRoster .gcrow').forEach(el=>el.addEventListener('click',()=>{
     const k=el.dataset.k;
-    gcSt.sel = (gcSt.sel!=null && String(gcSt.sel)===k) ? null : (gcSt.view==='gm'?k:+k);
+    gcSt.sel = (gcSt.sel!=null && String(gcSt.sel)===k) ? null : (gcGrp()?k:+k);
     renderGc();
   }));
 }
@@ -2578,8 +2627,8 @@ function gcRoster(){
 function gcRosterWide(){
   const R=gcR(), a=gcList(), pt=gcAgg('pt');
   const tasks=R.tasks.map((t,i)=>({t,i})).filter(x=>!gcSt.off[x.t]);
-  const who=gcSt.view==='gm'?'GM':'GC';
-  document.getElementById('gcRosterTitle').textContent=(gcSt.view==='gm'?'All GMs':'All GCs')+' · '+a.length;
+  const who=gcNoun();
+  document.getElementById('gcRosterTitle').textContent=('All '+gcNoun(1))+' · '+a.length;
 
   // Task headers are the widest thing in the table and they set the floor on how narrow a
   // panel can get, so they get abbreviated before any data column is dropped.
@@ -2587,15 +2636,15 @@ function gcRosterWide(){
     'POC Handover':'POC','TS SOP Call':'TSS','Retention Call':'RTN'};
   const shortT=t=>ABBR[t]||t.split(/\s+/).map(w=>w[0]).join('').slice(0,3).toUpperCase();
   const head=o=>'<thead><tr><th>#</th><th>'+who+'</th>'+
-    (o.gm?(gcSt.view==='gm'?'<th>GCs</th>':'<th>GM</th>'):'')+
+    (o.gm?(gcGrp()?'<th>GCs</th>':'<th>GM</th>'):'')+
     '<th>Due</th>'+(o.late?'<th>Late</th>':'')+'<th>'+(o.ab?'Stk':'Stuck')+'</th>'+
     tasks.map(x=>`<th title="${esc(x.t)}">${esc(o.ab?shortT(x.t):(x.t.length>12?x.t.slice(0,11)+'…':x.t))}</th>`).join('')+
     '<th>'+(o.ab?'Q':'Qual')+'</th><th>'+(o.ab?'All':'Overall')+'</th></tr></thead>';
 
   const row=(x,i,o)=>{
     const c=slaAdhColor(x.adh==null?0:x.adh);
-    const who2 = gcSt.view==='gm' ? String(x.members.size) : esc(R.gms[x.k]||'(no GM)');
-    return `<tr data-k="${esc(String(x.k))}" title="${esc(x.name)}${gcSt.view==='gm'?'':' · '+esc(R.gms[x.k]||'(no GM)')} · ${x.late} late, ${x.stuck} stuck">`+
+    const who2 = gcGrp() ? String(x.members.size) : esc(R.gms[x.k]||'(no GM)');
+    return `<tr data-k="${esc(String(x.k))}" title="${esc(x.name)}${gcGrp()?'':' · '+esc(R.gms[x.k]||'(no GM)')} · ${x.late} late, ${x.stuck} stuck">`+
       `<td>${i+1}</td><td class="nmw">${esc(x.name)}</td>`+
       (o.gm?`<td class="gmw">${who2}</td>`:'')+
       `<td>${x.due}</td>`+(o.late?`<td>${x.late}</td>`:'')+
@@ -2690,7 +2739,7 @@ function gcRosterWide(){
   }
 
   document.querySelectorAll('#gcRoster tbody tr').forEach(tr=>tr.addEventListener('click',()=>{
-    gcSt.sel = gcSt.view==='gm' ? tr.dataset.k : +tr.dataset.k;
+    gcSt.sel = gcGrp() ? tr.dataset.k : +tr.dataset.k;
     gcSt.expanded=false; renderGc();
     document.getElementById('gcReportPanel').scrollIntoView({behavior:'smooth',block:'nearest'});
   }));
@@ -2709,9 +2758,9 @@ function gcStuckRows(sel){
   const days=new Set(gcDays().map(i=>TSLA.days[i]));
   // which GC names count: the selected GC, or every GC reporting to the selected GM
   let want;
-  if(gcSt.view==='gm'){
+  if(gcGrp()){
     want=new Set();
-    R.people.forEach((p,i)=>{ if(String(R.gms[i]||'(no GM)')===String(sel.k)) want.add(p); });
+    R.people.forEach((p,i)=>{ if(String(gcGroupOf(i))===String(sel.k)) want.add(p); });
   } else want=new Set([R.people[sel.k]]);
   const out=[];
   for(const r of STUCK.rows){
@@ -2734,7 +2783,7 @@ function gcStuckTable(sel){
     return '<tr><td class="sn" title="'+esc(STUCK.names[r[3]]||'(no name)')+'">'+esc(STUCK.names[r[3]]||'(no name)')+'</td>'+
       '<td class="sid cpy" data-c="'+esc(STUCK.sellers[r[3]])+'" title="click to select, or copy">'+esc(STUCK.sellers[r[3]])+'</td>'+
       '<td class="sid cpy" data-c="'+esc(r[8]||'')+'" title="click to select, or copy">'+esc(r[8]||'—')+'</td>'+
-      '<td>'+esc(STUCK.tasks[r[1]])+(gcSt.view==='gm'?' <span style="color:var(--muted)">· '+esc(STUCK.people[r[2]])+'</span>':'')+'</td>'+
+      '<td>'+esc(STUCK.tasks[r[1]])+(gcGrp()?' <span style="color:var(--muted)">· '+esc(STUCK.people[r[2]])+'</span>':'')+'</td>'+
       '<td title="'+STUCK.days[r[0]]+'">'+STUCK.days[r[0]].slice(5)+'</td>'+
       '<td title="'+STUCK.days[r[7]]+'">'+STUCK.days[r[7]].slice(5)+'</td>'+
       '<td style="color:#C0392B;font-weight:700">'+(d<1?(r[6]/60).toFixed(1)+'h':d.toFixed(1)+'d')+'</td>'+
@@ -2772,7 +2821,7 @@ function gcReport(){
   if(!sel){ el.innerHTML='<p class="drill-sub">Nothing due in this window.</p>'; return; }
   gcSt.sel=sel.k;
   document.getElementById('gcRepHint').textContent =
-    gcSt.view==='gm' ? 'rolled up from their GCs' : 'as this GC would receive it';
+    gcGrp() ? 'rolled up from their GCs' : 'as this GC would receive it';
   const p=sel.adh==null?0:sel.adh, band=p<.5?'#C0392B':p<.7?'#BA7517':'#2f6d4f';
   const bandBg=p<.5?'#f6e5e2':p<.7?'#f8eedd':'#e8f0ea';
   const rank=a.findIndex(x=>String(x.k)===String(sel.k))+1;
@@ -2787,7 +2836,7 @@ function gcReport(){
     for(const r of R.rows){
       if(r[0]!==di) continue;
       if(gcSt.off[R.tasks[r[1]]]) continue;
-      const who=gcSt.view==='gm'?(R.gms[r[2]]||'(no GM)'):r[2];
+      const who=gcGrp()?gcGroupOf(r[2]):r[2];
       if(String(who)!==String(sel.k)) continue;
       on+=r[4]; due+=r[4]+r[5]+r[6];
     }
@@ -2796,9 +2845,9 @@ function gcReport(){
   const mx=Math.max(1,...perDay.map(x=>x.due));
   const teamQ=(()=>{const all=gcAgg('who'); const v=[...all.values()].filter(x=>x.sc).map(x=>x.q).sort((m,n)=>m-n);
     return v.length?v[Math.floor(v.length/2)]:null;})();
-  const sub = gcSt.view==='gm'
+  const sub = gcGrp()
     ? sel.members.size+' GCs · '+[...sel.members].slice(0,3).map(i=>esc(R.people[i])).join(', ')+(sel.members.size>3?' +'+(sel.members.size-3):'')
-    : 'Reports to '+esc(R.gms[sel.k]||'(no GM)')+
+    : 'Reports to '+esc(R.gms[sel.k]||'(no GM)')+' · CL '+esc(R.cls[sel.k])+
       (R.gmsrc&&R.gmsrc[sel.k]==='inferred'?'<span class="gcinf">inferred, not on card 12101</span>':'')+
       ' · '+esc((R.cats&&R.cats[sel.k])||'Unmapped');
   el.innerHTML=`
@@ -2828,7 +2877,7 @@ function gcReport(){
             <span style="color:${c};font-weight:700;margin-left:6px">${(100*x.adh).toFixed(0)}%</span></td></tr>`;}).join('')
         ||'<tr><td colspan="5" style="color:var(--muted)">No tasks due.</td></tr>'}
       </tbody></table></div>
-    <div class="gcsec"><h4>Call quality &mdash; bar is this ${gcSt.view==='gm'?'GM':'GC'}, line is the ${gcSt.view==='gm'?'GM':'GC'} median</h4>
+    <div class="gcsec"><h4>Call quality &mdash; bar is this ${gcNoun()}, line is the ${gcNoun()} median</h4>
       ${sel.sc?[['Accuracy of answers',sel.qAcc],['Seller satisfaction',sel.qSat],['Tonality &amp; communication',sel.qTon]]
         .map(([k,v])=>`<div class="qrow"><span>${k}</span>
           <span class="qtrack"><i style="width:${Math.max(0,Math.min(100,v))}%;background:${gcQCol(v)}"></i>
@@ -2868,17 +2917,20 @@ const isoWk=d=>{const t=new Date(d+'T00:00:00Z');
   t.setUTCDate(t.getUTCDate()+4-(t.getUTCDay()||7));
   const y=new Date(Date.UTC(t.getUTCFullYear(),0,1));
   return t.getUTCFullYear()+'-W'+String(Math.ceil(((t-y)/86400000+1)/7)).padStart(2,'0');};
-const plPerson=()=>plSt.by==='gc'||plSt.by==='gm';
+const plPerson=()=>plSt.by==='gc'||plSt.by==='gm'||plSt.by==='cl';
+const plClOf=(gcI,gmI)=>clOf(PRELIVE.gcs[gcI],PRELIVE.gms[gmI]);
+const plKey=(gcI,gmI)=>plSt.by==='gc'?PRELIVE.gcs[gcI]:plSt.by==='cl'?plClOf(gcI,gmI):PRELIVE.gms[gmI];
 const plMatrix=()=>plPerson()&&plSt.over!=='total';
 function plPass(gcI,gmI){
-  return (!plSt.gc||PRELIVE.gcs[gcI]===plSt.gc)&&(!plSt.gm||PRELIVE.gms[gmI]===plSt.gm);}
+  return (!plSt.gc||PRELIVE.gcs[gcI]===plSt.gc)&&(!plSt.gm||PRELIVE.gms[gmI]===plSt.gm)
+    &&(!plSt.cl||plClOf(gcI,gmI)===plSt.cl);}
 function plTimeKey(dayI,g){const d=PRELIVE.days[dayI]; return g==='week'?isoWk(d):d;}
 function plAgg(){
   if(!PRELIVE) return [];
   const m=new Map(), tg=plPerson()?null:plSt.by;
   PRELIVE.rows.forEach(r=>{
     if(!plPass(r[1],r[2])) return;
-    const k = tg ? plTimeKey(r[0],tg) : plSt.by==='gc' ? PRELIVE.gcs[r[1]] : PRELIVE.gms[r[2]];
+    const k = tg ? plTimeKey(r[0],tg) : plKey(r[1],r[2]);
     let a=m.get(k); if(!a){a={k,gl:0,sess:0,sj:0,pj:0}; m.set(k,a);}
     a.gl+=r[3]; a.sess+=r[4]; a.sj+=r[5]; a.pj+=r[6];
   });
@@ -2893,7 +2945,7 @@ function plGrid(){
   const g=plSt.over, people=new Map(), periods=new Set();
   PRELIVE.rows.forEach(r=>{
     if(!plPass(r[1],r[2])) return;
-    const k=plSt.by==='gc'?PRELIVE.gcs[r[1]]:PRELIVE.gms[r[2]], t=plTimeKey(r[0],g);
+    const k=plKey(r[1],r[2]), t=plTimeKey(r[0],g);
     periods.add(t);
     let p=people.get(k); if(!p){p={k,gl:0,sj:0,cells:{}}; people.set(k,p);}
     const c=p.cells[t]||(p.cells[t]={gl:0,sj:0});
@@ -2912,6 +2964,7 @@ function plFillSelects(){
     .map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
   document.getElementById('plGc').innerHTML=opt(PRELIVE.gcs,'All GCs');
   document.getElementById('plGm').innerHTML=opt(PRELIVE.gms,'All GMs');
+  document.getElementById('plCl').innerHTML=opt(PRELIVE.rows.map(r=>plClOf(r[1],r[2])),'All CLs');
 }
 function plPickFrom(k){
   // what a click on row/bar k selects for the seller table
@@ -2945,7 +2998,7 @@ function buildPrelive(){
               y1:{position:'right',min:0,max:100,grid:{drawOnChartArea:false},
                   ticks:{callback:v=>v+'%'},title:{display:true,text:'adoption',color:AXIS_TITLE}},
               x:{ticks:{color:AXIS,maxRotation:60,minRotation:byTime?60:30,font:{size:9}},grid:{display:false}}}}});
-  const who=plSt.by==='gc'?'GC':'GM';
+  const who=plSt.by==='gc'?'GC':plSt.by==='cl'?'CL':'GM';
   let h;
   if(plMatrix()){
     const G=plGrid(), wk=plSt.over==='week';
@@ -2987,7 +3040,7 @@ function buildPrelive(){
 function plSellerList(){
   const P=PRELIVE, k=plSt.pick; if(!k||!P.sellers) return [];
   return P.sellers.filter(s=>plPass(s[3],s[4])
-    &&(!k.gc||P.gcs[s[3]]===k.gc)&&(!k.gm||P.gms[s[4]]===k.gm)
+    &&(!k.gc||P.gcs[s[3]]===k.gc)&&(!k.gm||P.gms[s[4]]===k.gm)&&(!k.cl||plClOf(s[3],s[4])===k.cl)
     &&(!k.t||plTimeKey(s[2],k.g)===k.t));
 }
 const plStatus=s=>s[6]?'Video call':(s[5]?'Link sent, not joined':'No link');
@@ -2995,8 +3048,8 @@ function buildPlSellers(){
   const box=document.getElementById('plSellers'), k=plSt.pick;
   if(!k){ box.style.display='none'; return; }
   box.style.display='block';
-  const P=PRELIVE, bits=[k.gc,k.gm,k.t&&((k.g==='week'?'week ':'')+k.t)].filter(Boolean);
-  if(plSt.gc&&!k.gc) bits.push(plSt.gc); if(plSt.gm&&!k.gm) bits.push(plSt.gm);
+  const P=PRELIVE, bits=[k.cl&&'CL '+k.cl,k.gc,k.gm,k.t&&((k.g==='week'?'week ':'')+k.t)].filter(Boolean);
+  if(plSt.gc&&!k.gc) bits.push(plSt.gc); if(plSt.gm&&!k.gm) bits.push(plSt.gm); if(plSt.cl&&!k.cl) bits.push('CL '+plSt.cl);
   const title=document.getElementById('plSTitle');
   if(!P.sellers){ title.textContent=bits.join(' · ');
     document.getElementById('plSTable').innerHTML='';
@@ -3010,11 +3063,11 @@ function buildPlSellers(){
     return '<span class="pill" style="background:'+c+';min-width:0">'+(s[6]?'Yes':'No')+'</span> <span style="color:var(--muted);font-size:11px">'+st+'</span>';};
   const lag=s=>{if(!s[9]) return '—'; const d=Math.round((new Date(P.days[s[2]])-new Date(s[9]))/86400000);
     return d===0?'same day':d>0?d+'d before':(-d)+'d after';};
-  let h='<thead><tr><th>Seller ID</th><th>Seller</th><th>Go-live</th><th>GC</th><th>GM</th>'+
+  let h='<thead><tr><th>Seller ID</th><th>Seller</th><th>Go-live</th><th>GC</th><th>GM</th><th>CL</th>'+
     '<th>Video call</th><th>Call date</th><th>Call vs go-live</th><th>First link</th><th class="num">Sessions</th><th>POC joined</th></tr></thead><tbody>';
   L.forEach(s=>{
     h+='<tr><td style="font-family:ui-monospace,monospace;font-size:11.5px">'+esc(s[0])+'</td><td>'+esc(s[1]||'(unnamed)')+
-      '</td><td>'+P.days[s[2]]+'</td><td>'+esc(P.gcs[s[3]])+'</td><td>'+esc(P.gms[s[4]])+
+      '</td><td>'+P.days[s[2]]+'</td><td>'+esc(P.gcs[s[3]])+'</td><td>'+esc(P.gms[s[4]])+'</td><td>'+esc(plClOf(s[3],s[4]))+
       '</td><td>'+pill(s)+'</td><td>'+(s[9]||'—')+'</td><td>'+lag(s)+'</td><td>'+(s[8]||'—')+
       '</td><td class="num">'+s[5]+'</td><td>'+(s[7]?'Yes':'—')+'</td></tr>';
   });
@@ -3022,8 +3075,8 @@ function buildPlSellers(){
 }
 function plSellersCsv(){
   const P=PRELIVE, q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const out=[['seller_id','seller','golive_date','gc','gm','video_call','status','call_date','first_link_date','sessions','poc_joined'].join(',')];
-  plSellerList().forEach(s=>out.push([s[0],s[1],P.days[s[2]],P.gcs[s[3]],P.gms[s[4]],s[6]?'Y':'N',plStatus(s),s[9],s[8],s[5],s[7]?'Y':'N'].map(q).join(',')));
+  const out=[['seller_id','seller','golive_date','gc','gm','cl','video_call','status','call_date','first_link_date','sessions','poc_joined'].join(',')];
+  plSellerList().forEach(s=>out.push([s[0],s[1],P.days[s[2]],P.gcs[s[3]],P.gms[s[4]],plClOf(s[3],s[4]),s[6]?'Y':'N',plStatus(s),s[9],s[8],s[5],s[7]?'Y':'N'].map(q).join(',')));
   saveCsv('prelive_sellers.csv',out.join('\n'));
 }
 function plDownload(){
@@ -3048,6 +3101,7 @@ function trAgg(){
     const t=R.tasks[r[1]]; if(trSt.off[t]) continue;
     if(gcSel && R.people[r[2]]!==gcSel) continue;
     if(gmSel && String(R.gms[r[2]]||'(no GM)')!==gmSel) continue;
+    if(trSt.cl && R.cls[r[2]]!==trSt.cl) continue;
     if(teamSel && String((R.cats&&R.cats[r[2]])||'Unmapped')!==teamSel) continue;
     const d=TSLA.days[r[0]];
     const k=trSt.grain==='day'?d:isoWk(d);
@@ -3114,7 +3168,7 @@ function buildTrend(){
               x:{ticks:{color:AXIS,maxRotation:0,minRotation:0,font:{size:10},autoSkip:true,maxTicksLimit:16},
                  grid:{display:false}}}}});
   const tot=ds.reduce((s,d)=>s+d._n.reduce((x,y)=>x+y,0),0);
-  const who=[trSt.team||'', trSt.gm?'GM '+trSt.gm:'', trSt.gc?'GC '+trSt.gc:'']
+  const who=[trSt.team||'', trSt.cl?'CL '+trSt.cl:'', trSt.gm?'GM '+trSt.gm:'', trSt.gc?'GC '+trSt.gc:'']
     .filter(Boolean).join(' · ')||'everyone';
 
   foot.innerHTML='Showing <b>'+who+'</b> &middot; '+tot.toLocaleString()+' tasks due across '+
@@ -3139,6 +3193,7 @@ function buildTrendQuality(){
     if(r[1]!==ti) continue;
     if(trSt.gc && R.people[r[2]]!==trSt.gc) continue;
     if(trSt.gm && String(R.gms[r[2]]||'(no GM)')!==trSt.gm) continue;
+    if(trSt.cl && R.cls[r[2]]!==trSt.cl) continue;
     if(trSt.team && String((R.cats&&R.cats[r[2]])||'Unmapped')!==trSt.team) continue;
     const d=TSLA.days[r[0]], k=trSt.grain==='day'?d:isoWk(d);
     let a=m.get(k); if(!a){a={sc:0,acc:0,sat:0,ton:0,calls:0,conn:0}; m.set(k,a);}
@@ -3204,6 +3259,7 @@ function buildTrendDuration(){
     const t=R.tasks[r[1]]; if(trSt.off[t]) continue;
     if(trSt.gc && R.people[r[2]]!==trSt.gc) continue;
     if(trSt.gm && String(R.gms[r[2]]||'(no GM)')!==trSt.gm) continue;
+    if(trSt.cl && R.cls[r[2]]!==trSt.cl) continue;
     if(trSt.team && String((R.cats&&R.cats[r[2]])||'Unmapped')!==trSt.team) continue;
     if(!r[10]) continue;                       // no connected calls, nothing to average
     const d=TSLA.days[r[0]], k=trSt.grain==='day'?d:isoWk(d);
@@ -3242,26 +3298,33 @@ function buildTrendDuration(){
 }
 function trDownload(){
   const {labels,series}=trAgg(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const out=[['team','gm','gc','period','task_type','due','on_time','adherence_pct'].join(',')];
+  const out=[['team','cl','gm','gc','period','task_type','due','on_time','adherence_pct'].join(',')];
   series.forEach((by,t)=>labels.forEach(k=>{const a=by.get(k); if(!a||!a.due) return;
-    out.push([trSt.team||'all',trSt.gm||'all',trSt.gc||'all',k,t,a.due,a.on,
+    out.push([trSt.team||'all',trSt.cl||'all',trSt.gm||'all',trSt.gc||'all',k,t,a.due,a.on,
               (100*a.on/a.due).toFixed(1)].map(q).join(','));}));
   saveCsv('sla_adherence_'+trSt.grain+'.csv',out.join('\n'));
 }
 function initTrendControls(){
   const R=gcR(); if(!R) return;
   const teamSel=document.getElementById('trTeam'),
-        gmSel=document.getElementById('trGm'), gcSel=document.getElementById('trGc');
+        gmSel=document.getElementById('trGm'), gcSel=document.getElementById('trGc'),
+        clSel=document.getElementById('trCl');
   // every person carries a team and a GM, so the three selects cascade:
   // team narrows the GM list, and team+GM narrow the GC list
-  const P=R.people.map((p,i)=>({p, gm:R.gms[i]||'(no GM)', team:(R.cats&&R.cats[i])||'Unmapped'}));
+  const P=R.people.map((p,i)=>({p, gm:R.gms[i]||'(no GM)', cl:R.cls[i], team:(R.cats&&R.cats[i])||'Unmapped'}));
   const counts={};
   P.forEach(x=>{counts[x.team]=(counts[x.team]||0)+1;});
   const teams=Object.keys(counts).sort((a,b)=>counts[b]-counts[a]);
   teamSel.innerHTML='<option value="">All teams</option>'+
     teams.map(t=>'<option value="'+esc(t)+'">'+esc(t)+' ('+counts[t]+')</option>').join('');
   const fill=()=>{
-    const inTeam=P.filter(x=>!trSt.team||x.team===trSt.team);
+    const inTeam0=P.filter(x=>!trSt.team||x.team===trSt.team);
+    const cls=[...new Set(inTeam0.map(x=>x.cl))].sort();
+    clSel.innerHTML='<option value="">All CLs</option>'+
+      cls.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
+    if(trSt.cl && !cls.includes(trSt.cl)) trSt.cl='';
+    clSel.value=trSt.cl;
+    const inTeam=inTeam0.filter(x=>!trSt.cl||x.cl===trSt.cl);
     const gms=[...new Set(inTeam.map(x=>x.gm))].sort();
     gmSel.innerHTML='<option value="">All GMs</option>'+
       gms.map(g=>'<option value="'+esc(g)+'">'+esc(g)+'</option>').join('');
@@ -3275,10 +3338,11 @@ function initTrendControls(){
   };
   fill();
   teamSel.addEventListener('change',e=>{trSt.team=e.target.value; fill(); buildTrend(); buildTrendQuality(); buildTrendDuration();});
+  clSel.addEventListener('change',e=>{trSt.cl=e.target.value; fill(); buildTrend(); buildTrendQuality(); buildTrendDuration();});
   gmSel.addEventListener('change',e=>{trSt.gm=e.target.value; fill(); buildTrend(); buildTrendQuality(); buildTrendDuration();});
   gcSel.addEventListener('change',e=>{trSt.gc=e.target.value; buildTrend(); buildTrendQuality(); buildTrendDuration();});
   document.getElementById('trReset').addEventListener('click',()=>{
-    trSt.team=''; trSt.gm=''; trSt.gc=''; trSt.off={}; teamSel.value=''; fill();
+    trSt.team=''; trSt.cl=''; trSt.gm=''; trSt.gc=''; trSt.off={}; teamSel.value=''; fill();
     document.querySelectorAll('#trTaskChips .item').forEach(c=>c.classList.remove('off'));
     buildTrend(); buildTrendQuality(); buildTrendDuration();});
   document.querySelectorAll('#trGrain button').forEach(b=>b.addEventListener('click',()=>{
@@ -3301,6 +3365,7 @@ function initTrendControls(){
     plSt.over=b.dataset.o; plSt.pick=null; buildPrelive();}));
   document.getElementById('plGc').addEventListener('change',e=>{plSt.gc=e.target.value; plSt.pick=null; buildPrelive();});
   document.getElementById('plGm').addEventListener('change',e=>{plSt.gm=e.target.value; plSt.pick=null; buildPrelive();});
+  document.getElementById('plCl').addEventListener('change',e=>{plSt.cl=e.target.value; plSt.pick=null; buildPrelive();});
   document.getElementById('plSClose').addEventListener('click',()=>{plSt.pick=null; buildPlSellers();});
   document.getElementById('plSCsv').addEventListener('click',plSellersCsv);
   document.getElementById('plMin').addEventListener('change',e=>{plSt.min=e.target.checked; buildPrelive();});
@@ -3364,22 +3429,22 @@ function gcFoot(R){
     `<b>Call quality</b> is per call and shown at whatever sample exists &mdash; n is printed beside every figure. `+
     `A call scores only when accuracy, satisfaction and tonality are all present; tonality alone is recorded far more often. `+
     `Calls are held for 35 days, so a window reaching before <b>${callCut}</b> shows SLA without quality. `+
-    `<b>GM</b> comes from card 12101 where it lists the GC, otherwise inferred from whichever GM most of their sellers sit under and marked as such.`;
+    `<b>GM, team and CL</b> come from the HITS Team Mapping sheet (&lsquo;current mapping&rsquo;, snapshot `+esc((TEAMMAP&&TEAMMAP.fetched)||'—')+`) for every GC it lists; anyone else falls back to card 12101, then to whichever GM most of their sellers sit under (marked inferred). A GC not on the sheet takes the CL of their GM.`;
 }
 function gcDownload(){
   const R=gcR(); if(!R) return;
   const m=gcAgg('pt'); const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const rows=[...m.entries()].map(([k,a])=>{
     const [who,ti]=k.split('|');
-    const name=gcSt.view==='gm'?who:R.people[+who];
-    const gm=gcSt.view==='gm'?who:(R.gms[+who]||'');
-    const cat=gcSt.view==='gm'?'':((R.cats&&R.cats[+who])||'');
+    const name=gcGrp()?who:R.people[+who];
+    const gm=gcSt.view==='gm'?who:gcGrp()?'':(R.gms[+who]||'');
+    const cat=gcGrp()?'':((R.cats&&R.cats[+who])||'');
     return [name,gm,cat,R.tasks[+ti],a.created,a.due,a.on,a.late,a.stuck,a.pend,
       a.adh==null?'':(100*a.adh).toFixed(1), a.avgOver==null?'':(a.avgOver/60).toFixed(1),
       a.calls,a.conn,a.sc,
       a.qAcc==null?'':a.qAcc.toFixed(1), a.qSat==null?'':a.qSat.toFixed(1), a.qTon==null?'':a.qTon.toFixed(1)];
   }).sort((x,y)=>(+x[10]||0)-(+y[10]||0));
-  const csv=[(gcSt.view==='gm'?'gm':'gc')+',gm,team,task_type,created,due,on_time,late,stuck_open,not_yet_due,'+
+  const csv=[gcSt.view+',gm,team,task_type,created,due,on_time,late,stuck_open,not_yet_due,'+
     'adherence_pct,avg_hours_past_sla,calls,connected,scored_calls,accuracy,satisfaction,tonality']
     .concat(rows.map(r=>r.map(q).join(','))).join('\n');
   saveCsv('gc_task_sla_quality.csv', csv);
