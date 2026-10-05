@@ -1,0 +1,98 @@
+name: Dashboard freshness check
+
+# Flags (by email) any day the dashboard is not refreshed before 11:00 IST.
+# Email goes out through GitHub's own notifications: the alert is an issue assigned to and
+# @mentioning the owner, and this job also fails, which GitHub emails separately.
+# It runs on its own schedule AND after every refresh attempt, so a late GitHub scheduler
+# delays the check but cannot make it fire early or skip a day silently.
+on:
+  schedule:
+    - cron: '41 5,6,8,10,12 * * *'    # 11:11, 12:11, 14:11, 16:11, 18:11 IST
+  workflow_run:
+    workflows: ['Refresh retention snapshot']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: freshness
+  cancel-in-progress: false
+
+env:
+  OWNER: pratyushboppana-shopdeck
+  DEADLINE_IST: '11:00'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Check and alert
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TODAY=$(TZ=Asia/Kolkata date +%F); NOW=$(TZ=Asia/Kolkata date +%H:%M)
+          OK_AT=$(python3 -c "import json;print(json.load(open('refresh_status.json')).get('ok_at',''))" 2>/dev/null || true)
+          OK_DATE=""; OK_TIME=""
+          if [ -n "$OK_AT" ]; then
+            OK_DATE=$(TZ=Asia/Kolkata date -d "$OK_AT" +%F); OK_TIME=$(TZ=Asia/Kolkata date -d "$OK_AT" +%H:%M)
+          fi
+          echo "today=$TODAY now=$NOW IST  last ok=$OK_DATE $OK_TIME IST"
+          TITLE="Retention dashboard not refreshed by $DEADLINE_IST IST — $TODAY"
+          ISSUE=$(gh issue list --state all --search "\"$TODAY\" in:title" --json number,title,state \
+                  -q ".[] | select(.title==\"$TITLE\") | \"\(.number) \(.state)\"" | head -1)
+          NUM=${ISSUE%% *}; STATE=${ISSUE##* }
+          LAST=$(gh run list -w refresh.yml -L 8 --json databaseId,conclusion,status,createdAt,url \
+                 -q '[.[] | select(.conclusion!="skipped")][0] | "\(.status)/\(.conclusion) — \(.url)"')
+          FAIL_ID=$(gh run list -w refresh.yml -L 8 --json databaseId,conclusion -q '[.[]|select(.conclusion=="failure")][0].databaseId // empty')
+          WHY=""
+          if [ -n "$FAIL_ID" ]; then
+            WHY=$(gh run view "$FAIL_ID" --log-failed 2>/dev/null | grep -m1 -oE '(HTTP [0-9]{3}[^"]{0,40}|exceeding your remaining daily quota[^.]*|Traceback.*|Error[^"]{0,120})' || true)
+          fi
+
+          if [ "$OK_DATE" = "$TODAY" ] && [[ "$OK_TIME" < "$DEADLINE_IST" || "$OK_TIME" == "$DEADLINE_IST" ]]; then
+            echo "On time ($OK_TIME IST)."
+            if [ -n "${NUM:-}" ] && [ "$STATE" = "OPEN" ]; then gh issue close "$NUM" -c "Recovered: refreshed at $OK_TIME IST."; fi
+            exit 0
+          fi
+          if [[ "$NOW" < "$DEADLINE_IST" ]]; then echo "Before the deadline; nothing to judge yet."; exit 0; fi
+
+          if [ "$OK_DATE" = "$TODAY" ]; then
+            # refreshed today, but after the deadline
+            MSG="Refreshed **late** today, at $OK_TIME IST (deadline $DEADLINE_IST)."
+            if [ -z "${NUM:-}" ]; then
+              gh issue create -t "$TITLE" -a "$OWNER" -b "@$OWNER $MSG
+
+          Last refresh run: $LAST
+          The dashboard is current now; this is the record that today's deadline was missed." && \
+              N=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number -q '.[0].number') && gh issue close "$N"
+            elif [ "$STATE" = "OPEN" ]; then
+              gh issue close "$NUM" -c "@$OWNER $MSG"
+            fi
+            exit 0
+          fi
+
+          # not refreshed at all today: alert once, then try to recover
+          if [ -z "${NUM:-}" ]; then
+            gh issue create -t "$TITLE" -a "$OWNER" -b "@$OWNER The retention dashboard has **not been refreshed today** ($TODAY) as of $NOW IST.
+
+          Last successful refresh: ${OK_DATE:-never} ${OK_TIME} IST
+          Latest refresh run: $LAST
+          ${WHY:+Error: \`$WHY\`}
+
+          This check has re-dispatched the refresh. If the error is the BigQuery daily quota, it resets at midnight; re-running before then fails the same way."
+          fi
+          BUSY=$(gh run list -w refresh.yml -L 5 --json status -q '[.[]|select(.status=="in_progress" or .status=="queued")]|length')
+          if [ "$BUSY" = "0" ] && ! echo "$WHY" | grep -q "quota"; then
+            gh workflow run refresh.yml && echo "Re-dispatched the refresh."
+          else
+            echo "Not re-dispatching (a run is active, or the quota is exhausted)."
+          fi
+          exit 1

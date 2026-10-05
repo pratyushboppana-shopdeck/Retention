@@ -1,9 +1,22 @@
 name: Refresh retention snapshot
 
+# Target: a fresh dashboard before 11:00 IST every day.
+#
+# GitHub's scheduled dispatch is best-effort and ran this job 5-6.5h late on every day of
+# 2026-09-25..10-04 (a 04:30 UTC cron started between 09:28 and 11:08 UTC) and skipped
+# 2026-10-05 outright. A single cron cannot hit a deadline, so -- like slack-report.yml --
+# the job is OFFERED many times a morning and the first eligible offer wins:
+#   * offers every 30 min from 03:07 to 06:37 UTC (08:37-12:07 IST); off the :00/:30 marks,
+#     which are GitHub's busiest
+#   * nothing runs before 03:00 UTC / 08:30 IST: gc_view_3 lands ~08:15 IST and
+#     marketing_spends ~06:05 IST, so an earlier snapshot would be a day stale
+#   * a date-keyed cache marks the day done, so later offers stand down without touching
+#     Metabase (the BigQuery quota is shared with the Slack reports)
+# freshness.yml watches the outcome and emails (via a GitHub issue @mention) when it misses.
 on:
   schedule:
-    - cron: '30 4 * * *'   # once daily at 04:30 UTC = 10:00 AM IST (GitHub may delay a few min, staying within 10-11 AM)
-  workflow_dispatch:         # allow a manual run from the Actions tab
+    - cron: '7,37 3-6 * * *'
+  workflow_dispatch:         # manual run: always refreshes, ignores the done-for-today mark
 
 # contents: commit the snapshot; pages/id-token: deploy in the same run
 # (a GITHUB_TOKEN commit does NOT trigger the separate deploy workflow, so we deploy here).
@@ -23,35 +36,90 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Plan
+        id: plan
+        run: |
+          NOW_MIN=$(( 10#$(date -u +%H) * 60 + 10#$(date -u +%M) ))
+          IST_DATE=$(TZ=Asia/Kolkata date +%Y-%m-%d)
+          echo "key=refresh-done-$IST_DATE" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$NOW_MIN" -lt 180 ]; then
+            echo "too early (${NOW_MIN}min UTC < 03:00 UTC): upstream tables not loaded yet"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "IST date=$IST_DATE  now=${NOW_MIN}min UTC  event=${{ github.event_name }}"
+
+      - name: Already refreshed today?
+        id: guard
+        if: steps.plan.outputs.run == 'true' && github.event_name == 'schedule'
+        uses: actions/cache/restore@v4
+        with:
+          path: .refresh-done
+          key: ${{ steps.plan.outputs.key }}
+
+      - name: Decide
+        id: go
+        run: |
+          if [ "${{ steps.plan.outputs.run }}" = "true" ] && [ "${{ steps.guard.outputs.cache-hit }}" != "true" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"; echo "Standing down: already refreshed today, or too early."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.go.outputs.go == 'true'
 
       - uses: actions/setup-python@v5
+        if: steps.go.outputs.go == 'true'
         with:
           python-version: '3.12'
 
       - name: Fetch latest data from Metabase
+        if: steps.go.outputs.go == 'true'
         env:
           METABASE_URL: https://metabase.kaip.in
           METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
           METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
         run: python .github/scripts/refresh.py
 
-      - name: Commit snapshot if it changed
+      # refresh_status.json is written on every successful run, even when data.json is
+      # unchanged, so freshness.yml can tell "ran, nothing new" from "did not run".
+      - name: Commit snapshot and status
+        if: steps.go.outputs.go == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- data.json; then
-            echo "No change in data.json — nothing to commit."
+          printf '{"ok_at":"%s","ist_date":"%s","run_id":"%s","event":"%s"}\n' \
+            "$(date -u +%FT%TZ)" "$(TZ=Asia/Kolkata date +%F)" "${{ github.run_id }}" "${{ github.event_name }}" > refresh_status.json
+          git add data.json refresh_status.json
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
           else
-            git add data.json
             git commit -m "Auto-refresh retention snapshot"
+            git pull --rebase -q origin main
             git push
           fi
 
       # Publish the freshly-generated working tree straight to Pages.
       - uses: actions/configure-pages@v5
+        if: steps.go.outputs.go == 'true'
       - uses: actions/upload-pages-artifact@v3
+        if: steps.go.outputs.go == 'true'
         with:
           path: '.'
       - id: deployment
+        if: steps.go.outputs.go == 'true'
         uses: actions/deploy-pages@v4
+
+      # Only a fully successful run (data + deploy) marks the day done; a failed run leaves
+      # the next offer free to retry.
+      - name: Mark today as refreshed
+        if: success() && steps.go.outputs.go == 'true'
+        run: date -u +%FT%TZ > .refresh-done
+      - uses: actions/cache/save@v4
+        if: success() && steps.go.outputs.go == 'true' && steps.guard.outputs.cache-hit != 'true'
+        continue-on-error: true      # a manual re-run on a day already marked done is fine
+        with:
+          path: .refresh-done
+          key: ${{ steps.plan.outputs.key }}
