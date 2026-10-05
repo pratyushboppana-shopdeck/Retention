@@ -342,6 +342,8 @@
         <button type="button" data-n="8">Last 8 weeks</button>
         <button type="button" data-n="12">Last 12 weeks</button>
       </span>
+      <span style="display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)">
+        <input type="date" id="clFrom"> to <input type="date" id="clTo"></span>
       <button class="gcexp" id="clCsvBtn">Download CSV &#8595;</button>
     </div>
     <div class="tablewrap" style="max-height:none"><table class="sla cltab" id="clTable"></table></div>
@@ -1160,13 +1162,18 @@ async function loadTeamMap(){
     });
     const top=o=>Object.entries(o).sort((a,b)=>b[1]-a[1])[0];
     const gmCl={}; Object.entries(gmVotes).forEach(([g,v])=>{const t=top(v.a)||top(v.all); if(t) gmCl[g]=t[0];});
-    TEAMMAP={gc,gmCl,alias:tm.aliases||{},fetched:tm.fetched||''};
+    const excl=new Set(((tm.exclude_from_cl||{}).gms||[]).map(nrm));
+    TEAMMAP={gc,gmCl,alias:tm.aliases||{},fetched:tm.fetched||'',excl};
   }catch(e){ TEAMMAP=null; }
 }
+// '' = deliberately outside every CL (exclude_from_cl in team_mapping.json); CL roll-ups skip it
 function clOf(gcName,gmName){
   if(!TEAMMAP) return '(no CL)';
-  const a=k=>TEAMMAP.alias[k]||k;
-  const g=TEAMMAP.gc[a(nrm(gcName))]; if(g&&g.cl) return g.cl;
+  const a=k=>TEAMMAP.alias[k]||k, X=TEAMMAP.excl;
+  if(X.has(a(nrm(gmName)))||X.has(a(nrm(gcName)))) return '';
+  const g=TEAMMAP.gc[a(nrm(gcName))];
+  if(g&&X.has(nrm(g.gm))) return '';
+  if(g&&g.cl) return g.cl;
   return TEAMMAP.gmCl[a(nrm(gmName))]||'(no CL)';
 }
 function esc(s){return (s==null?'':(''+s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -1459,6 +1466,7 @@ function tsAgg(){
     if(!tsF.sel.has(r[3])) return;
     if(tsSt.bucket!=='all' && r[2]!==tsSt.bucket) return;
     const key=tsSt.by==='cl'?clOf(N[r[0]],N[r[1]]):N[tsSt.by==='gc'?r[0]:r[1]];
+    if(!key) return;
     const a=acc[key]||(acc[key]={name:key,tasks:0,completed:0,sla:0,attempted:0,conn:0,scored:0,dur:0,
       accS:0,accN:0,satS:0,satN:0,tonS:0,tonN:0,people:new Set()});
     a.tasks+=r[4];a.completed+=r[5];a.sla+=r[6];a.attempted+=r[7];a.conn+=r[8];a.scored+=r[9];a.dur+=r[10];
@@ -1561,6 +1569,7 @@ function renderUn(){
     const per=unSt.period==='week'?wk:unF.monthLabel(wk);
     (byPeriod[per]=byPeriod[per]||{per,golive:0,unassign:0,ord:unSt.period==='week'?wk:String(unF.monthOf(wk))})[kind]+=n;
     const nm=unSt.role==='CL'?clOf(N[pi],''):N[pi];
+    if(!nm) return;
     (byPerson[nm]=byPerson[nm]||{name:nm,golive:0,unassign:0})[kind]+=n;
   });
   const pers=Object.values(byPeriod).sort((a,b)=>a.ord<b.ord?-1:a.ord>b.ord?1:0);
@@ -1690,7 +1699,7 @@ function renderGcgm(){
   document.querySelectorAll('#gcgmMonths .mbtn').forEach(b=>{const wks=weeks.filter(w=>wkMonthKey(w)==+b.dataset.mk); b.classList.toggle('on',wks.length&&wks.every(w=>gcgmSel.weeks.has(w)));});
   const gcAgg=renderRank(GCGM.gc,'gcRows','gcDetail','gc',document.getElementById('gcSel'));
   // CL rows are the GC rows relabelled by the go-live GC's CL (team_mapping.json), so they sum exactly
-  renderRank(GCGM.gc.map(r=>[r[0],clOf(r[1],'')].concat(r.slice(2))),'clRows','clDetail','cl',document.getElementById('clSel'));
+  renderRank(GCGM.gc.map(r=>[r[0],clOf(r[1],'')].concat(r.slice(2))).filter(r=>r[1]),'clRows','clDetail','cl',document.getElementById('clSel'));
   const gmAgg=renderRank(GCGM.gm,'gmRows','gmDetail','gm',document.getElementById('gmSel'));
   const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
@@ -2045,51 +2054,69 @@ function slaDownload(){
 //    (GM rows: the go-live GM, placed under the CL most of that GM's GCs sit under)
 //  - task SLA / connect / call quality: the last N*7 days ending yesterday, CL of the GC today
 //  - pre-live adoption: go-lives in the last N*7 days ending D-2 (the newest days read low)
-const clSt={n:4, open:null};
+const clSt={n:4, open:null, from:'', to:''};   // from/to set = custom range, else last n weeks
 const CLGM={};   // normalised GM key -> display name (first mixed-case spelling seen)
-function clGmKey(g){ const k=nrm(g)||'(no gm)';
+function clGmKey(g){ const n0=nrm(g), k=(TEAMMAP&&TEAMMAP.alias[n0])||n0||'(no gm)';
   if(!CLGM[k]||(CLGM[k]===CLGM[k].toUpperCase()&&g!==g.toUpperCase())) CLGM[k]=g||'(no GM)';
   return k; }
 const CL_ORDER=['Jivraj K','Pratiksha Y','Roopesh B'];
-function clRetention(n){
-  if(!GCGM) return {cur:{},prev:{},weeks:[]};
+const clDays=(a,b)=>Math.round((new Date(b)-new Date(a))/86400000)+1;
+function isoMonday(w){ const [y,k]=w.split('-W').map(Number), j4=new Date(Date.UTC(y,0,4));
+  j4.setUTCDate(j4.getUTCDate()-(j4.getUTCDay()||7)+1+7*(k-1)); return j4.toISOString().slice(0,10); }
+// The selected window and the equal-length window just before it, for the change arrows.
+function clWindow(){
+  const y=dayShift(istToday(),-1);
+  let a,b;
+  if(clSt.from&&clSt.to){ a=clSt.from; b=clSt.to<y?clSt.to:y; if(a>b) a=b; }
+  else { b=y; a=dayShift(y,-(7*clSt.n-1)); }
+  const len=clDays(a,b), pb=dayShift(a,-1), pa=dayShift(pb,-(len-1));
+  return {a,b,pa,pb,len,custom:!!(clSt.from&&clSt.to)};
+}
+function clRetention(W){
+  if(!GCGM) return {cur:{cl:{},gm:{}},prev:{cl:{},gm:{}},weeks:[]};
   const mature=Object.keys(GCGM.weeks).filter(w=>GCGM.weeks[w]>3).sort();
-  const cur=mature.slice(-n), prev=mature.slice(-2*n,-n);
+  let cur,prev;
+  if(W.custom){   // go-live weeks starting inside the range, as long as their W3 is complete
+    cur=mature.filter(w=>{const m=isoMonday(w); return m>=W.a&&m<=W.b;});
+    prev=mature.filter(w=>{const m=isoMonday(w); return m>=W.pa&&m<=W.pb;});
+  } else {        // the latest n weeks that have a complete W3, which sit a month behind the range
+    cur=mature.slice(-clSt.n); prev=mature.slice(-2*clSt.n,-clSt.n);
+  }
   const roll=(rows,keyOf,weeks)=>{const s=new Set(weeks),o={};
     rows.forEach(r=>{if(!s.has(r[0])) return; const k=keyOf(r[1]); if(!k) return;
       const a=o[k]||(o[k]={n:0,r:0}); a.n+=r[2]; a.r+=r[5];});   // r[5] = retained at W3
     return o;};
   const byCl=w=>roll(GCGM.gc,g=>clOf(g,''),w);
-  const byGm=w=>roll(GCGM.gm,g=>clGmKey(g),w);
+  const byGm=w=>roll(GCGM.gm,g=>clOf('',g)?clGmKey(g):'',w);
   return {weeks:cur, cur:{cl:byCl(cur),gm:byGm(cur)}, prev:{cl:byCl(prev),gm:byGm(prev)}};
 }
-function clSla(n){
-  const R=gcR(); if(!R||!TSLA) return {cur:{},prev:{}};
-  const y=dayShift(istToday(),-1);
+function clSla(W){
+  const R=gcR(); if(!R||!TSLA) return {cur:{cl:{},gm:{}},prev:{cl:{},gm:{}}};
   const win=(a,b)=>{const s=new Set(); TSLA.days.forEach((d,i)=>{if(d>=a&&d<=b) s.add(i);}); return s;};
   const roll=days=>{const o={cl:{},gm:{}};
-    R.rows.forEach(r=>{ if(!days.has(r[0])) return;
+    R.rows.forEach(r=>{ if(!days.has(r[0])||!R.cls[r[2]]) return;
       [['cl',R.cls[r[2]]],['gm',clGmKey(R.gms[r[2]]||'')]].forEach(([lv,k])=>{
         const a=o[lv][k]||(o[lv][k]={due:0,on:0,stuck:0,calls:0,conn:0,sc:0,q:0,gcs:new Set(),cl:R.cls[r[2]]});
         a.due+=r[4]+r[5]+r[6]; a.on+=r[4]; a.stuck+=r[6]; a.calls+=r[9]; a.conn+=r[10];
         a.sc+=r[11]; a.q+=r[12]+r[13]+r[14]; a.gcs.add(r[2]);});});
     return o;};
-  const d=7*n, ps=dayShift(y,-(2*d-1));
-  return {cur:roll(win(dayShift(y,-(d-1)),y)),
-          prev:TSLA.days[0]<=ps?roll(win(ps,dayShift(y,-d))):{cl:{},gm:{}}, from:TSLA.days[0]};
+  return {cur:roll(win(W.a,W.b)), prev:TSLA.days[0]<=W.pa?roll(win(W.pa,W.pb)):{cl:{},gm:{}},
+          from:TSLA.days[0], short:TSLA.days[0]>W.a};
 }
-function clPrelive(n){
-  if(!PRELIVE) return {cur:{},prev:{}};
-  const e=dayShift(istToday(),-2), d=7*n;
-  const roll=(a,b)=>{const o={cl:{},gm:{}};
-    PRELIVE.rows.forEach(r=>{const day=PRELIVE.days[r[0]]; if(day<a||day>b) return;
-      const cl=clOf(PRELIVE.gcs[r[1]],PRELIVE.gms[r[2]]);
+function clPrelive(W){
+  if(!PRELIVE) return {cur:{cl:{},gm:{}},prev:{cl:{},gm:{}}};
+  const e=dayShift(istToday(),-2), b=W.b<e?W.b:e;   // the newest two days read low
+  const roll=(a,b2)=>{const o={cl:{},gm:{}};
+    PRELIVE.rows.forEach(r=>{const day=PRELIVE.days[r[0]]; if(day<a||day>b2) return;
+      const cl=clOf(PRELIVE.gcs[r[1]],PRELIVE.gms[r[2]]); if(!cl) return;
       [['cl',cl],['gm',clGmKey(PRELIVE.gms[r[2]]==='(no GM)'?'':PRELIVE.gms[r[2]])]].forEach(([lv,k])=>{
         const x=o[lv][k]||(o[lv][k]={gl:0,sj:0,cl}); x.gl+=r[3]; x.sj+=r[5];});});
     return o;};
-  const ps=dayShift(e,-(2*d-1));
-  return {cur:roll(dayShift(e,-(d-1)),e), prev:PRELIVE.days[0]<=ps?roll(ps,dayShift(e,-d)):{cl:{},gm:{}},
-          from:PRELIVE.days[0], short:PRELIVE.days[0]>dayShift(e,-(d-1))};
+  // with a preset the range is shifted to end at D-2 so it keeps its full length
+  const a=W.custom?W.a:dayShift(e,-(W.len-1)), bb=W.custom?b:e;
+  const pb=dayShift(a,-1), pa=dayShift(pb,-(clDays(a,bb)-1));
+  return {cur:roll(a,bb), prev:PRELIVE.days[0]<=pa?roll(pa,pb):{cl:{},gm:{}},
+          a, b:bb, from:PRELIVE.days[0], short:PRELIVE.days[0]>a};
 }
 function clDelta(c,p,minN){ // percentage-point change, only when both sides have a usable base
   if(c==null||p==null) return '';
@@ -2116,15 +2143,22 @@ function clCell(v,col,delta,sub){
 function buildClsc(){
   const foot=document.getElementById('clFoot');
   if(!TEAMMAP){ foot.textContent='team_mapping.json did not load, so there is no CL to group by.'; return; }
-  document.querySelectorAll('#clWin button').forEach(b=>b.classList.toggle('on',+b.dataset.n===clSt.n));
-  const n=clSt.n, RET=clRetention(n), SLA=clSla(n), PL=clPrelive(n);
-  const cls=[...new Set([...Object.keys(RET.cur.cl),...Object.keys(SLA.cur.cl),...Object.keys(PL.cur.cl)])]
+  const W=clWindow();
+  document.querySelectorAll('#clWin button').forEach(b=>b.classList.toggle('on',!W.custom&&+b.dataset.n===clSt.n));
+  document.getElementById('clFrom').value=W.a; document.getElementById('clTo').value=W.b;
+  const RET=clRetention(W), SLA=clSla(W), PL=clPrelive(W);
+  const cls=[...new Set([...Object.keys(RET.cur.cl),...Object.keys(SLA.cur.cl),...Object.keys(PL.cur.cl)])].filter(Boolean)
     .sort((a,b)=>(CL_ORDER.indexOf(a)+1||99)-(CL_ORDER.indexOf(b)+1||99)||a.localeCompare(b));
-  const gmsOf=cl=>{const s=new Set();
-    Object.entries(SLA.cur.gm).forEach(([g,a])=>{ if(a.cl===cl) s.add(g); });
-    Object.keys(RET.cur.gm).forEach(g=>{ if(clOf('',CLGM[g])===cl) s.add(g); });
-    Object.entries(PL.cur.gm).forEach(([g,a])=>{ if(a.cl===cl) s.add(g); });
-    return [...s];};
+  // each GM sits under ONE CL: the sheet's CL for that GM's GCs; a GM the sheet does not know
+  // goes where most of its rows' CLs point. Its row still shows all of its own numbers.
+  const home={}, votes={};
+  [SLA.cur.gm,PL.cur.gm].forEach(o=>Object.entries(o).forEach(([g,a])=>{
+    const v=votes[g]||(votes[g]={}); v[a.cl]=(v[a.cl]||0)+(a.due||a.gl||1);}));
+  new Set([...Object.keys(SLA.cur.gm),...Object.keys(RET.cur.gm),...Object.keys(PL.cur.gm)]).forEach(g=>{
+    const s=TEAMMAP.gmCl[TEAMMAP.alias[g]||g];
+    home[g]=s||Object.entries(votes[g]||{}).sort((x,y)=>y[1]-x[1]).map(x=>x[0])[0]||clOf('',CLGM[g]);
+  });
+  const gmsOf=cl=>Object.keys(home).filter(g=>home[g]===cl);
   const rowHtml=(x,isGm,cl)=>{
     const nGm=isGm?'':gmsOf(x.k).length;
     return '<tr class="'+(isGm?'clgm':'clrow'+(clSt.open===x.k?' open':''))+'" data-k="'+esc(x.k)+'">'+
@@ -2157,29 +2191,34 @@ function buildClsc(){
   document.getElementById('clTable').innerHTML=h;
   document.querySelectorAll('#clTable tr.clrow').forEach(tr=>tr.addEventListener('click',()=>{
     clSt.open=clSt.open===tr.dataset.k?null:tr.dataset.k; buildClsc();}));
-  const w=RET.weeks;
-  foot.innerHTML='<b>Windows</b> &mdash; W3 retention: go-live weeks '+(w.length?esc(w[0])+'&ndash;'+esc(w[w.length-1]):'—')+
-    ' (the latest with a complete W3), by the CL of the go-live GC; GM rows use the go-live GM. '+
-    'Task SLA, stuck, connect and call quality: the last '+(7*n)+' days to yesterday, by each GC&rsquo;s CL today. '+
-    'Pre-live video: go-lives in the last '+(7*n)+' days to D-2'+(PL.short?' (pre-live data only starts '+esc(PL.from)+')':'')+', by the seller&rsquo;s current GC. '+
-    '<b>▲▼</b> = percentage-point change against the '+n+' weeks before; blank where either side is too thin '+
+  const w=RET.weeks, fd=d=>{const x=new Date(d+'T00:00:00Z'); return x.getUTCDate()+' '+MONTH2[x.getUTCMonth()];};
+  foot.innerHTML='<b>Windows</b> &mdash; W3 retention: go-live week'+(w.length>1?'s '+esc(w[0])+'&ndash;'+esc(w[w.length-1]):w.length?' '+esc(w[0]):'s: none')+
+    (W.custom?' (weeks starting in the range whose W3 is complete)':' (the latest '+clSt.n+' with a complete W3)')+
+    ', by the CL of the go-live GC; GM rows use the go-live GM. '+
+    'Task SLA, stuck, connect and call quality: '+fd(W.a)+'&ndash;'+fd(W.b)+(SLA.short?' (task data starts '+esc(SLA.from)+')':'')+', by each GC&rsquo;s CL today. '+
+    'Pre-live video: go-lives '+(PL.a?fd(PL.a)+'&ndash;'+fd(PL.b):'—')+(PL.short?' (pre-live data only starts '+esc(PL.from)+')':'')+', by the seller&rsquo;s current GC. '+
+    '<b>▲▼</b> = percentage-point change against the '+W.len+' days before; blank where either side is too thin or the data does not reach back '+
     '(&lt;5 go-lives, &lt;10 tasks or calls). CL comes from the HITS Team Mapping sheet (snapshot '+esc(TEAMMAP.fetched||'—')+'). '+
+    'Aaruni Vaidya and her GCs are outside every CL (they report to Pratyush) and are left out here. '+
     'Click a CL to see its GMs, worst task SLA first.';
 }
 function clCsv(){
-  const n=clSt.n, RET=clRetention(n), SLA=clSla(n), PL=clPrelive(n), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const W=clWindow(), RET=clRetention(W), SLA=clSla(W), PL=clPrelive(W), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const f=v=>v==null?'':(100*v).toFixed(1);
   const out=[['level','name','cl','w3_golives','w3_retention_pct','w3_retention_prev_pct','tasks_due','task_sla_pct','task_sla_prev_pct','stuck',
     'connect_pct','call_quality','scored_calls','prelive_golives','prelive_pct','prelive_prev_pct'].join(',')];
-  const cls=[...new Set(Object.keys(SLA.cur.cl).concat(Object.keys(RET.cur.cl)))];
+  const cls=[...new Set(Object.keys(SLA.cur.cl).concat(Object.keys(RET.cur.cl)))].filter(Boolean);
   const push=(lv,x,cl)=>out.push([lv,x.k,cl,x.retN,f(x.ret),f(x.retP),x.due,f(x.adh),f(x.adhP),x.stuck,f(x.conn),x.q,x.nq,x.plN,f(x.pl),f(x.plP)].map(q).join(','));
   clRows('cl',cls,RET,SLA,PL).forEach(x=>push('CL',x,x.k));
   const gms=[...new Set(Object.keys(SLA.cur.gm).concat(Object.keys(RET.cur.gm)))];
   clRows('gm',gms,RET,SLA,PL).forEach(x=>push('GM',{...x,k:CLGM[x.k]||x.k},(SLA.cur.gm[x.k]&&SLA.cur.gm[x.k].cl)||clOf('',CLGM[x.k])));
-  saveCsv('cl_scorecard_'+(7*n)+'d.csv',out.join('\n'));
+  saveCsv('cl_scorecard_'+W.a+'_to_'+W.b+'.csv',out.join('\n'));
 }
 
-document.querySelectorAll('#clWin button').forEach(b=>b.addEventListener('click',()=>{clSt.n=+b.dataset.n; buildClsc();}));
+document.querySelectorAll('#clWin button').forEach(b=>b.addEventListener('click',()=>{clSt.n=+b.dataset.n; clSt.from=clSt.to=''; buildClsc();}));
+['clFrom','clTo'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{
+  const f=document.getElementById('clFrom').value, t=document.getElementById('clTo').value;
+  if(f&&t){ clSt.from=f<=t?f:t; clSt.to=f<=t?t:f; buildClsc(); }}));
 document.getElementById('clCsvBtn').addEventListener('click',clCsv);
 
 // ================= TAB: GC task SLA & call quality (console) =================
@@ -2224,6 +2263,7 @@ function gcAgg(by){
     if(gcSt.off[R.tasks[r[1]]]) continue;
     const cat=R.cats?R.cats[r[2]]:'';
     if(gcSt.team && cat!==gcSt.team) continue;
+    if(gcSt.view==='cl' && !R.cls[r[2]]) continue;
     const who = gcGrp() ? gcGroupOf(r[2]) : r[2];
     const k = by==='task' ? r[1] : by==='day' ? r[0] : by==='pt' ? who+'|'+r[1] : who;
     let a=m.get(k);
@@ -3107,6 +3147,7 @@ function plAgg(){
   PRELIVE.rows.forEach(r=>{
     if(!plPass(r[1],r[2])) return;
     const k = tg ? plTimeKey(r[0],tg) : plKey(r[1],r[2]);
+    if(!k) return;
     let a=m.get(k); if(!a){a={k,gl:0,sess:0,sj:0,pj:0}; m.set(k,a);}
     a.gl+=r[3]; a.sess+=r[4]; a.sj+=r[5]; a.pj+=r[6];
   });
@@ -3122,6 +3163,7 @@ function plGrid(){
   PRELIVE.rows.forEach(r=>{
     if(!plPass(r[1],r[2])) return;
     const k=plKey(r[1],r[2]), t=plTimeKey(r[0],g);
+    if(!k) return;
     periods.add(t);
     let p=people.get(k); if(!p){p={k,gl:0,sj:0,cells:{}}; people.set(k,p);}
     const c=p.cells[t]||(p.cells[t]={gl:0,sj:0});
@@ -3140,7 +3182,7 @@ function plFillSelects(){
     .map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
   document.getElementById('plGc').innerHTML=opt(PRELIVE.gcs,'All GCs');
   document.getElementById('plGm').innerHTML=opt(PRELIVE.gms,'All GMs');
-  document.getElementById('plCl').innerHTML=opt(PRELIVE.rows.map(r=>plClOf(r[1],r[2])),'All CLs');
+  document.getElementById('plCl').innerHTML=opt(PRELIVE.rows.map(r=>plClOf(r[1],r[2])).filter(Boolean),'All CLs');
 }
 function plPickFrom(k){
   // what a click on row/bar k selects for the seller table
@@ -3495,7 +3537,7 @@ function initTrendControls(){
     teams.map(t=>'<option value="'+esc(t)+'">'+esc(t)+' ('+counts[t]+')</option>').join('');
   const fill=()=>{
     const inTeam0=P.filter(x=>!trSt.team||x.team===trSt.team);
-    const cls=[...new Set(inTeam0.map(x=>x.cl))].sort();
+    const cls=[...new Set(inTeam0.map(x=>x.cl))].filter(Boolean).sort();
     clSel.innerHTML='<option value="">All CLs</option>'+
       cls.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
     if(trSt.cl && !cls.includes(trSt.cl)) trSt.cl='';

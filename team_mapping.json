@@ -1,6 +1,6 @@
 {
 "source": "HITS Team Mapping Validation - Rolling / 'current mapping' (sheet 1WWhOTXPMHGvKE3U32PUxBozyLuHbs5MBi5jMQ02xs-g)",
-"fetched": "2026-10-05",
+"fetched": "2026-10-06",
 "note": "Rows with active=true carry an S. No. and a Role on the sheet; the unnumbered rows below them are past GCs, kept so historical go-lives still find a CL. Re-export this file when the sheet changes.",
 "roles": {
 "GC": "Core GC",
@@ -315,21 +315,21 @@
 {
 "gc": "Aseer Akhtar",
 "gm": "Sagar Sharma",
-"cl": "Roopesh B",
+"cl": "Jivraj K",
 "role": "GC",
 "active": true
 },
 {
 "gc": "Pridhi s",
 "gm": "Sagar Sharma",
-"cl": "Roopesh B",
+"cl": "Jivraj K",
 "role": "GC",
 "active": true
 },
 {
 "gc": "SHREYA YADAV",
 "gm": "Sagar Sharma",
-"cl": "Roopesh B",
+"cl": "Jivraj K",
 "role": "GC",
 "active": true
 },
@@ -1208,5 +1208,11 @@
 "role": "",
 "active": false
 }
-]
+],
+"exclude_from_cl": {
+"gms": [
+"aaruni vaidya"
+],
+"why": "Aaruni Vaidya reports to Pratyush, not a CL: she and every GC under her are left out of CL roll-ups (owner, 2026-10-06). GC/GM views still show them."
+}
 }
