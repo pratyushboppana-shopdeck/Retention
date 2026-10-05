@@ -111,6 +111,16 @@
   .gcgm-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;font-weight:650;font-size:13px;}
   .gcgm-head select{font:inherit;font-size:12px;max-width:150px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff;}
   table.rank{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.cltab td,table.cltab th{padding:7px 10px;vertical-align:top;}
+  table.cltab tr.clrow td{border-top:1px solid #e3e1d6;font-size:13px;}
+  table.cltab tr.clrow.open td{background:#f6f5ee;}
+  table.cltab tr.clgm td{background:#fbfaf6;font-size:12px;}
+  table.cltab tfoot td{border-top:2px solid #23251f;background:#f3f2ea;font-size:13px;}
+  .clsub{font-size:10.5px;color:var(--muted);font-weight:400;margin-top:1px;}
+  .clcar{display:inline-block;width:14px;color:var(--muted);}
+  .clind{display:inline-block;width:22px;color:var(--faint);padding-left:6px;}
+  .cldl{font-size:10.5px;margin-left:5px;font-weight:650;color:var(--muted);}
+  .cldl.up{color:#2f6d4f;} .cldl.dn{color:#C0392B;}
   table.rank th,table.rank td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
   table.rank th{position:sticky;top:0;background:var(--card);color:#3c3f37;font-weight:650;text-align:left;z-index:1;}
   table.rank td.num,table.rank th.num{text-align:right;}
@@ -314,12 +324,28 @@
 
   <div class="tabs" id="tabs">
     <button class="tab active" type="button" data-view="curve">Retention curve</button>
+    <button class="tab" type="button" data-view="clsc">CL scorecard</button>
     <button class="tab" type="button" data-view="gcgm">GC &amp; GM retention</button>
     <button class="tab" type="button" data-view="tssop">TS SOP metrics</button>
     <button class="tab" type="button" data-view="unassign">Go-lives vs unassignments</button>
     <button class="tab" type="button" data-view="slaGC">GC task SLA</button>
     <button class="tab" type="button" data-view="slaKAM">KAM task SLA</button>
     <button class="tab" type="button" data-view="blocks">Ad-account &amp; BM blocks</button>
+  </div>
+
+  <div class="card" id="clCard" style="display:none">
+    <div class="fl-row" style="margin:0 0 10px">
+      <div class="drill-h3" style="margin:0 auto 0 0">CL scorecard
+        <span class="hint">&mdash; retention, servicing and pre-live adoption for each CL on one page</span></div>
+      <span class="slaseg" id="clWin">
+        <button type="button" data-n="4" class="on">Last 4 weeks</button>
+        <button type="button" data-n="8">Last 8 weeks</button>
+        <button type="button" data-n="12">Last 12 weeks</button>
+      </span>
+      <button class="gcexp" id="clCsvBtn">Download CSV &#8595;</button>
+    </div>
+    <div class="tablewrap" style="max-height:none"><table class="sla cltab" id="clTable"></table></div>
+    <div class="drill-sub" id="clFoot" style="margin-top:8px"></div>
   </div>
 
   <div class="card" id="gcgmCard">
@@ -1354,6 +1380,8 @@ function setView(v){
   ['chartCard','reasonCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
   document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
   document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
+  document.getElementById('clCard').style.display=v==='clsc'?'block':'none';
+  if(v==='clsc') buildClsc();
   document.getElementById('tsCard').style.display=v==='tssop'?'block':'none';
   document.getElementById('unCard').style.display=v==='unassign'?'block':'none';
   if(v==='gcgm') buildGcgm();
@@ -2009,6 +2037,150 @@ function slaDownload(){
   saveCsv(slaSt.role.toLowerCase()+'_task_sla.csv', csv);
 }
 
+
+// ================= TAB: CL scorecard =================
+// One row per CL, each metric over its own natural window, with the change against the
+// window before it. Click a CL to open its GMs underneath.
+//  - W3 retention: the last N go-live weeks whose W3 is complete, CL of the go-live GC
+//    (GM rows: the go-live GM, placed under the CL most of that GM's GCs sit under)
+//  - task SLA / connect / call quality: the last N*7 days ending yesterday, CL of the GC today
+//  - pre-live adoption: go-lives in the last N*7 days ending D-2 (the newest days read low)
+const clSt={n:4, open:null};
+const CLGM={};   // normalised GM key -> display name (first mixed-case spelling seen)
+function clGmKey(g){ const k=nrm(g)||'(no gm)';
+  if(!CLGM[k]||(CLGM[k]===CLGM[k].toUpperCase()&&g!==g.toUpperCase())) CLGM[k]=g||'(no GM)';
+  return k; }
+const CL_ORDER=['Jivraj K','Pratiksha Y','Roopesh B'];
+function clRetention(n){
+  if(!GCGM) return {cur:{},prev:{},weeks:[]};
+  const mature=Object.keys(GCGM.weeks).filter(w=>GCGM.weeks[w]>3).sort();
+  const cur=mature.slice(-n), prev=mature.slice(-2*n,-n);
+  const roll=(rows,keyOf,weeks)=>{const s=new Set(weeks),o={};
+    rows.forEach(r=>{if(!s.has(r[0])) return; const k=keyOf(r[1]); if(!k) return;
+      const a=o[k]||(o[k]={n:0,r:0}); a.n+=r[2]; a.r+=r[5];});   // r[5] = retained at W3
+    return o;};
+  const byCl=w=>roll(GCGM.gc,g=>clOf(g,''),w);
+  const byGm=w=>roll(GCGM.gm,g=>clGmKey(g),w);
+  return {weeks:cur, cur:{cl:byCl(cur),gm:byGm(cur)}, prev:{cl:byCl(prev),gm:byGm(prev)}};
+}
+function clSla(n){
+  const R=gcR(); if(!R||!TSLA) return {cur:{},prev:{}};
+  const y=dayShift(istToday(),-1);
+  const win=(a,b)=>{const s=new Set(); TSLA.days.forEach((d,i)=>{if(d>=a&&d<=b) s.add(i);}); return s;};
+  const roll=days=>{const o={cl:{},gm:{}};
+    R.rows.forEach(r=>{ if(!days.has(r[0])) return;
+      [['cl',R.cls[r[2]]],['gm',clGmKey(R.gms[r[2]]||'')]].forEach(([lv,k])=>{
+        const a=o[lv][k]||(o[lv][k]={due:0,on:0,stuck:0,calls:0,conn:0,sc:0,q:0,gcs:new Set(),cl:R.cls[r[2]]});
+        a.due+=r[4]+r[5]+r[6]; a.on+=r[4]; a.stuck+=r[6]; a.calls+=r[9]; a.conn+=r[10];
+        a.sc+=r[11]; a.q+=r[12]+r[13]+r[14]; a.gcs.add(r[2]);});});
+    return o;};
+  const d=7*n, ps=dayShift(y,-(2*d-1));
+  return {cur:roll(win(dayShift(y,-(d-1)),y)),
+          prev:TSLA.days[0]<=ps?roll(win(ps,dayShift(y,-d))):{cl:{},gm:{}}, from:TSLA.days[0]};
+}
+function clPrelive(n){
+  if(!PRELIVE) return {cur:{},prev:{}};
+  const e=dayShift(istToday(),-2), d=7*n;
+  const roll=(a,b)=>{const o={cl:{},gm:{}};
+    PRELIVE.rows.forEach(r=>{const day=PRELIVE.days[r[0]]; if(day<a||day>b) return;
+      const cl=clOf(PRELIVE.gcs[r[1]],PRELIVE.gms[r[2]]);
+      [['cl',cl],['gm',clGmKey(PRELIVE.gms[r[2]]==='(no GM)'?'':PRELIVE.gms[r[2]])]].forEach(([lv,k])=>{
+        const x=o[lv][k]||(o[lv][k]={gl:0,sj:0,cl}); x.gl+=r[3]; x.sj+=r[5];});});
+    return o;};
+  const ps=dayShift(e,-(2*d-1));
+  return {cur:roll(dayShift(e,-(d-1)),e), prev:PRELIVE.days[0]<=ps?roll(ps,dayShift(e,-d)):{cl:{},gm:{}},
+          from:PRELIVE.days[0], short:PRELIVE.days[0]>dayShift(e,-(d-1))};
+}
+function clDelta(c,p,minN){ // percentage-point change, only when both sides have a usable base
+  if(c==null||p==null) return '';
+  const v=100*(c-p); if(Math.abs(v)<0.5) return '<span class="cldl">±0</span>';
+  return '<span class="cldl '+(v>0?'up':'dn')+'">'+(v>0?'▲':'▼')+Math.abs(v).toFixed(0)+'</span>';
+}
+function clRows(level, keys, RET, SLA, PL){
+  return keys.map(k=>{
+    const rc=RET.cur[level][k], rp=RET.prev[level][k], sc=SLA.cur[level][k], sp=SLA.prev[level][k],
+          pc=PL.cur[level][k], pp=PL.prev[level][k];
+    const rate=(a,num,den,min)=>a&&a[den]>=min?a[num]/a[den]:null;
+    return {k,
+      ret:rate(rc,'r','n',5), retP:rate(rp,'r','n',5), retN:rc?rc.n:0,
+      adh:rate(sc,'on','due',10), adhP:rate(sp,'on','due',10), due:sc?sc.due:0, stuck:sc?sc.stuck:0,
+      gcs:sc?sc.gcs.size:0, conn:rate(sc,'conn','calls',10), q:sc&&sc.sc?Math.round(sc.q/(3*sc.sc)):null, nq:sc?sc.sc:0,
+      pl:rate(pc,'sj','gl',10), plP:rate(pp,'sj','gl',10), plN:pc?pc.gl:0};
+  });
+}
+function clCell(v,col,delta,sub){
+  if(v==null) return '<td class="num"><span style="color:var(--faint)">—</span></td>';
+  return '<td class="num"><b style="color:'+col+'">'+(100*v).toFixed(0)+'%</b>'+(delta||'')+
+    (sub!=null?'<div class="clsub">'+sub+'</div>':'')+'</td>';
+}
+function buildClsc(){
+  const foot=document.getElementById('clFoot');
+  if(!TEAMMAP){ foot.textContent='team_mapping.json did not load, so there is no CL to group by.'; return; }
+  document.querySelectorAll('#clWin button').forEach(b=>b.classList.toggle('on',+b.dataset.n===clSt.n));
+  const n=clSt.n, RET=clRetention(n), SLA=clSla(n), PL=clPrelive(n);
+  const cls=[...new Set([...Object.keys(RET.cur.cl),...Object.keys(SLA.cur.cl),...Object.keys(PL.cur.cl)])]
+    .sort((a,b)=>(CL_ORDER.indexOf(a)+1||99)-(CL_ORDER.indexOf(b)+1||99)||a.localeCompare(b));
+  const gmsOf=cl=>{const s=new Set();
+    Object.entries(SLA.cur.gm).forEach(([g,a])=>{ if(a.cl===cl) s.add(g); });
+    Object.keys(RET.cur.gm).forEach(g=>{ if(clOf('',CLGM[g])===cl) s.add(g); });
+    Object.entries(PL.cur.gm).forEach(([g,a])=>{ if(a.cl===cl) s.add(g); });
+    return [...s];};
+  const rowHtml=(x,isGm,cl)=>{
+    const nGm=isGm?'':gmsOf(x.k).length;
+    return '<tr class="'+(isGm?'clgm':'clrow'+(clSt.open===x.k?' open':''))+'" data-k="'+esc(x.k)+'">'+
+      '<td>'+(isGm?'<span class="clind">↳</span>':'<span class="clcar">'+(clSt.open===x.k?'▾':'▸')+'</span>')+
+        '<b>'+esc(isGm?(CLGM[x.k]||x.k):x.k)+'</b>'+(isGm?'':' <span class="clsub" style="display:inline">'+nGm+' GMs · '+x.gcs+' GCs</span>')+'</td>'+
+      clCell(x.ret,x.ret==null?'':retColor(x.ret),clDelta(x.ret,x.retP),x.retN+' go-lives')+
+      clCell(x.adh,x.adh==null?'':slaAdhColor(x.adh),clDelta(x.adh,x.adhP),x.due.toLocaleString()+' due')+
+      '<td class="num"'+(x.stuck?' style="color:#C0392B;font-weight:650"':'')+'>'+x.stuck.toLocaleString()+'</td>'+
+      clCell(x.conn,'#3d4036','',null)+
+      '<td class="num">'+(x.q==null?'<span style="color:var(--faint)">—</span>':'<b style="color:'+gcQCol(x.q)+'">'+x.q+'</b><div class="clsub">'+x.nq+' scored</div>')+'</td>'+
+      clCell(x.pl,x.pl==null?'':slaAdhColor(x.pl),clDelta(x.pl,x.plP),x.plN+' go-lives')+'</tr>';
+  };
+  // totals across every CL, from the same rolls so the row is the exact sum
+  const sum=(o)=>Object.values(o).reduce((s,a)=>{Object.keys(a).forEach(k=>{if(typeof a[k]==='number') s[k]=(s[k]||0)+a[k];}); return s;},{});
+  const tot={cl:{'All CLs':sum(RET.cur.cl)}}, totP={cl:{'All CLs':sum(RET.prev.cl)}};
+  const sc=sum(SLA.cur.cl), sp=sum(SLA.prev.cl); sc.gcs={size:Object.values(SLA.cur.cl).reduce((s,a)=>s+a.gcs.size,0)};
+  const T=clRows('cl',['All CLs'],{cur:tot,prev:totP},{cur:{cl:{'All CLs':sc}},prev:{cl:{'All CLs':sp}}},
+    {cur:{cl:{'All CLs':sum(PL.cur.cl)}},prev:{cl:{'All CLs':sum(PL.prev.cl)}}})[0];
+  let h='<thead><tr><th>CL</th><th class="num">W3 retention</th><th class="num">Task SLA</th><th class="num">Stuck</th>'+
+    '<th class="num">Connect</th><th class="num">Call quality</th><th class="num">Pre-live video</th></tr></thead><tbody>';
+  clRows('cl',cls,RET,SLA,PL).forEach(x=>{
+    h+=rowHtml(x,false);
+    if(clSt.open===x.k){
+      const gms=clRows('gm',gmsOf(x.k),RET,SLA,PL).sort((a,b)=>(a.adh==null?9:a.adh)-(b.adh==null?9:b.adh));
+      gms.forEach(g=>{h+=rowHtml(g,true,x.k);});
+    }
+  });
+  h+='</tbody><tfoot>'+rowHtml(T,false).replace('class="clrow','class="cltot').replace(/<span class="clcar">.<\/span>/,'')
+    .replace(/<span class="clsub" style="display:inline">.*?<\/span>/,'')+'</tfoot>';
+  document.getElementById('clTable').innerHTML=h;
+  document.querySelectorAll('#clTable tr.clrow').forEach(tr=>tr.addEventListener('click',()=>{
+    clSt.open=clSt.open===tr.dataset.k?null:tr.dataset.k; buildClsc();}));
+  const w=RET.weeks;
+  foot.innerHTML='<b>Windows</b> &mdash; W3 retention: go-live weeks '+(w.length?esc(w[0])+'&ndash;'+esc(w[w.length-1]):'—')+
+    ' (the latest with a complete W3), by the CL of the go-live GC; GM rows use the go-live GM. '+
+    'Task SLA, stuck, connect and call quality: the last '+(7*n)+' days to yesterday, by each GC&rsquo;s CL today. '+
+    'Pre-live video: go-lives in the last '+(7*n)+' days to D-2'+(PL.short?' (pre-live data only starts '+esc(PL.from)+')':'')+', by the seller&rsquo;s current GC. '+
+    '<b>▲▼</b> = percentage-point change against the '+n+' weeks before; blank where either side is too thin '+
+    '(&lt;5 go-lives, &lt;10 tasks or calls). CL comes from the HITS Team Mapping sheet (snapshot '+esc(TEAMMAP.fetched||'—')+'). '+
+    'Click a CL to see its GMs, worst task SLA first.';
+}
+function clCsv(){
+  const n=clSt.n, RET=clRetention(n), SLA=clSla(n), PL=clPrelive(n), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const f=v=>v==null?'':(100*v).toFixed(1);
+  const out=[['level','name','cl','w3_golives','w3_retention_pct','w3_retention_prev_pct','tasks_due','task_sla_pct','task_sla_prev_pct','stuck',
+    'connect_pct','call_quality','scored_calls','prelive_golives','prelive_pct','prelive_prev_pct'].join(',')];
+  const cls=[...new Set(Object.keys(SLA.cur.cl).concat(Object.keys(RET.cur.cl)))];
+  const push=(lv,x,cl)=>out.push([lv,x.k,cl,x.retN,f(x.ret),f(x.retP),x.due,f(x.adh),f(x.adhP),x.stuck,f(x.conn),x.q,x.nq,x.plN,f(x.pl),f(x.plP)].map(q).join(','));
+  clRows('cl',cls,RET,SLA,PL).forEach(x=>push('CL',x,x.k));
+  const gms=[...new Set(Object.keys(SLA.cur.gm).concat(Object.keys(RET.cur.gm)))];
+  clRows('gm',gms,RET,SLA,PL).forEach(x=>push('GM',{...x,k:CLGM[x.k]||x.k},(SLA.cur.gm[x.k]&&SLA.cur.gm[x.k].cl)||clOf('',CLGM[x.k])));
+  saveCsv('cl_scorecard_'+(7*n)+'d.csv',out.join('\n'));
+}
+
+document.querySelectorAll('#clWin button').forEach(b=>b.addEventListener('click',()=>{clSt.n=+b.dataset.n; buildClsc();}));
+document.getElementById('clCsvBtn').addEventListener('click',clCsv);
 
 // ================= TAB: GC task SLA & call quality (console) =================
 // Rows are [day, task, person, created, on_time, late, stuck, pending, overMin,
