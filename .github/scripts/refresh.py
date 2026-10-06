@@ -1421,7 +1421,7 @@ gld AS (
   WHERE s.sp >= 100 AND s.d >= g.gwk GROUP BY 1
 ),
 ev AS (
-  SELECT se.session_id, se.event, se.created_at ts,
+  SELECT se.session_id, se.event, se.created_at ts, se.actor,
     COALESCE(REGEXP_EXTRACT(se.actor,r'^guest-([0-9a-f]{24})-'),
              REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$')) eid,
     CASE WHEN REGEXP_CONTAINS(se.actor,r'^EG_') OR se.actor='livekit' THEN 'bot'
@@ -1434,6 +1434,37 @@ ev AS (
     REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$'))
   WHERE se.use_case_key='pre_live_call' AND DATE(se.created_at) >= '2026-08-20'
 ),
+-- Call length = time the seller and a POC were on together, exactly as card 15609 computes it:
+-- each party's join/leave intervals are merged into islands first, so two POCs present at once
+-- do not double the time; a missing participant_left falls back to the session end.
+sess_end AS (SELECT session_id, MAX(ts) ended_at FROM ev WHERE event IN ('session_ended','call_ended') GROUP BY 1),
+pres AS (
+  SELECT session_id, actor, party, event, ts joined_at,
+    LEAD(ts) OVER (PARTITION BY session_id, actor ORDER BY ts) left_at
+  FROM ev WHERE event IN ('participant_joined','participant_left') AND party IN ('seller','poc')
+),
+iv AS (
+  SELECT p.session_id, p.party, p.joined_at, COALESCE(p.left_at, e.ended_at, p.joined_at) left_at
+  FROM pres p LEFT JOIN sess_end e USING(session_id) WHERE p.event='participant_joined'
+),
+ivf AS (SELECT *, MAX(left_at) OVER (PARTITION BY session_id, party ORDER BY joined_at
+          ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) pml FROM iv),
+ivi AS (SELECT *, COUNTIF(pml IS NULL OR joined_at>pml) OVER (PARTITION BY session_id, party ORDER BY joined_at
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) isl FROM ivf),
+mg AS (SELECT session_id, party, isl, MIN(joined_at) j, MAX(left_at) l FROM ivi GROUP BY 1,2,3),
+ovl AS (
+  SELECT s.session_id, SUM(TIMESTAMP_DIFF(LEAST(s.l,p.l), GREATEST(s.j,p.j), SECOND)) dur
+  FROM mg s JOIN mg p ON p.session_id=s.session_id AND s.party='seller' AND p.party='poc'
+  WHERE LEAST(s.l,p.l) > GREATEST(s.j,p.j) GROUP BY 1
+),
+-- Call quality = final_score from meet_service.recordings.call_scoring (card 15559). It is a
+-- Python-repr string; only the numeric final_score is needed, so a regex replaces the card's JS
+-- parser. Calls the scorer marks invalid carry final_score None and are left out, not read as 0.
+qs AS (
+  SELECT session_id,
+    AVG(SAFE_CAST(REGEXP_EXTRACT(CAST(call_scoring AS STRING), r"['\"]final_score['\"]:\s*(-?[0-9.]+)") AS FLOAT64)) q
+  FROM meet_service.recordings WHERE created_at >= TIMESTAMP('2026-08-20') GROUP BY 1
+),
 sess AS (
   SELECT session_id, MAX(IF(party='seller', eid, NULL)) seller_id,
     COUNTIF(event='participant_joined' AND party='seller')>0 seller_joined,
@@ -1442,9 +1473,12 @@ sess AS (
   FROM ev GROUP BY 1
 ),
 per AS (
-  SELECT seller_id, MAX(IF(seller_joined,1,0)) sj, MAX(IF(poc_joined,1,0)) pj,
-         COUNT(*) n_sessions, MIN(t0) first_sess, MIN(sj_ts) first_join
-  FROM sess WHERE seller_id IS NOT NULL GROUP BY 1
+  SELECT s.seller_id, MAX(IF(s.seller_joined,1,0)) sj, MAX(IF(s.poc_joined,1,0)) pj,
+         COUNT(*) n_sessions, MIN(s.t0) first_sess, MIN(s.sj_ts) first_join,
+         COUNTIF(o.dur > 0) n_calls, SUM(IFNULL(o.dur,0)) dur_sec,
+         COUNTIF(q.q IS NOT NULL) n_q, SUM(IFNULL(q.q,0)) q_sum
+  FROM sess s LEFT JOIN ovl o USING(session_id) LEFT JOIN qs q USING(session_id)
+  WHERE s.seller_id IS NOT NULL GROUP BY 1
 ),
 mgr AS (
   SELECT seller_id,
@@ -1465,7 +1499,9 @@ SELECT d.seller_id,
   COALESCE(p.sj,0)         AS seller_joined,
   COALESCE(p.pj,0)         AS poc_joined,
   FORMAT_DATE('%Y-%m-%d', DATE(p.first_sess,'Asia/Kolkata')) AS link_d,
-  FORMAT_DATE('%Y-%m-%d', DATE(p.first_join,'Asia/Kolkata')) AS call_d
+  FORMAT_DATE('%Y-%m-%d', DATE(p.first_join,'Asia/Kolkata')) AS call_d,
+  COALESCE(p.n_calls,0) AS calls, COALESCE(p.dur_sec,0) AS dur_sec,
+  COALESCE(p.n_q,0) AS q_n, ROUND(COALESCE(p.q_sum,0),1) AS q_sum
 FROM gld d
 LEFT JOIN per p USING(seller_id)
 LEFT JOIN mgr m USING(seller_id)
@@ -1480,7 +1516,10 @@ ORDER BY 3,4,1
 def parse_prelive(csv_text):
     """Per-seller CSV -> days[]/gcs[]/gms[] +
     rows    [dayIdx, gcIdx, gmIdx, golives, sessions, sellerJoined, pocJoined]  (day x GC x GM rollup)
-    sellers [sellerId, name, dayIdx, gcIdx, gmIdx, sessions, sellerJoined, pocJoined, linkDate, callDate]"""
+    sellers [sellerId, name, dayIdx, gcIdx, gmIdx, sessions, sellerJoined, pocJoined, linkDate, callDate,
+             calls, durSec, qN, qSum]
+    calls = sessions where seller and POC overlapped; durSec sums that overlap; qN/qSum are the
+    scored calls and their final_score total. Averages are sum/count at any roll-up."""
     days, gcs, gms = [], [], []
     di, ci, mi = {}, {}, {}
 
@@ -1499,14 +1538,16 @@ def parse_prelive(csv_text):
         sellers.append([r["seller_id"], r.get("name") or "", idx(r["d"], days, di),
                         idx(r["gc"], gcs, ci), idx(r["gm"], gms, mi),
                         gi("sessions"), gi("seller_joined"), gi("poc_joined"),
-                        r.get("link_d") or "", r.get("call_d") or ""])
+                        r.get("link_d") or "", r.get("call_d") or "",
+                        gi("calls"), gi("dur_sec"), gi("q_n"), round(float(r.get("q_sum") or 0), 1)])
     order = sorted(range(len(days)), key=lambda k: days[k])
     remap = {o: n for n, o in enumerate(order)}
     agg = {}
     for s in sellers:
         s[2] = remap[s[2]]
-        a = agg.setdefault((s[2], s[3], s[4]), [0, 0, 0, 0])
+        a = agg.setdefault((s[2], s[3], s[4]), [0, 0, 0, 0, 0, 0, 0, 0])
         a[0] += 1; a[1] += s[5]; a[2] += s[6]; a[3] += s[7]
+        a[4] += s[10]; a[5] += s[11]; a[6] += s[12]; a[7] = round(a[7] + s[13], 1)
     out = sorted([list(k) + v for k, v in agg.items()])
     sellers.sort(key=lambda s: (s[2], s[0]))
     return {"days": [days[k] for k in order], "gcs": gcs, "gms": gms, "rows": out, "sellers": sellers}

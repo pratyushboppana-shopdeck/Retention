@@ -3148,11 +3148,13 @@ function plAgg(){
     if(!plPass(r[1],r[2])) return;
     const k = tg ? plTimeKey(r[0],tg) : plKey(r[1],r[2]);
     if(!k) return;
-    let a=m.get(k); if(!a){a={k,gl:0,sess:0,sj:0,pj:0}; m.set(k,a);}
+    let a=m.get(k); if(!a){a={k,gl:0,sess:0,sj:0,pj:0,calls:0,dur:0,qn:0,qs:0}; m.set(k,a);}
     a.gl+=r[3]; a.sess+=r[4]; a.sj+=r[5]; a.pj+=r[6];
+    a.calls+=r[7]||0; a.dur+=r[8]||0; a.qn+=r[9]||0; a.qs+=r[10]||0;
   });
   let out=[...m.values()];
-  out.forEach(a=>a.pct=a.gl?100*a.sj/a.gl:null);
+  // averages are sum/count over calls, so any roll-up stays exact
+  out.forEach(a=>{a.pct=a.gl?100*a.sj/a.gl:null; a.avgMin=a.calls?a.dur/a.calls/60:null; a.q=a.qn?a.qs/a.qn:null;});
   // the <10 cut is for ranking people; on a time axis filtered to one GC/GM it would hide every day
   if(plSt.min&&(plPerson()||(!plSt.gc&&!plSt.gm))) out=out.filter(a=>a.gl>=10);
   return tg ? out.sort((a,b)=>a.k<b.k?-1:1) : out.sort((a,b)=>a.pct-b.pct);
@@ -3190,6 +3192,10 @@ function plPickFrom(k){
   else plSt.pick={g:plSt.by,t:k};
   buildPlSellers();
 }
+const plMin=m=>{ if(m==null) return '<span style="color:var(--faint)">—</span>';
+  const s=Math.round(m*60); return Math.floor(s/60)+'m '+String(s%60).padStart(2,'0')+'s'; };
+// call scores run far lower than the task-call scale (median ~35), so the bands are set on this scorer
+const plQCol=q=>q<30?'#C0392B':q<45?'#BA7517':'#2f6d4f';
 function buildPrelive(){
   const foot=document.getElementById('plFoot');
   if(!PRELIVE||!PRELIVE.rows.length){ foot.textContent='No pre-live data in this snapshot.'; return; }
@@ -3230,12 +3236,16 @@ function buildPrelive(){
   }else{
     h='<thead><tr><th>'+(plPerson()?who:plSt.by==='week'?'Week':'Day')+
       '</th><th class="num">Go-lives</th><th class="num">Sessions</th>'+
-      '<th class="num">Seller joined</th><th class="num">POC joined</th><th class="num">Adoption</th></tr></thead><tbody>';
+      '<th class="num">Seller joined</th><th class="num">POC joined</th><th class="num">Adoption</th>'+
+      '<th class="num" title="Average time the seller and a POC were on the call together (card 15609)">Avg call</th>'+
+      '<th class="num" title="Average final_score of scored calls, 0-100 (card 15559); invalid calls excluded">Call quality</th></tr></thead><tbody>';
     A.slice().reverse().forEach(a=>{
       h+='<tr data-k="'+esc(a.k)+'"><td>'+esc(a.k)+'</td><td class="num">'+a.gl+'</td><td class="num">'+a.sess+
          '</td><td class="num">'+a.sj+'</td><td class="num">'+a.pj+
          '</td><td class="num" style="color:'+slaAdhColor((a.pct||0)/100)+';font-weight:700">'+
-         (a.pct==null?'—':a.pct.toFixed(1)+'%')+'</td></tr>';
+         (a.pct==null?'—':a.pct.toFixed(1)+'%')+'</td>'+
+         '<td class="num">'+plMin(a.avgMin)+(a.calls?'<div class="clsub">'+a.calls+' call'+(a.calls>1?'s':'')+'</div>':'')+'</td>'+
+         '<td class="num">'+(a.q==null?'<span style="color:var(--faint)">—</span>':'<b style="color:'+plQCol(a.q)+'">'+a.q.toFixed(0)+'</b><div class="clsub">'+a.qn+' scored</div>')+'</td></tr>';
     });
   }
   const tb=document.getElementById('plTable'); tb.innerHTML=h+'</tbody>';
@@ -3247,6 +3257,8 @@ function buildPrelive(){
   const T=A.reduce((s,a)=>({gl:s.gl+a.gl,sj:s.sj+a.sj}),{gl:0,sj:0});
   foot.innerHTML='<b>'+(T.gl?(100*T.sj/T.gl).toFixed(1):'0')+'%</b> across '+T.gl+
     ' go-lives in the window. <b>Click a bar, row or cell</b> for the seller list. '+
+    '<b>Avg call</b> = time the seller and a POC were on the call together (card 15609), averaged over calls; '+
+    '<b>Call quality</b> = the scorer&rsquo;s final_score, 0&ndash;100 (card 15559), averaged over scored calls &mdash; calls it marks invalid (e.g. a few seconds of noise) are left out, not counted as 0. '+
     'Each seller counts on their <b>go-live day</b>; a pre-live call any time before that (or after) marks them as joined, '+
     'so a call on the 29th for a seller who goes live on the 4th shows up on the 4th. Sellers who had a call but never went live are not in this view. '+
     'The loss is at link creation, not on the call &mdash; once a session exists the seller joins nearly every time. '+
@@ -3282,19 +3294,23 @@ function buildPlSellers(){
   const lag=s=>{if(!s[9]) return '—'; const d=Math.round((new Date(P.days[s[2]])-new Date(s[9]))/86400000);
     return d===0?'same day':d>0?d+'d before':(-d)+'d after';};
   let h='<thead><tr><th>Seller ID</th><th>Seller</th><th>Go-live</th><th>GC</th><th>GM</th><th>CL</th>'+
-    '<th>Video call</th><th>Call date</th><th>Call vs go-live</th><th>First link</th><th class="num">Sessions</th><th>POC joined</th></tr></thead><tbody>';
+    '<th>Video call</th><th>Call date</th><th>Call vs go-live</th><th>First link</th><th class="num">Sessions</th><th>POC joined</th>'+
+    '<th class="num">Call length</th><th class="num">Call quality</th></tr></thead><tbody>';
   L.forEach(s=>{
     h+='<tr><td style="font-family:ui-monospace,monospace;font-size:11.5px">'+esc(s[0])+'</td><td>'+esc(s[1]||'(unnamed)')+
       '</td><td>'+P.days[s[2]]+'</td><td>'+esc(P.gcs[s[3]])+'</td><td>'+esc(P.gms[s[4]])+'</td><td>'+esc(plClOf(s[3],s[4]))+
       '</td><td>'+pill(s)+'</td><td>'+(s[9]||'—')+'</td><td>'+lag(s)+'</td><td>'+(s[8]||'—')+
-      '</td><td class="num">'+s[5]+'</td><td>'+(s[7]?'Yes':'—')+'</td></tr>';
+      '</td><td class="num">'+s[5]+'</td><td>'+(s[7]?'Yes':'—')+'</td>'+
+      '<td class="num">'+plMin(s[10]?s[11]/s[10]/60:null)+'</td>'+
+      '<td class="num">'+(s[12]?'<b style="color:'+plQCol(s[13]/s[12])+'">'+(s[13]/s[12]).toFixed(0)+'</b>':'<span style="color:var(--faint)">—</span>')+'</td></tr>';
   });
   document.getElementById('plSTable').innerHTML=h+'</tbody>';
 }
 function plSellersCsv(){
   const P=PRELIVE, q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const out=[['seller_id','seller','golive_date','gc','gm','cl','video_call','status','call_date','first_link_date','sessions','poc_joined'].join(',')];
-  plSellerList().forEach(s=>out.push([s[0],s[1],P.days[s[2]],P.gcs[s[3]],P.gms[s[4]],plClOf(s[3],s[4]),s[6]?'Y':'N',plStatus(s),s[9],s[8],s[5],s[7]?'Y':'N'].map(q).join(',')));
+  const out=[['seller_id','seller','golive_date','gc','gm','cl','video_call','status','call_date','first_link_date','sessions','poc_joined','calls','avg_call_min','scored_calls','avg_call_quality'].join(',')];
+  plSellerList().forEach(s=>out.push([s[0],s[1],P.days[s[2]],P.gcs[s[3]],P.gms[s[4]],plClOf(s[3],s[4]),s[6]?'Y':'N',plStatus(s),s[9],s[8],s[5],s[7]?'Y':'N',
+    s[10]||0,s[10]?(s[11]/s[10]/60).toFixed(1):'',s[12]||0,s[12]?(s[13]/s[12]).toFixed(1):''].map(q).join(',')));
   saveCsv('prelive_sellers.csv',out.join('\n'));
 }
 function plDownload(){
@@ -3305,8 +3321,8 @@ function plDownload(){
     saveCsv('prelive_adoption_'+plSt.by+'_by_'+plSt.over+'.csv',out.join('\n')); return;
   }
   const A=plAgg();
-  const out=[[plSt.by,'golives','sessions','seller_joined','poc_joined','adoption_pct'].join(',')];
-  A.forEach(a=>out.push([a.k,a.gl,a.sess,a.sj,a.pj,a.pct==null?'':a.pct.toFixed(1)].map(q).join(',')));
+  const out=[[plSt.by,'golives','sessions','seller_joined','poc_joined','adoption_pct','calls','avg_call_min','scored_calls','avg_call_quality'].join(',')];
+  A.forEach(a=>out.push([a.k,a.gl,a.sess,a.sj,a.pj,a.pct==null?'':a.pct.toFixed(1),a.calls,a.avgMin==null?'':a.avgMin.toFixed(1),a.qn,a.q==null?'':a.q.toFixed(1)].map(q).join(',')));
   saveCsv('prelive_adoption_'+plSt.by+'.csv',out.join('\n'));
 }
 
