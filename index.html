@@ -137,6 +137,7 @@
   .ptag.pend{background:#fdf0e8;border-color:#e8c3a8;}
   .ptag b{font-weight:600;}
   .ptag .who{color:var(--muted);}
+  #spRows td.snm{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
   .sostag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:5px;background:#f6e3e0;border:1px solid #e0b6b0;}
   #sellerPanel{margin-top:22px;border-top:1px solid var(--line);padding-top:6px;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
@@ -383,7 +384,7 @@
       <div class="dist" id="spDist"></div>
       <div class="tablewrap" style="max-height:420px">
         <table class="sellers" id="spTable">
-          <thead><tr><th>#</th><th>Seller ID</th><th>Go-live wk</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
+          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
           <tbody id="spRows"></tbody>
         </table>
       </div>
@@ -1106,7 +1107,7 @@ async function load(){
     if(snap.gcgmSellers&&Array.isArray(snap.gcgmSellers.rows)){
       const nm=snap.gcgmSellers.names||[], by={};
       snap.gcgmSellers.rows.forEach(r=>{by[r[0]]={gc:r[1]>=0?nm[r[1]]:null,gm:r[2]>=0?nm[r[2]]:null,
-        nOpen:r[3],nPend:r[4],ops:r[5]||'',nSos:r[6],sos:r[7]||'',nAll:r[8]||0};});
+        nOpen:r[3],nPend:r[4],ops:r[5]||'',nSos:r[6],sos:r[7]||'',nAll:r[8]||0,sname:r[9]||''};});
       GCGMS=by;
     }
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
@@ -1749,7 +1750,9 @@ function renderSellerPanel(){
     `<div class="brow"><span>${esc(x.n)}</span><span><span class="bar" style="width:${100*x.c/mx}%;background:${BUCKET_COLORS[x.bi%BUCKET_COLORS.length]}"></span></span>`+
     `<span class="bcount">${x.c} (${(100*x.c/out.length).toFixed(0)}%)</span></div>`).join('');
   document.getElementById('spRows').innerHTML=out.map((x,i)=>
-    `<tr><td>${i+1}</td><td>${esc(x.sid)}</td><td>${esc(x.w)}</td><td>${esc(B[x.b]||'—')}</td>`+
+    `<tr><td>${i+1}</td><td class="snm" title="${esc(x.sname||'')}">${esc(x.sname||'—')}</td>`+
+    `<td><code style="font-size:11px">${esc(x.sid)}</code></td>`+
+    `<td>${esc(x.gc||'—')}</td><td>${esc(x.w)}</td><td>${esc(B[x.b]||'—')}</td>`+
     `<td class="ops">${x.nOpen?`<b>${x.nPend}</b> pending / ${x.nOpen} blocking${x.nAll>x.nOpen?` <span style="color:var(--faint)">(+${x.nAll-x.nOpen} internal)</span>`:''}<br>`:''}${fmtOps(x.ops)}</td>`+
     `<td>${x.nSos?`<span class="sostag" title="${esc(x.sos)}">SOS ×${x.nSos}</span>`:'—'}</td></tr>`).join('');
   const withOpen=out.filter(x=>x.nPend>0).length;
@@ -1759,8 +1762,8 @@ function renderSellerPanel(){
 document.getElementById('spCsv').addEventListener('click',()=>{
   if(!SPROWS.length) return; const B=window.BUCKETS||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const csv=['seller_id,golive_week,reason_bucket,golive_gc,golive_gm,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
-    .concat(SPROWS.map(x=>[x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
+  const csv=['seller_name,seller_id,golive_week,reason_bucket,golive_gc,golive_gm,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
+    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
   saveCsv('not_retained_sellers.csv', csv);
 });
 

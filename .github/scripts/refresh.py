@@ -322,6 +322,8 @@ sos AS (SELECT m.seller_id, COUNT(*) n_sos, SUBSTR(ANY_VALUE(r.comment),0,110) s
     AND DATE(r.created_at) >= DATE_SUB(m.gd, INTERVAL 14 DAY)
   GROUP BY 1)
 SELECT m.seller_id,
+  COALESCE(NULLIF(TRIM(sel.display_name),''),
+           NULLIF(TRIM(CONCAT(COALESCE(sel.first_name,''),' ',COALESCE(sel.last_name,''))),'')) seller_name,
   NULLIF(TRIM(CONCAT(COALESCE(u1.first_name,''),' ',COALESCE(u1.last_name,''))),'') golive_gc,
   NULLIF(TRIM(CONCAT(COALESCE(u2.first_name,''),' ',COALESCE(u2.last_name,''))),'') golive_gm,
   COALESCE(tx.n_block,0) n_open, COALESCE(tx.n_block_pending,0) n_pending, COALESCE(tx.ops,'') ops,
@@ -329,6 +331,7 @@ SELECT m.seller_id,
   COALESCE(sos.n_sos,0) n_sos, COALESCE(sos.sos_text,'') sos_text
 FROM mygl m
 LEFT JOIN gl ON gl.seller_id=m.seller_id
+LEFT JOIN nushop.sellers sel ON sel._id=m.seller_id
 LEFT JOIN nushop.users u1 ON gl.golive_gc_id=u1._id
 LEFT JOIN nushop.users u2 ON gl.golive_gm_id=u2._id
 LEFT JOIN tx ON tx.seller_id=m.seller_id
@@ -338,7 +341,8 @@ ORDER BY m.seller_id
 
 
 def parse_gcgms(csv_text):
-    """names[] + compact rows: [seller, gcIdx, gmIdx, nBlock, nBlockPending, ops, nSos, sosText, nAll]"""
+    """names[] + compact rows:
+    [seller, gcIdx, gmIdx, nBlock, nBlockPending, ops, nSos, sosText, nAll, sellerName]"""
     rows = list(csvmod.DictReader(io.StringIO(csv_text)))
     names, nidx, out = [], {}, []
 
@@ -360,7 +364,8 @@ def parse_gcgms(csv_text):
             except ValueError:
                 return 0
         out.append([r["seller_id"], gc, gm, gi("n_open"), gi("n_pending"),
-                    (r.get("ops") or "")[:400], gi("n_sos"), (r.get("sos_text") or "")[:110], gi("n_all")])
+                    (r.get("ops") or "")[:400], gi("n_sos"), (r.get("sos_text") or "")[:110], gi("n_all"),
+                    (r.get("seller_name") or "")[:60]])
     return {"names": names, "rows": out}
 
 
