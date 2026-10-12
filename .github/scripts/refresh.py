@@ -83,14 +83,15 @@ ord AS (
   SELECT g.seller_id, COUNT(*) n_orders_02,
     SUM(oi.selling_price*oi.quantity+oi.cod_charge+oi.delivery_fees-oi.total_discount) gmv02
   FROM golive g JOIN nushop.orderitems oi ON oi.seller_id=g.seller_id
-  WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-15'
+  WHERE DATE(oi.createdat)>=DATE '2025-10-14' AND DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-15'
     AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid') AND oi.awb_no!='None' AND oi.in_house_status!='awb_expired'
     AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'),g.golive_date,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1
 ),
 fb AS (
   SELECT g.seller_id, SUM(f.spend) fb_sp, SUM(f.impressions) imp, SUM(f.clicks) clk
   FROM golive g JOIN fb_marketings.fb_marketing_insights f ON f.seller_id=g.seller_id
-  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date,'Asia/Kolkata')>=DATE '2025-10-15'
+  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date)>=DATE '2025-10-14'
+    AND DATE(f.spend_date,'Asia/Kolkata')>=DATE '2025-10-15'
     AND DATE_DIFF(DATE(f.spend_date,'Asia/Kolkata'),g.golive_date,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1
 ),
 -- Ad-account block: a blocking ticket created <= W3 that is NOT resolved by W3.
@@ -195,7 +196,7 @@ total_spend AS (
   SELECT seller_id, DATE(date) spend_date, spend/1.18 spend FROM `nushop.marketing_spends`
     WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 9000 DAY) AND DATE(date) <= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND marketing_channel!='whatsapp'
   UNION ALL SELECT seller_id, spend_date, spend FROM `nushop.google_marketing_insights_master` WHERE breakdown_key IS NULL AND spend_date >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
-  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
 ),
 daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
 go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
@@ -205,7 +206,7 @@ sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2025-12-01'),
 ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
    IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
    IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
-  FROM nushop.changeslogs WHERE createdat >= TIMESTAMP('2025-07-01') AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
+  FROM nushop.changeslogs WHERE DATE(createdat) >= DATE '2025-07-01' AND createdat >= TIMESTAMP('2025-07-01') AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
 ev2 AS (SELECT * FROM ev WHERE prev_id IS NOT NULL OR new_id IS NOT NULL),
 cutoffs AS (SELECT seller_id, TIMESTAMP(go_live_date,'Asia/Kolkata') cutoff, TIMESTAMP(DATE_ADD(go_live_date,INTERVAL 1 DAY),'Asia/Kolkata') grace_end FROM sellers),
 ce AS (SELECT c.seller_id evt_key, c.cutoff, c.grace_end, e.role, e.prev_id, e.new_id, e.createdat FROM cutoffs c JOIN ev2 e USING(seller_id)),
@@ -257,7 +258,7 @@ total_spend AS (
   SELECT seller_id, DATE(date) spend_date, spend/1.18 spend FROM `nushop.marketing_spends`
     WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 9000 DAY) AND DATE(date) <= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND marketing_channel!='whatsapp'
   UNION ALL SELECT seller_id, spend_date, spend FROM `nushop.google_marketing_insights_master` WHERE breakdown_key IS NULL AND spend_date >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
-  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
 ),
 daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
 go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
@@ -267,7 +268,7 @@ sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2025-12-01'),
 ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
    IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
    IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
-  FROM nushop.changeslogs WHERE createdat >= TIMESTAMP('2025-07-01') AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
+  FROM nushop.changeslogs WHERE DATE(createdat) >= DATE '2025-07-01' AND createdat >= TIMESTAMP('2025-07-01') AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
 ev2 AS (SELECT * FROM ev WHERE prev_id IS NOT NULL OR new_id IS NOT NULL),
 cutoffs AS (SELECT seller_id, TIMESTAMP(go_live_date,'Asia/Kolkata') cutoff, TIMESTAMP(DATE_ADD(go_live_date,INTERVAL 1 DAY),'Asia/Kolkata') grace_end FROM sellers),
 ce AS (SELECT c.seller_id evt_key, c.cutoff, c.grace_end, e.role, e.prev_id, e.new_id, e.createdat FROM cutoffs c JOIN ev2 e USING(seller_id)),
@@ -468,7 +469,7 @@ total_spend AS (
   SELECT seller_id, DATE(date) spend_date, spend/1.18 spend FROM `nushop.marketing_spends`
     WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 9000 DAY) AND DATE(date) <= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND marketing_channel!='whatsapp'
   UNION ALL SELECT seller_id, spend_date, spend FROM `nushop.google_marketing_insights_master` WHERE breakdown_key IS NULL AND spend_date >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
-  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
 ),
 daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
 go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
@@ -481,7 +482,7 @@ unassign AS (
 ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
    IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
    IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
-  FROM nushop.changeslogs WHERE createdat >= TIMESTAMP('2025-07-01')
+  FROM nushop.changeslogs WHERE DATE(createdat) >= DATE '2025-07-01' AND createdat >= TIMESTAMP('2025-07-01')
     AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
 ev2 AS (SELECT * FROM ev WHERE prev_id IS NOT NULL OR new_id IS NOT NULL),
 cutoffs AS (
@@ -583,7 +584,7 @@ o AS (
   SELECT g.seller_id,
     SUM(oi.selling_price*oi.quantity+oi.cod_charge+oi.delivery_fees-oi.total_discount) gmv02
   FROM golive g JOIN nushop.orderitems oi ON oi.seller_id=g.seller_id
-  WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-01'
+  WHERE DATE(oi.createdat)>=DATE '2025-09-30' AND DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-01'
     AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid') AND oi.awb_no!='None' AND oi.in_house_status!='awb_expired'
     AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'),g.gd,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1),
 -- Fulfilment legs over W0-W2 shipments, from card 12211's definitions.
@@ -605,7 +606,7 @@ ship AS (
   FROM golive g
   JOIN nushop.orderitems oi ON oi.seller_id=g.seller_id
   JOIN nushop.tpl_master_data t ON t.awb_no=oi.awb_no
-  WHERE DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-01'
+  WHERE DATE(oi.createdat)>=DATE '2025-09-30' AND DATE(oi.createdat,'Asia/Kolkata')>=DATE '2025-10-01'
     AND DATE(t.created_at)>=DATE '2025-10-01'
     AND oi.seller_last_status NOT IN ('initiated','enqueued','invalid','cancelled','cancel_initiated')
     AND oi.awb_no!='None' AND COALESCE(t.clickpost_unified_status,'')!='Cancelled'
@@ -614,7 +615,8 @@ ship AS (
 f AS (
   SELECT g.seller_id, SUM(fb.spend) fb02
   FROM golive g JOIN fb_marketings.fb_marketing_insights fb ON fb.seller_id=g.seller_id
-  WHERE fb.breakdown_key IS NULL AND DATE(fb.spend_date,'Asia/Kolkata')>=DATE '2025-10-01'
+  WHERE fb.breakdown_key IS NULL AND DATE(fb.spend_date)>=DATE '2025-09-30'
+    AND DATE(fb.spend_date,'Asia/Kolkata')>=DATE '2025-10-01'
     AND DATE_DIFF(DATE(fb.spend_date,'Asia/Kolkata'),g.gd,ISOWEEK) BETWEEN 0 AND 2 GROUP BY 1),
 s AS (
   SELECT sw.gw, sw.seller_id, SAFE_DIVIDE(sw.rto03,sw.ord03) rto_rate, sw.rto03, sw.ord03,
@@ -1449,7 +1451,8 @@ ds AS (
   UNION ALL
   SELECT g.seller_id, DATE(f.spend_date,'Asia/Kolkata'), f.spend FROM glw g
   JOIN fb_marketings.fb_marketing_insights f ON f.seller_id=g.seller_id
-  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE(), INTERVAL 70 DAY)
+  WHERE f.breakdown_key IS NULL AND DATE(f.spend_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 71 DAY)
+    AND DATE(f.spend_date,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE(), INTERVAL 70 DAY)
 ),
 gld AS (
   SELECT s.seller_id, MIN(s.d) gd
