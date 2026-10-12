@@ -315,6 +315,32 @@ tx AS (
     COUNT(*) n_all
   FROM open_t GROUP BY seller_id
 ),
+-- Calls TO the seller from go-live onward (card 10084's dump, reduced to the two branches that
+-- carry the volume: the callee's phone resolved through userprofiles, and an entity_id that is
+-- itself a seller id). 180 days of exotel keeps this at ~3s; older cohorts under-count and the
+-- tab says so.
+craw AS (
+  SELECT ec.entity_id, ecd.call_to, ecd.created_at, ecd.duration
+  FROM nushop.exotel_calls ec
+  JOIN nushop.exotel_call_details ecd ON ec.exotel_call_sid = ecd.sid
+  WHERE ec.created_at  >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 180 DAY))
+    AND ecd.created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 180 DAY))),
+cbysel AS (
+  SELECT up2.user_id seller_id, r.created_at, r.duration
+  FROM craw r JOIN nushop.userprofiles up2
+    ON ABS(SAFE_CAST(up2.contact_number AS FLOAT64)) = SAFE_CAST(r.call_to AS FLOAT64)
+  UNION ALL
+  SELECT r.entity_id, r.created_at, r.duration FROM craw r
+  WHERE REGEXP_CONTAINS(r.entity_id, r'^[a-f0-9]{24}$')),
+calls AS (
+  SELECT m.seller_id, COUNT(*) n_calls, COUNTIF(b.duration>0) n_conn
+  FROM mygl m JOIN cbysel b ON b.seller_id = m.seller_id
+  WHERE DATE(b.created_at,'Asia/Kolkata') >= m.gd
+  GROUP BY 1),
+spend AS (
+  SELECT m.seller_id, SUM(v.marketing_spend) lifetime_spend
+  FROM mygl m JOIN nushop.gc_view_3 v ON v.seller_id = m.seller_id
+  GROUP BY 1),
 sos AS (SELECT m.seller_id, COUNT(*) n_sos, SUBSTR(ANY_VALUE(r.comment),0,110) sos_text
   FROM mygl m JOIN nushop.seller_app_requests r ON r.seller_id=m.seller_id
   WHERE r.request_type IN ('sos','leadership_escalation')
@@ -328,7 +354,9 @@ SELECT m.seller_id,
   NULLIF(TRIM(CONCAT(COALESCE(u2.first_name,''),' ',COALESCE(u2.last_name,''))),'') golive_gm,
   COALESCE(tx.n_block,0) n_open, COALESCE(tx.n_block_pending,0) n_pending, COALESCE(tx.ops,'') ops,
   COALESCE(tx.n_all,0) n_all,
-  COALESCE(sos.n_sos,0) n_sos, COALESCE(sos.sos_text,'') sos_text
+  COALESCE(sos.n_sos,0) n_sos, COALESCE(sos.sos_text,'') sos_text,
+  COALESCE(calls.n_calls,0) n_calls, COALESCE(calls.n_conn,0) n_conn,
+  CAST(ROUND(COALESCE(spend.lifetime_spend,0)) AS INT64) lifetime_spend
 FROM mygl m
 LEFT JOIN gl ON gl.seller_id=m.seller_id
 LEFT JOIN nushop.sellers sel ON sel._id=m.seller_id
@@ -336,13 +364,16 @@ LEFT JOIN nushop.users u1 ON gl.golive_gc_id=u1._id
 LEFT JOIN nushop.users u2 ON gl.golive_gm_id=u2._id
 LEFT JOIN tx ON tx.seller_id=m.seller_id
 LEFT JOIN sos ON sos.seller_id=m.seller_id
+LEFT JOIN calls ON calls.seller_id=m.seller_id
+LEFT JOIN spend ON spend.seller_id=m.seller_id
 ORDER BY m.seller_id
 """
 
 
 def parse_gcgms(csv_text):
     """names[] + compact rows:
-    [seller, gcIdx, gmIdx, nBlock, nBlockPending, ops, nSos, sosText, nAll, sellerName]"""
+    [seller, gcIdx, gmIdx, nBlock, nBlockPending, ops, nSos, sosText, nAll, sellerName,
+     nCalls, nConnected, lifetimeSpend]"""
     rows = list(csvmod.DictReader(io.StringIO(csv_text)))
     names, nidx, out = [], {}, []
 
@@ -365,7 +396,8 @@ def parse_gcgms(csv_text):
                 return 0
         out.append([r["seller_id"], gc, gm, gi("n_open"), gi("n_pending"),
                     (r.get("ops") or "")[:400], gi("n_sos"), (r.get("sos_text") or "")[:110], gi("n_all"),
-                    (r.get("seller_name") or "")[:60]])
+                    (r.get("seller_name") or "")[:60],
+                    gi("n_calls"), gi("n_conn"), gi("lifetime_spend")])
     return {"names": names, "rows": out}
 
 

@@ -127,6 +127,15 @@
   table.rank .rbar{height:12px;border-radius:3px;display:inline-block;vertical-align:middle;min-width:2px;}
   .gcgm-ctl{display:flex;gap:6px;align-items:center;}
   .gcgm-panel.expanded .tablewrap{max-height:none;}
+  .clbanner{display:flex;align-items:center;gap:8px;font-size:12px;margin:0 0 8px;padding:6px 10px;
+    background:#eef4f0;border:1px solid #cfe0d6;border-radius:7px;color:#23251f;}
+  .clbanner b{font-weight:700;}
+  .clbanner button{margin-left:auto;border:1px solid var(--line);background:#fff;border-radius:6px;
+    font-size:11px;padding:2px 9px;cursor:pointer;}
+  .clbanner button:hover{background:#f6f5ee;}
+  table.rank td.clcell{font-size:11px;color:var(--muted);max-width:140px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;}
+  table.rank tbody tr.clrow.sel td{background:#eef4f0;}
   .gcgm-detail{font-size:12px;color:var(--muted);margin-top:8px;}
   table.matrix tr.actsep td{background:#efeee7;height:6px;padding:2px 6px;font-size:9.5px;color:var(--muted);font-weight:650;border-top:2px solid var(--accent);}
   table.rank tbody tr{cursor:pointer;}
@@ -363,18 +372,19 @@
     </div>
     <div class="gcgm-panel" style="margin-bottom:16px">
       <div class="gcgm-head"><span>By CL of the go-live GC — low retention first</span><span class="gcgm-ctl"><select id="clSel"></select></span></div>
-      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
+      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
       <div class="gcgm-detail" id="clDetail"></div>
     </div>
     <div class="gcgm-cols">
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GC — low retention first</span><span class="gcgm-ctl"><select id="gcSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
         <div class="gcgm-detail" id="gcDetail"></div>
       </div>
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GM — low retention first</span><span class="gcgm-ctl"><select id="gmSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th class="num">Go-lives</th><th class="num">Ret</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
+        <div id="gmClBanner" class="clbanner" style="display:none"></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
         <div class="gcgm-detail" id="gmDetail"></div>
       </div>
     </div>
@@ -384,7 +394,7 @@
       <div class="dist" id="spDist"></div>
       <div class="tablewrap" style="max-height:420px">
         <table class="sellers" id="spTable">
-          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
+          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th class="num">Calls</th><th class="num">Lifetime spend</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
           <tbody id="spRows"></tbody>
         </table>
       </div>
@@ -1107,7 +1117,8 @@ async function load(){
     if(snap.gcgmSellers&&Array.isArray(snap.gcgmSellers.rows)){
       const nm=snap.gcgmSellers.names||[], by={};
       snap.gcgmSellers.rows.forEach(r=>{by[r[0]]={gc:r[1]>=0?nm[r[1]]:null,gm:r[2]>=0?nm[r[2]]:null,
-        nOpen:r[3],nPend:r[4],ops:r[5]||'',nSos:r[6],sos:r[7]||'',nAll:r[8]||0,sname:r[9]||''};});
+        nOpen:r[3],nPend:r[4],ops:r[5]||'',nSos:r[6],sos:r[7]||'',nAll:r[8]||0,sname:r[9]||'',
+        calls:r[10]||0,conn:r[11]||0,spend:r[12]||0};});
       GCGMS=by;
     }
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
@@ -1662,7 +1673,47 @@ function aggRole(rows){ // rows: [gw,name,n,r1..r7]; returns map name->{n,ret} o
     for(let k=0;k<7;k++) acc[name].rr[k]+=r[3+k]; acc[name].mn+=r[2];});
   return acc;
 }
-function renderRank(rows, tbodyId, detailId, sel, selEl){
+// Per-seller metrics (calls, lifetime spend) rolled up per GC / GM / CL for the selected
+// go-live weeks. They cannot come from GCGM.gc/gm, which are week-level aggregates with no
+// seller identity -- these are computed from gcgmSellers joined to the diagnosis rows.
+let GCGMSTATS={gc:{},gm:{},cl:{},_key:''};
+function gcgmStats(){
+  const key=[...gcgmSel.weeks].sort().join(',')+'|'+gcgmSel.metric;
+  if(GCGMSTATS._key===key) return GCGMSTATS;
+  const out={gc:{},gm:{},cl:{},_key:key};
+  // Do NOT cache an empty result: renderGcgm can run before the payloads land, and caching
+  // under the current selection key meant the empty answer was reused forever.
+  // DIAGBY is a top-level `let`, not a window property -- `window.DIAGBY` is always undefined
+  // and this guard then swallowed every call.
+  if(!GCGMS||!DIAGBY||!Object.keys(DIAGBY).length||!GCGM){ out._key=''; return out; }
+  const m=gcgmSel.metric;
+  const bump=(bag,name,g,notRet)=>{
+    if(!name) return;
+    const a=bag[name]||(bag[name]={n:0,nr:0,calls:0,callsNR:0,sp:[]});
+    a.n++; a.calls+=g.calls; a.sp.push(g.spend);
+    if(notRet){ a.nr++; a.callsNR+=g.calls; }
+  };
+  for(const sid in GCGMS){
+    const g=GCGMS[sid], d=DIAGBY[sid]; if(!d) continue;
+    if(!gcgmSel.weeks.has(d.w)) continue;
+    if(!(GCGM.weeks[d.w]>m)) continue;                 // that week must be mature for Wm
+    const notRet=(d.sp[m-1]||0)<3000;
+    bump(out.gc,g.gc,g,notRet); bump(out.gm,g.gm,g,notRet);
+    const cl=clOf(g.gc,''); if(cl) bump(out.cl,cl,g,notRet);
+  }
+  for(const k of ['gc','gm','cl']) for(const nm in out[k]){
+    const a=out[k][nm];
+    a.callsPer   = a.n ? a.calls/a.n : null;
+    a.callsPerNR = a.nr ? a.callsNR/a.nr : null;
+    const v=a.sp.slice().sort((x,y)=>x-y);
+    a.spMed = v.length ? v[Math.floor(v.length/2)] : null;
+    a.spAvg = v.length ? v.reduce((p,q)=>p+q,0)/v.length : null;
+  }
+  return (GCGMSTATS=out);
+}
+const fmtMoney=v=>v==null?'—':'\u20B9'+(v>=100000?(v/100000).toFixed(1)+'L':v>=1000?Math.round(v/1000)+'k':Math.round(v));
+function renderRank(rows, tbodyId, detailId, sel, selEl, opt){
+  opt=opt||{};
   const acc=aggRole(rows);
   const minN=document.getElementById('gcgmMinN').checked;
   let list=Object.entries(acc).map(([name,a])=>({name,n:a.n,p:a.n?a.ret/a.n:0,rr:a.rr,mn:a.mn}));
@@ -1678,9 +1729,15 @@ function renderRank(rows, tbodyId, detailId, sel, selEl){
   shown.sort((a,b)=>a.p-b.p || b.n-a.n);
   const tb=document.getElementById(tbodyId); tb.innerHTML='';
   shown.forEach((x,i)=>{const tr=document.createElement('tr');
-    if(x.name===selName) tr.className='sel';
-    tr.innerHTML=`<td>${i+1}</td><td>${esc(x.name)}</td><td class="num">${x.n}</td><td class="num">${(100*x.p).toFixed(0)}%</td>`+
-      `<td><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></td>`;
+    tr.className=(x.name===selName?'sel ':'')+(opt.clCol?'clrow':'');
+    const clCell = opt.clCol ? `<td class="clcell" title="${esc(clOf('',x.name)||'outside every CL')}">${esc(clOf('',x.name)||'—')}</td>` : '';
+    const st=(gcgmStats()[sel]||{})[x.name];
+    const one=v=>v==null?'—':v.toFixed(1);
+    const extra = `<td class="num" title="calls to their sellers since go-live ÷ sellers">${st?one(st.callsPer):'—'}</td>`+
+      `<td class="num" title="${st?('same, over the '+st.nr+' not retained at W'+gcgmSel.metric):''}">${st?one(st.callsPerNR):'—'}</td>`+
+      `<td class="num" title="${st?('median '+fmtMoney(st.spMed)+' · average '+fmtMoney(st.spAvg)):''}">${st?fmtMoney(st.spMed):'—'}</td>`;
+    tr.innerHTML=`<td>${i+1}</td><td>${esc(x.name)}</td>${clCell}<td class="num">${x.n}</td><td class="num">${(100*x.p).toFixed(0)}%</td>`+
+      extra+`<td><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></td>`;
     // click a row = select that person (shows their not-retained sellers below)
     // clicking a row selects that person; GC and GM are alternate views, so pick one at a time
     tr.addEventListener('click',()=>{gcgmPick(sel,(gcgmSel[sel]===x.name)?'All':x.name);});
@@ -1701,7 +1758,22 @@ function renderGcgm(){
   const gcAgg=renderRank(GCGM.gc,'gcRows','gcDetail','gc',document.getElementById('gcSel'));
   // CL rows are the GC rows relabelled by the go-live GC's CL (team_mapping.json), so they sum exactly
   renderRank(GCGM.gc.map(r=>[r[0],clOf(r[1],'')].concat(r.slice(2))).filter(r=>r[1]),'clRows','clDetail','cl',document.getElementById('clSel'));
-  const gmAgg=renderRank(GCGM.gm,'gmRows','gmDetail','gm',document.getElementById('gmSel'));
+  // Picking a CL narrows the GM table to that CL's GMs. The CL table itself still shows every
+  // CL, so the click reads as a filter rather than as the table disappearing.
+  const clPick = (gcgmSel.cl && gcgmSel.cl!=='All') ? gcgmSel.cl : null;
+  const gmSource = clPick ? GCGM.gm.filter(r=>clOf('',r[1])===clPick) : GCGM.gm;
+  const gmAgg=renderRank(gmSource,'gmRows','gmDetail','gm',document.getElementById('gmSel'),{clCol:true});
+  const ban=document.getElementById('gmClBanner');
+  if(clPick){
+    const n=new Set(gmSource.map(r=>r[1])).size;
+    const shown=document.querySelectorAll('#gmRows tr').length;
+    const hid=n-shown;
+    ban.innerHTML=`Showing <b>${shown}</b> of <b>${n}</b> GM${n===1?'':'s'} under <b>${esc(clPick)}</b>`+
+      (hid>0?` <span style="color:var(--muted)">(${hid} below the 5 go-live cut)</span>`:'')+
+      `<button type="button" id="gmClClear">Show all GMs ✕</button>`;
+    ban.style.display='flex';
+    document.getElementById('gmClClear').addEventListener('click',e=>{e.stopPropagation(); gcgmPick('cl','All');});
+  } else { ban.style.display='none'; ban.innerHTML=''; }
   const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
   const cohort=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).reduce((s,w)=>s+((window.COHORTN||{})[w]||0),0);
@@ -1752,7 +1824,9 @@ function renderSellerPanel(){
   document.getElementById('spRows').innerHTML=out.map((x,i)=>
     `<tr><td>${i+1}</td><td class="snm" title="${esc(x.sname||'')}">${esc(x.sname||'—')}</td>`+
     `<td><code style="font-size:11px">${esc(x.sid)}</code></td>`+
-    `<td>${esc(x.gc||'—')}</td><td>${esc(x.w)}</td><td>${esc(B[x.b]||'—')}</td>`+
+    `<td>${esc(x.gc||'—')}</td><td>${esc(x.w)}</td>`+
+    `<td class="num" title="${x.conn} connected of ${x.calls} placed since go-live">${x.calls||0}</td>`+
+    `<td class="num">${fmtMoney(x.spend)}</td><td>${esc(B[x.b]||'—')}</td>`+
     `<td class="ops">${x.nOpen?`<b>${x.nPend}</b> pending / ${x.nOpen} blocking${x.nAll>x.nOpen?` <span style="color:var(--faint)">(+${x.nAll-x.nOpen} internal)</span>`:''}<br>`:''}${fmtOps(x.ops)}</td>`+
     `<td>${x.nSos?`<span class="sostag" title="${esc(x.sos)}">SOS ×${x.nSos}</span>`:'—'}</td></tr>`).join('');
   const withOpen=out.filter(x=>x.nPend>0).length;
@@ -1762,8 +1836,9 @@ function renderSellerPanel(){
 document.getElementById('spCsv').addEventListener('click',()=>{
   if(!SPROWS.length) return; const B=window.BUCKETS||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const csv=['seller_name,seller_id,golive_week,reason_bucket,golive_gc,golive_gm,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
-    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
+  const csv=['seller_name,seller_id,golive_week,reason_bucket,golive_gc,golive_gm,calls_since_golive,calls_connected,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
+    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.calls||0,x.conn||0,x.spend||0,
+      x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
   saveCsv('not_retained_sellers.csv', csv);
 });
 
@@ -1801,7 +1876,11 @@ function slaWindow(){
   // "last 7 days" into 8.
   const yday=dayShift(istToday(),-1);
   if(slaSt.mode==='yday')   return [yday,yday];
-  if(slaSt.mode==='custom') return [slaSt.from||days[0], slaSt.to||yday];
+  if(slaSt.mode==='custom'){
+    let a=slaSt.from||days[0], b=slaSt.to||yday;
+    if(a>b) [a,b]=[b,a];        // reversed range is swapped at read time, not corrected in the UI
+    return [a,b];
+  }
   const n=+slaSt.mode||7;                        // last N days ending yesterday
   return [dayShift(yday,-(n-1)), yday];
 }
@@ -1852,7 +1931,8 @@ function slaWire(){
     if(slaSt.mode==='custom'){                       // seed the pickers with the current window
       const [a,b2]=slaWindow();
       const f=document.getElementById('slaFrom'), t=document.getElementById('slaTo');
-      f.min=t.min=TSLA.days[0]; f.max=t.max=TSLA.days[TSLA.days.length-1];
+      f.removeAttribute('min'); f.removeAttribute('max');   // see gcWire: min/max can blank a field
+      t.removeAttribute('min'); t.removeAttribute('max');
       if(!slaSt.from){ slaSt.from=a; slaSt.to=b2; }
       f.value=slaSt.from; t.value=slaSt.to;
     }
@@ -1860,8 +1940,6 @@ function slaWire(){
   }));
   ['slaFrom','slaTo'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{
     let f=document.getElementById('slaFrom').value, t=document.getElementById('slaTo').value;
-    if(f&&t&&f>t){ if(id==='slaFrom') t=f; else f=t;
-      document.getElementById('slaFrom').value=f; document.getElementById('slaTo').value=t; }
     slaSt.from=f||null; slaSt.to=t||null; renderSla();
   }));
   document.getElementById('slaMinN').addEventListener('change',renderSla);
@@ -2247,9 +2325,14 @@ function gcWindow(){
   const days=TSLA.days;
   const y=dayShift(istToday(),-1);
   if(gcSt.range==='yday')   return [y,y];
-  // a custom range still gets capped at yesterday, so future-dated booked callbacks
-  // cannot wander into a window that is meant to describe work already done
-  if(gcSt.range==='custom') return [gcSt.from||days[0], (gcSt.to&&gcSt.to<y)?gcSt.to:y];
+  if(gcSt.range==='custom'){
+    // tolerate a half-filled or reversed range rather than correcting the user's typing
+    let a=gcSt.from||days[0], b=gcSt.to||y;
+    if(a>b) [a,b]=[b,a];
+    // still capped at yesterday, so future-dated booked callbacks cannot wander into a
+    // window meant to describe work already done
+    return [a, b<y?b:y];
+  }
   const n=+gcSt.range||7;
   return [dayShift(y,-(n-1)), y];
 }
@@ -2717,16 +2800,23 @@ function gcWire(){
     cw.style.display = gcSt.range==='custom' ? 'inline-flex':'none';
     if(gcSt.range==='custom'){
       const [a,b2]=gcWindow(), f=document.getElementById('gcFrom'), t=document.getElementById('gcTo');
-      f.min=t.min=TSLA.days[0]; f.max=t.max=TSLA.days[TSLA.days.length-1];
+      // No min/max on the inputs. A browser that rejects an out-of-range date can blank the
+      // field, and the blank then propagated into state -- which is how entering the second
+      // date appeared to wipe the first. Out-of-range dates are clamped in gcWindow() instead,
+      // where they simply select nothing rather than destroying what the user typed.
+      f.removeAttribute('min'); f.removeAttribute('max');
+      t.removeAttribute('min'); t.removeAttribute('max');
       if(!gcSt.from){ gcSt.from=a; gcSt.to=b2; } f.value=gcSt.from; t.value=gcSt.to;
     }
     renderGc();
   }));
+  // Each input owns ONLY its own half of the state and never writes to the other field.
+  // The previous version rewrote the sibling whenever from>to, so editing the second date
+  // visibly changed the first. A reversed range is now swapped at read time in gcWindow().
   ['gcFrom','gcTo'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{
-    let f=document.getElementById('gcFrom').value, t=document.getElementById('gcTo').value;
-    if(f&&t&&f>t){ if(id==='gcFrom') t=f; else f=t;
-      document.getElementById('gcFrom').value=f; document.getElementById('gcTo').value=t; }
-    gcSt.from=f||null; gcSt.to=t||null; renderGc();
+    const v=document.getElementById(id).value || null;
+    if(id==='gcFrom') gcSt.from=v; else gcSt.to=v;
+    renderGc();
   }));
   document.querySelectorAll('#gcRoleSeg button').forEach(b=>b.addEventListener('click',()=>{
     gcSt.view=b.dataset.v; gcSt.sel=null;
