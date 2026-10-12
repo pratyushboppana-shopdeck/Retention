@@ -374,10 +374,14 @@
       <div class="gcgm-head"><span>By CL of the go-live GC — low retention first</span><span class="gcgm-ctl"><select id="clSel"></select></span></div>
       <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
       <div class="gcgm-detail" id="clDetail"></div>
+      <div style="margin-top:8px">
+        <button type="button" class="gcexp" id="clShowAll" style="display:none">Show every GC and GM &#9662;</button>
+      </div>
     </div>
     <div class="gcgm-cols">
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GC — low retention first</span><span class="gcgm-ctl"><select id="gcSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
+        <div id="gcClBanner" class="clbanner" style="display:none"></div>
         <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
         <div class="gcgm-detail" id="gcDetail"></div>
       </div>
@@ -1388,7 +1392,7 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
 
 // ===== GC & GM retention view =====
 let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={}, WEEKACT=null;
-const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All', cl:'All'};
+const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All', cl:'All', showAllRanks:false};
 const MONTH2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function wkMonthKey(w){const co=parseCohort(w); return co?co.my*100+co.mm:0;}
 function wkMonthLabel(w){const co=parseCohort(w); return co?MONTH2[co.mm-1]+' '+String(co.my).slice(2):w;}
@@ -1755,25 +1759,45 @@ function renderGcgm(){
   document.querySelectorAll('#gcgmWeeks .wkchip').forEach(c=>c.classList.toggle('on',gcgmSel.weeks.has(c.dataset.w)));
   const weeks=Object.keys(GCGM.weeks);
   document.querySelectorAll('#gcgmMonths .mbtn').forEach(b=>{const wks=weeks.filter(w=>wkMonthKey(w)==+b.dataset.mk); b.classList.toggle('on',wks.length&&wks.every(w=>gcgmSel.weeks.has(w)));});
-  const gcAgg=renderRank(GCGM.gc,'gcRows','gcDetail','gc',document.getElementById('gcSel'));
   // CL rows are the GC rows relabelled by the go-live GC's CL (team_mapping.json), so they sum exactly
   renderRank(GCGM.gc.map(r=>[r[0],clOf(r[1],'')].concat(r.slice(2))).filter(r=>r[1]),'clRows','clDetail','cl',document.getElementById('clSel'));
-  // Picking a CL narrows the GM table to that CL's GMs. The CL table itself still shows every
-  // CL, so the click reads as a filter rather than as the table disappearing.
-  const clPick = (gcgmSel.cl && gcgmSel.cl!=='All') ? gcgmSel.cl : null;
+
+  // Picking a CL narrows BOTH rankings to that CL's people -- a GC through their own sheet row,
+  // a GM through the CL their GCs sit under. The CL table itself keeps every CL, so the click
+  // reads as a filter rather than the table vanishing. "Show every GC and GM" overrides it
+  // without clearing the selection, so the CL stays highlighted and the seller list below
+  // still belongs to that CL.
+  const clSelected = (gcgmSel.cl && gcgmSel.cl!=='All') ? gcgmSel.cl : null;
+  const clPick = gcgmSel.showAllRanks ? null : clSelected;
+  const gcSource = clPick ? GCGM.gc.filter(r=>clOf(r[1],'')===clPick) : GCGM.gc;
   const gmSource = clPick ? GCGM.gm.filter(r=>clOf('',r[1])===clPick) : GCGM.gm;
+  const gcAgg=renderRank(gcSource,'gcRows','gcDetail','gc',document.getElementById('gcSel'));
   const gmAgg=renderRank(gmSource,'gmRows','gmDetail','gm',document.getElementById('gmSel'),{clCol:true});
-  const ban=document.getElementById('gmClBanner');
-  if(clPick){
-    const n=new Set(gmSource.map(r=>r[1])).size;
-    const shown=document.querySelectorAll('#gmRows tr').length;
+
+  const banner=(id,rowsId,source,noun)=>{
+    const ban=document.getElementById(id);
+    if(!clPick){ ban.style.display='none'; ban.innerHTML=''; return; }
+    const n=new Set(source.map(r=>r[1])).size;
+    const shown=document.querySelectorAll('#'+rowsId+' tr').length;
     const hid=n-shown;
-    ban.innerHTML=`Showing <b>${shown}</b> of <b>${n}</b> GM${n===1?'':'s'} under <b>${esc(clPick)}</b>`+
+    ban.innerHTML=`Showing <b>${shown}</b> of <b>${n}</b> ${noun}${n===1?'':'s'} under <b>${esc(clPick)}</b>`+
       (hid>0?` <span style="color:var(--muted)">(${hid} below the 5 go-live cut)</span>`:'')+
-      `<button type="button" id="gmClClear">Show all GMs ✕</button>`;
+      `<button type="button" data-clclear="1">Clear CL ✕</button>`;
     ban.style.display='flex';
-    document.getElementById('gmClClear').addEventListener('click',e=>{e.stopPropagation(); gcgmPick('cl','All');});
-  } else { ban.style.display='none'; ban.innerHTML=''; }
+    ban.querySelector('[data-clclear]').addEventListener('click',e=>{e.stopPropagation(); gcgmPick('cl','All');});
+  };
+  banner('gcClBanner','gcRows',gcSource,'GC');
+  banner('gmClBanner','gmRows',gmSource,'GM');
+
+  // the collapsible override under the CL table
+  const tog=document.getElementById('clShowAll');
+  if(tog){
+    tog.style.display = clSelected ? 'inline-flex' : 'none';
+    tog.classList.toggle('on', !!gcgmSel.showAllRanks);
+    tog.innerHTML = gcgmSel.showAllRanks
+      ? 'Showing every GC and GM &#9652;'
+      : 'Show every GC and GM &#9662;';
+  }
   const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
   const cohort=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).reduce((s,w)=>s+((window.COHORTN||{})[w]||0),0);
@@ -1833,6 +1857,9 @@ function renderSellerPanel(){
   document.getElementById('spNote').textContent=`${withOpen} of ${out.length} have a PENDING blocker — a dependency on us. Open pointers = unresolved tasks (card 10550; status pending/closed) raised from go-live onward, limited to blocking types (ad-account, BM, page, pixel, access, payment, catalogue, shipping, escalations…); internal cadence/automation tasks are counted but not listed.`;
   panel.style.display='block';
 }
+document.getElementById('clShowAll').addEventListener('click',()=>{
+  gcgmSel.showAllRanks=!gcgmSel.showAllRanks; renderGcgm();
+});
 document.getElementById('spCsv').addEventListener('click',()=>{
   if(!SPROWS.length) return; const B=window.BUCKETS||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
