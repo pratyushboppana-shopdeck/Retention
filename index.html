@@ -1220,9 +1220,9 @@ function renderDefs(){
     BUCKET_DEFS.map((x,i)=>'<div class="defrow"><div class="defname"><span class="defdot" style="background:'+BUCKET_COLORS[i]+'"></span>'+esc(x.n)+'</div><div class="defrule"><b>'+x.d+'</b><br>'+x.r+'</div></div>').join('');
 }
 let CURDRILL=null;
-// ---- GC -> GM -> CL mapping (team_mapping.json, snapshotted from the HITS Team Mapping sheet) ----
-// A GC's CL comes from their own sheet row; anyone not on the sheet falls back to the CL most of
-// their GM's GCs sit under. Past GCs are on the sheet too, so point-in-time go-live GCs still resolve.
+// ---- GC -> GM -> CL mapping (team_mapping.json, rewritten from card 12101 by every refresh) ----
+// A GC's CL comes from their own card row; anyone not on the card falls back to the CL most of
+// their GM's GCs sit under. Past GCs are carried in the file, so point-in-time go-live GCs still resolve.
 let TEAMMAP=null;
 const nrm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
 async function loadTeamMap(){
@@ -2365,7 +2365,7 @@ function buildClsc(){
     'Task SLA, stuck, connect and call quality: '+fd(W.a)+'&ndash;'+fd(W.b)+(SLA.short?' (task data starts '+esc(SLA.from)+')':'')+', by each GC&rsquo;s CL today. '+
     'Pre-live video: go-lives '+(PL.a?fd(PL.a)+'&ndash;'+fd(PL.b):'—')+(PL.short?' (pre-live data only starts '+esc(PL.from)+')':'')+', by the seller&rsquo;s current GC. '+
     '<b>▲▼</b> = percentage-point change against the '+W.len+' days before; blank where either side is too thin or the data does not reach back '+
-    '(&lt;5 go-lives, &lt;10 tasks or calls). CL comes from the HITS Team Mapping sheet (snapshot '+esc(TEAMMAP.fetched||'—')+'). '+
+    '(&lt;5 go-lives, &lt;10 tasks or calls). CL comes from card 12101 (HITS Team Mapping Validation, as of '+esc(TEAMMAP.fetched||'—')+'). '+
     'Aaruni Vaidya and her GCs are outside every CL (they report to Pratyush) and are left out here. '+
     'Click a CL to see its GMs, worst task SLA first.';
 }
@@ -2394,7 +2394,7 @@ document.getElementById('clCsvBtn').addEventListener('click',clCsv);
 // Quality is stored as SUMS over scored calls, so any slice divides sum by count and
 // stays correct. It is shown at call level with no minimum-n gate -- the n is printed
 // beside it so a thin sample is visible rather than hidden.
-const gcSt={view:'gc', mode:'console', sort:'adh', sel:null, team:null, off:{},
+const gcSt={view:'gc', mode:'console', sort:'adh', sel:null, team:'Core GC', off:{},
             range:'7', from:null, to:null, taskKind:'all',
             page:'overview', metric:'ontime', cl:null, gm:null, gcP:null, clPick:null, gmPick:null};
 let gcInit=false;

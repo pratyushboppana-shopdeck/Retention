@@ -905,6 +905,12 @@ MAP_CARD = 12101
 MAP_TEAM = {"core_gc": "Core GC", "revival_gc": "Revival GC", "hypercare_gc": "Hypercare GC",
             "1-5k": "1-5K GL"}
 UNMAPPED = "Unmapped"
+TEAM_MAP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "team_mapping.json")
+
+# Owner corrections that card 12101 has not caught up with yet, keyed by normalised GM name.
+# Aaruni Vaidya's team moved from CL Roopesh B to Pratyush B on 2026-10-14; the card reflects
+# it from 2026-10-15, after which this entry is a no-op and can be deleted.
+GM_CL_OVERRIDE = {"aaruni vaidya": "Pratyush B"}
 
 # Owner-supplied removals (2026-09-11): not GCs carrying a real book. Dropped from
 # the GC task SLA tab only -- matched on normalised name, and only for role 'GC',
@@ -923,7 +929,8 @@ def _norm_name(s):
 def load_gc_map(session):
     """Card 12101 -> lookups by user_id, email and normalised name, each to (gm, cl, team).
     user_id is the workboard assignee id, so it is tried first; email and name only cover a
-    row whose user_id is blank. A card failure degrades to everyone Unmapped, loudly."""
+    row whose user_id is blank. A card failure degrades to everyone Unmapped, loudly.
+    Also rewrites team_mapping.json, which every other tab reads for GC -> GM -> CL."""
     by_uid, by_em, by_nm = {}, {}, {}
     try:
         rows = list(csvmod.DictReader(io.StringIO(run_card_csv(session, MAP_CARD))))
@@ -932,10 +939,14 @@ def load_gc_map(session):
         return by_uid, by_em, by_nm
     # the CSV export uses display names ("Core Gc Email Id"); compare on a squashed key
     key = lambda k: re.sub(r"[^a-z0-9]", "", (k or "").lower())
+    active = []
     for r in rows:
         r = {key(k): (v or "").strip() for k, v in r.items()}
         gm = re.sub(r"\s+", " ", r.get("gm", ""))
-        v = (gm, r.get("cl", ""), MAP_TEAM.get(r.get("teammapping", "").lower(), r.get("teammapping", "")))
+        cl = GM_CL_OVERRIDE.get(_norm_name(gm), r.get("cl", ""))
+        v = (gm, cl, MAP_TEAM.get(r.get("teammapping", "").lower(), r.get("teammapping", "")))
+        if r.get("coregc"):
+            active.append({"gc": r["coregc"], "gm": gm, "cl": cl, "role": v[2], "active": True})
         if r.get("userid"):
             by_uid.setdefault(r["userid"], v)
         if r.get("coregcemailid"):
@@ -943,7 +954,38 @@ def load_gc_map(session):
         if r.get("coregc"):
             by_nm.setdefault(_norm_name(r["coregc"]), v)
     print(f"  card {MAP_CARD}: {len(rows)} GC rows, {len(by_uid)} with a user_id")
+    write_team_map(active)
     return by_uid, by_em, by_nm
+
+
+def write_team_map(active):
+    """team_mapping.json = card 12101's GCs (active) + every past GC from the previous file
+    (inactive), so a historical go-live GC who has since left still resolves to a CL."""
+    if not active:
+        return
+    try:
+        with open(TEAM_MAP_FILE) as f:
+            old = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        old = {}
+    alias = old.get("aliases", {})
+    seen = {alias.get(_norm_name(x["gc"]), _norm_name(x["gc"])) for x in active}
+    past = []
+    for x in old.get("rows", []):
+        k = alias.get(_norm_name(x.get("gc")), _norm_name(x.get("gc")))
+        if k and k not in seen:
+            seen.add(k)
+            past.append({**x, "role": (old.get("roles") or {}).get(x.get("role"), x.get("role")),
+                         "cl": GM_CL_OVERRIDE.get(_norm_name(x.get("gm")), x.get("cl")), "active": False})
+    out = {"source": f"Metabase card {MAP_CARD} (HITS Team Mapping Validation - Rolling), written by refresh.py",
+           "fetched": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+           "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so "
+                   "historical go-lives still find a CL.",
+           "roles": {t: t for t in MAP_TEAM.values()},
+           "aliases": alias, "rows": active + past}
+    with open(TEAM_MAP_FILE, "w") as f:
+        json.dump(out, f, indent=1); f.write("\n")
+    print(f"  team_mapping.json: {len(active)} active GCs from card {MAP_CARD}, {len(past)} past GCs kept")
 
 
 def parse_tasksla(csv_text, gc_map=None):
