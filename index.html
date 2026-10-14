@@ -2868,7 +2868,7 @@ function gcWire(){
     renderGc();
   }));
   document.querySelectorAll('#gcRoleSeg button').forEach(b=>b.addEventListener('click',()=>{
-    gcSt.view=b.dataset.v; gcSt.sel=null;
+    gcSt.view=b.dataset.v; gcSt.sel=null; gcSt.gcIn=null;
     document.querySelectorAll('#gcRoleSeg button').forEach(x=>x.classList.toggle('on',x===b));
     renderGc();
   }));
@@ -2920,7 +2920,7 @@ function gcTeamChips(R){
         `<span class="defdot" style="background:${col}"></span>${esc(t)} (${c[t]})</span>`;}).join('');
   if(!gcSt.team) el.querySelectorAll('.item[data-t]:not([data-t=""])').forEach(x=>x.classList.remove('off'));
   el.querySelectorAll('.item').forEach(x=>x.addEventListener('click',()=>{
-    const t=x.dataset.t; gcSt.team=(!t||gcSt.team===t)?null:t; gcSt.sel=null; renderGc();
+    const t=x.dataset.t; gcSt.team=(!t||gcSt.team===t)?null:t; gcSt.sel=null; gcSt.gcIn=null; renderGc();
   }));
 }
 function gcTaskChips(R){
@@ -2975,7 +2975,7 @@ function gcRoster(){
   document.querySelectorAll('#gcRoster .gcrow').forEach(el=>el.addEventListener('click',()=>{
     const k=el.dataset.k;
     gcSt.sel = (gcSt.sel!=null && String(gcSt.sel)===k) ? null : (gcGrp()?k:+k);
-    renderGc();
+    gcSt.gcIn=null; renderGc();
   }));
 }
 
@@ -3098,7 +3098,7 @@ function gcRosterWide(){
 
   document.querySelectorAll('#gcRoster tbody tr').forEach(tr=>tr.addEventListener('click',()=>{
     gcSt.sel = gcGrp() ? tr.dataset.k : +tr.dataset.k;
-    gcSt.expanded=false; renderGc();
+    gcSt.gcIn=null; gcSt.expanded=false; renderGc();
     document.getElementById('gcReportPanel').scrollIntoView({behavior:'smooth',block:'nearest'});
   }));
   if(!gcRosterWide._rs){
@@ -3231,7 +3231,25 @@ function gcCards(sel){
         <span style="float:right">Q <b style="color:${gcQCol(x.q)}">${x.q==null?'—':x.q}</b>${x.sc?' <span style="opacity:.6">n'+x.sc+'</span>':''}</span></div>
     </div>`;}).join('')+'</div>';
 }
+// In By GM / By CL, a GC card opens that GC's report in place (gcSt.gcIn) without leaving the
+// grouped view, so the roster stays on GMs and the next GM is one click away.
 function gcReport(){
+  if(gcGrp() && gcSt.gcIn!=null){
+    const R=gcR(), keepV=gcSt.view, keepS=gcSt.sel, back=gcSt.sel;
+    gcSt.view='gc'; gcSt.sel=gcSt.gcIn;
+    // a filter change can leave this GC with nothing due; fall back to the GM, never to another GC
+    if(!gcList().some(x=>x.k===gcSt.gcIn)){ gcSt.view=keepV; gcSt.sel=keepS; gcSt.gcIn=null; gcReportInner(); return; }
+    try{ gcReportInner(); } finally { gcSt.view=keepV; gcSt.sel=keepS; }
+    const el=document.getElementById('gcReport');
+    el.insertAdjacentHTML('afterbegin','<button type="button" class="gcexp" id="gcBack" style="margin-bottom:10px">&larr; Back to '+
+      esc(String(back))+'</button>');
+    document.getElementById('gcRepHint').textContent='a GC under '+back;
+    document.getElementById('gcBack').addEventListener('click',()=>{ gcSt.gcIn=null; gcReport(); });
+    return;
+  }
+  gcReportInner();
+}
+function gcReportInner(){
   const R=gcR(), a=gcList(), el=document.getElementById('gcReport');
   let sel=a.find(x=>String(x.k)===String(gcSt.sel)) || a[0];
   if(!sel){ el.innerHTML='<p class="drill-sub">Nothing due in this window.</p>'; return; }
@@ -3315,9 +3333,7 @@ function gcReport(){
   document.querySelectorAll('#gcTaskKind button').forEach(b=>b.addEventListener('click',()=>{
     gcSt.taskKind=b.dataset.k; gcReport(); }));
   document.querySelectorAll('#gcReport .gccard').forEach(c=>c.addEventListener('click',()=>{
-    gcSt.view='gc'; gcSt.sel=+c.dataset.p;
-    document.querySelectorAll('#gcRoleSeg button').forEach(x=>x.classList.toggle('on',x.dataset.v==='gc'));
-    renderGc();
+    gcSt.gcIn=+c.dataset.p; gcReport();
     document.getElementById('gcReportPanel').scrollIntoView({behavior:'smooth',block:'start'});
   }));
   const csv=document.getElementById('gcStuckCsv');
