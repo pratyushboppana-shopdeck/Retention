@@ -871,26 +871,10 @@ callm AS (
     SUM(IF(ed.q_ok, ed.sat, NULL)) sat_sum,
     SUM(IF(ed.q_ok, ed.ton, NULL)) ton_sum
   FROM cls LEFT JOIN ec ON ec.entity_id=cls.id LEFT JOIN ed ON ed.sid=ec.exotel_call_sid
-  GROUP BY 1),
--- GM inferred from whichever GM most of a GC's sellers sit under. Card 12101 wins
--- where it has the GC; this only fills the 38 it does not cover.
-gmmap AS (
-  SELECT sm.seller_id,
-    MAX(IF(sm.manager_type='growth_manager',
-        REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' '),
-        NULL)) gm
-  FROM nushop.seller_managers sm LEFT JOIN nushop.users u ON sm.manager_id=u._id
-  GROUP BY 1),
-gcgm AS (
-  SELECT role, nm, gm FROM (
-    SELECT c.role, c.nm, g.gm,
-      ROW_NUMBER() OVER (PARTITION BY c.role, c.nm ORDER BY COUNT(*) DESC) rn
-    FROM cls c JOIN gmmap g ON g.seller_id=c.seller_id
-    WHERE g.gm IS NOT NULL AND g.gm NOT IN ('','-')
-    GROUP BY 1,2,3) WHERE rn=1)
+  GROUP BY 1)
 SELECT cls.role, FORMAT_DATE('%Y-%m-%d', cls.cd) AS d, cls.task, cls.nm,
   ANY_VALUE(cls.em) AS em,
-  ANY_VALUE(gcgm.gm) AS gm_inferred,
+  ANY_VALUE(cls.assignee) AS uid,
   COUNT(*) AS created,
   COUNTIF(cls.outcome='on_time') AS on_time,
   COUNTIF(cls.outcome='late')    AS late,
@@ -906,30 +890,22 @@ SELECT cls.role, FORMAT_DATE('%Y-%m-%d', cls.cd) AS d, cls.task, cls.nm,
   CAST(ROUND(SUM(COALESCE(callm.dur_sum,0))) AS INT64) AS dur_sum
 FROM cls
 LEFT JOIN callm ON callm.id = cls.id
-LEFT JOIN gcgm  ON gcgm.role = cls.role AND gcgm.nm = cls.nm
 GROUP BY cls.role, d, cls.task, cls.nm
 ORDER BY cls.role, d, cls.task, cls.nm
 """
 
 
 # ---------------------------------------------------------------------------
-# GC team membership, mirroring the incentive engine's own sources:
-#   card 12101 -> core GC roster (GM <-> GC), carries emails
-#   card 12100 -> 1k-5k growth leads
-#   card 11911 -> revival submitters
-# Hypercare has no card of its own; the incentive engine reads it from the
-# People sheet's team column, which this job has no credentials for. The five
-# below are GM Aaruni Vaidya's team, taken from card 12477. Treat as a manual
-# assertion and revisit if hypercare membership changes.
-HYPERCARE_EMAILS = {
-    "nikita.sinha@blitzscale.co",
-    "tanaya.gore@blitzscale.co", "sargunpreet.singh@blitzscale.co",
-    "dev.vashisth@blitzscale.co",
-}
+# GC team, GM and CL for the GC task SLA tab come from ONE place: card 12101 ("HITS Team
+# Mapping Validation - Rolling - Core GC and HC"), which reads csv_upload.core_gc_mapping.
+# It carries every active GC (core, 1-5K, hypercare, revival) with their GM, CL, team and
+# workboard user_id. Owner's rule (2026-10-14): anyone NOT on it is 'Unmapped' -- no
+# inferred GM, no sheet fallback -- so a missing row is visible rather than papered over.
+MAP_CARD = 12101
+MAP_TEAM = {"core_gc": "Core GC", "revival_gc": "Revival GC", "hypercare_gc": "Hypercare GC",
+            "1-5k": "1-5K GL"}
+UNMAPPED = "Unmapped"
 
-# Owner-supplied corrections (2026-09-04), applied AFTER the cards and taking
-# precedence over them. Matched on normalised name because the owner gave names,
-# not emails. Fold these into the mapping sheet once it is readable, then delete.
 # Owner-supplied removals (2026-09-11): not GCs carrying a real book. Dropped from
 # the GC task SLA tab only -- matched on normalised name, and only for role 'GC',
 # so a same-named KAM elsewhere is untouched.
@@ -939,130 +915,38 @@ EXCLUDE_GCS = {
     "biplab kumar singh",
 }
 
-OWNER_OVERRIDES = {
-    # Revival — confirmed by the owner; card 11911 only sees people who have
-    # actually submitted a revival, so it under-reports the team.
-    "kavita rai": "Revival GC",
-    "debasish das": "Revival GC",
-    "vishal thapa": "Revival GC",
-    "aanchal agrawal": "Revival GC",
-    # Core — these came back Unmapped because they are in none of the three cards.
-    "pridhi s": "Core GC",
-    "pridhi": "Core GC",
-    "amit jana": "Core GC",
-    "seema paroha": "Core GC",
-    "seema": "Core GC",
-    # Owner says Sadiya is core, not hypercare. That contradicts card 12477, which
-    # is where the hypercare list came from — so the other four are unverified too.
-    "sadiya rajgoli": "Core GC",
-    "saadiya rajgoli": "Core GC",
-    "sadiya": "Core GC",
-    # 1-5K GL — owner-confirmed 2026-09-11; card 12100 does not carry her.
-    "shradha kumari": "1-5K GL",
-    "shradha": "1-5K GL",
-}
-
 
 def _norm_name(s):
     return re.sub(r"\s+", " ", (s or "")).strip().lower()
 
 
-def _pick(row, *names):
-    """First non-empty value among the given column names. Compares on a key with
-    every non-alphanumeric stripped, because a card's CSV headers are display names
-    ("1k 5k Gl Email Id") while its result columns are snake_case."""
-    want = [re.sub(r"[^a-z0-9]", "", n.lower()) for n in names]
-    norm = {re.sub(r"[^a-z0-9]", "", (k or "").lower()): (v or "").strip()
-            for k, v in row.items()}
-    for w in want:
-        if norm.get(w):
-            return norm[w]
-    return ""
-
-
-# GC -> GM -> CL source of truth: the 'current mapping' tab of the HITS Team Mapping sheet,
-# snapshotted into team_mapping.json at the repo root (CI has no Google credentials). The page
-# reads the same file for CL, so this only decides GM and team for the task-SLA console.
-TEAM_MAP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "team_mapping.json")
-
-
-def load_sheet_map():
-    """norm GC name -> (gm, cl, team) from the ACTIVE sheet rows only. Past-GC rows are
-    left out here: their GM on the sheet is wherever they last sat, which is no better than
-    the roster/inferred GM the task rows already carry."""
+def load_gc_map(session):
+    """Card 12101 -> lookups by user_id, email and normalised name, each to (gm, cl, team).
+    user_id is the workboard assignee id, so it is tried first; email and name only cover a
+    row whose user_id is blank. A card failure degrades to everyone Unmapped, loudly."""
+    by_uid, by_em, by_nm = {}, {}, {}
     try:
-        with open(TEAM_MAP_FILE) as f:
-            tm = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"  ! team_mapping.json unreadable ({e}); falling back to the roster cards")
-        return {}, {}
-    roles = tm.get("roles", {})
-    out = {}
-    for r in tm.get("rows", []):
-        if r.get("active") and r.get("gc"):
-            out.setdefault(_norm_name(r["gc"]), (r.get("gm") or "", r.get("cl") or "",
-                                                 roles.get(r.get("role") or "", "")))
-    return out, tm.get("aliases", {})
+        rows = list(csvmod.DictReader(io.StringIO(run_card_csv(session, MAP_CARD))))
+    except Exception as e:                                       # noqa: BLE001
+        print(f"  ! card {MAP_CARD} failed ({e}); every GC will read Unmapped", file=sys.stderr)
+        return by_uid, by_em, by_nm
+    # the CSV export uses display names ("Core Gc Email Id"); compare on a squashed key
+    key = lambda k: re.sub(r"[^a-z0-9]", "", (k or "").lower())
+    for r in rows:
+        r = {key(k): (v or "").strip() for k, v in r.items()}
+        gm = re.sub(r"\s+", " ", r.get("gm", ""))
+        v = (gm, r.get("cl", ""), MAP_TEAM.get(r.get("teammapping", "").lower(), r.get("teammapping", "")))
+        if r.get("userid"):
+            by_uid.setdefault(r["userid"], v)
+        if r.get("coregcemailid"):
+            by_em.setdefault(r["coregcemailid"].lower(), v)
+        if r.get("coregc"):
+            by_nm.setdefault(_norm_name(r["coregc"]), v)
+    print(f"  card {MAP_CARD}: {len(rows)} GC rows, {len(by_uid)} with a user_id")
+    return by_uid, by_em, by_nm
 
 
-def build_team_map(session):
-    """Team category and GM per GC.
-
-    Category: 1-5K GL (card 12100) / Revival GC (11911) / Core GC (12101), specific
-    teams first so a GC in both lands in the specific one, matching the incentive
-    engine. Hypercare has no card and is asserted by hand below.
-
-    GM: card 12101 is authoritative but is the CORE roster only -- it covers 52 of the
-    90 GCs carrying tasks (76% of tasks due). The rest (revival, hypercare, 1-5K, new
-    joiners) get a GM inferred from whichever GM most of their sellers sit under, and
-    are flagged inferred so the two can be told apart in the UI.
-
-    Returns (cat_by_email, cat_by_name, forced_cat, gm_by_email, gm_by_name).
-    A card outage degrades to Unmapped rather than failing the refresh.
-    """
-    by_email, by_name = {}, {}
-    gm_email, gm_name = {}, {}
-
-    def add(cat, name, email):
-        if email:
-            by_email.setdefault(email.strip().lower(), cat)
-        if name:
-            by_name.setdefault(_norm_name(name), cat)
-
-    def load(card, cat, name_cols, email_cols, gm_cols=None):
-        try:
-            rows = list(csvmod.DictReader(io.StringIO(run_card_csv(session, card))))
-            n = g = 0
-            for r in rows:
-                nm, em = _pick(r, *name_cols), _pick(r, *email_cols)
-                if nm or em:
-                    add(cat, nm, em); n += 1
-                if gm_cols:
-                    gm = _pick(r, *gm_cols)
-                    if gm:
-                        if em:
-                            gm_email.setdefault(em.strip().lower(), gm)
-                        if nm:
-                            gm_name.setdefault(_norm_name(nm), gm)
-                        g += 1
-            print(f"  card {card} -> {cat}: {n}/{len(rows)} mapped" + (f", {g} with GM" if gm_cols else ""))
-        except Exception as e:                                   # noqa: BLE001
-            print(f"  ! card {card} ({cat}) failed: {e}")
-
-    load(12100, "1-5K GL",    ["1k_5k_gl", "gl", "name"],
-                              ["1k_5k_gl_email_id", "gl_email_id", "glemail"], ["gm"])
-    load(11911, "Revival GC", ["submitted_by", "gc", "gc_name"], ["gc_email", "email"])
-    load(12101, "Core GC",    ["core_gc", "gc"],
-                              ["core_gc_email_id", "gc_email_id", "gcemail"], ["gm"])
-
-    for e in HYPERCARE_EMAILS:                                   # overrides the core roster
-        by_email[e] = "Hypercare GC"
-    forced = {_norm_name(k): v for k, v in OWNER_OVERRIDES.items()}
-    return by_email, by_name, forced, gm_email, gm_name
-
-
-def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
-                  gm_email=None, gm_name=None):
+def parse_tasksla(csv_text, gc_map=None):
     """Index days/tasks/people per role and emit compact integer rows.
 
     Row = [dayIdx, taskIdx, personIdx, created, on_time, late, stuck, pending,
@@ -1074,14 +958,13 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
     """
     roles = {}
     days, day_ix = [], {}
-    seen_gm = {}
     for r in csvmod.DictReader(io.StringIO(csv_text)):
         role = r["role"]
         if role == "GC" and _norm_name(r.get("nm")) in EXCLUDE_GCS:
             continue
         if role not in roles:
             roles[role] = {"tasks": [], "people": [], "_t": {}, "_p": {}, "rows": [],
-                           "emails": [], "gms": [], "cats": [], "gmsrc": []}
+                           "emails": [], "uids": [], "gms": [], "cats": [], "cls": [], "gmsrc": []}
         R = roles[role]
         d = r["d"]
         if d not in day_ix:
@@ -1093,10 +976,7 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
         if n not in R["_p"]:
             R["_p"][n] = len(R["people"]); R["people"].append(n)
             R["emails"].append((r.get("em") or "").strip().lower())
-        # a person's inferred GM can appear on any of their rows
-        gi = (role, n)
-        if not seen_gm.get(gi):
-            seen_gm[gi] = (r.get("gm_inferred") or "").strip()
+            R["uids"].append((r.get("uid") or "").strip())
 
         def i(k):
             try:
@@ -1109,44 +989,32 @@ def parse_tasksla(csv_text, cat_email=None, cat_name=None, forced=None,
                           i("calls"), i("connected"), i("scored"),
                           i("acc_sum"), i("sat_sum"), i("ton_sum"), i("dur_sum")])
 
-    cbe, cbn, fx = cat_email or {}, cat_name or {}, forced or {}
-    gbe, gbn = gm_email or {}, gm_name or {}
-    sheet, alias = load_sheet_map()
-    # one display spelling per GM, so the sheet's "Vipin gautam" and a roster "Vipin Gautam"
-    # do not become two rows in the By GM view
+    by_uid, by_em, by_nm = gc_map or ({}, {}, {})
+    # one display spelling per GM, so "Vipin gautam" and "Vipin Gautam" are one row in By GM
     canon = {}
-    for v in list(gbe.values()) + list(gbn.values()) + list(seen_gm.values()):
-        if v:
-            canon.setdefault(_norm_name(v), v)
-    n_sheet = 0
+    for v in list(by_uid.values()) + list(by_em.values()) + list(by_nm.values()):
+        if v[0]:
+            canon.setdefault(_norm_name(v[0]), v[0])
     for role, R in roles.items():
-        ems = R.pop("emails", [])
+        ems, uids = R.pop("emails", []), R.pop("uids", [])
         for i2, nm in enumerate(R["people"]):
-            e = ems[i2] if i2 < len(ems) else ""
-            key = _norm_name(nm)
-            if role == "GC":
-                sm = sheet.get(alias.get(key, key))
-                if sm and sm[0]:
-                    # the mapping sheet is the source of truth for anyone it lists as active
-                    n_sheet += 1
-                    R["cats"].append(sm[2] or fx.get(key) or cbe.get(e) or cbn.get(key) or "Unmapped")
-                    R["gms"].append(canon.get(_norm_name(sm[0]), sm[0])); R["gmsrc"].append("sheet")
-                    continue
-                R["cats"].append(fx.get(key) or cbe.get(e) or cbn.get(key) or "Unmapped")
-                # card 12101 is authoritative; the seller-derived GM only fills gaps
-                gm = gbe.get(e) or gbn.get(key)
-                if gm:
-                    R["gms"].append(gm); R["gmsrc"].append("roster")
-                else:
-                    R["gms"].append(seen_gm.get((role, nm)) or "(no GM)")
-                    R["gmsrc"].append("inferred" if seen_gm.get((role, nm)) else "none")
+            if role != "GC":
+                R["cats"].append(""); R["gms"].append(""); R["cls"].append(""); R["gmsrc"].append("")
+                continue
+            m = by_uid.get(uids[i2]) or by_em.get(ems[i2]) or by_nm.get(_norm_name(nm))
+            if m:
+                R["gms"].append(canon.get(_norm_name(m[0]), m[0]) or UNMAPPED)
+                R["cls"].append(m[1] or UNMAPPED)
+                R["cats"].append(m[2] or UNMAPPED)
+                R["gmsrc"].append("card")
             else:
-                R["cats"].append("")
-                R["gms"].append("")
-                R["gmsrc"].append("")
+                R["gms"].append(UNMAPPED); R["cls"].append(UNMAPPED)
+                R["cats"].append(UNMAPPED); R["gmsrc"].append("none")
         R.pop("_t"); R.pop("_p")
     if "GC" in roles:
-        print(f"  mapping sheet: {n_sheet} of {len(roles['GC']['people'])} GCs take GM/team from team_mapping.json")
+        src = roles["GC"]["gmsrc"]
+        print(f"  card {MAP_CARD} maps {src.count('card')} of {len(src)} GCs carrying tasks; "
+              f"{src.count('none')} Unmapped")
 
     order = sorted(range(len(days)), key=lambda k: days[k])
     remap = {old: new for new, old in enumerate(order)}
@@ -1315,8 +1183,8 @@ def parse_blockfb(csv_text):
 
 
 # ---------------------------------------------------------------------------
-# The stuck tasks themselves, so the GC report can list them rather than just
-# count them. Deliberately a separate query: it needs no call evidence and no
+# The stuck AND late-completed tasks themselves, so the GC/GM report can list them
+# rather than just count them. Deliberately a separate query: it needs no call evidence and no
 # quality JSON, which is the expensive half of TASKSLA_SQL.
 #
 # The scoring must reproduce TASKSLA_SQL's 'stuck' bucket exactly or the list
@@ -1330,7 +1198,7 @@ def parse_blockfb(csv_text):
 STUCK_SQL = r"""
 WITH base AS (
   SELECT t.id, t.seller_id, t.type, t.sub_type, t.title, t.status AS task_status,
-    t.created_at, t.sla_in_min, t.completion_date,
+    t.created_at, t.completed_at, t.sla_in_min, t.completion_date,
     DATE(t.created_at,'Asia/Kolkata') AS cd,
     COALESCE(NULLIF(TRIM(s.display_name),''),
              REGEXP_REPLACE(TRIM(CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,''))),r'\s+',' ')) AS sname,
@@ -1343,9 +1211,6 @@ WITH base AS (
     AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
     AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
-    -- Stuck now means NO completed_at at all, matching TASKSLA_SQL's cls: a task carrying a
-    -- finish timestamp is on_time or late, never stuck, whatever its status label says.
-    AND t.completed_at IS NULL
 ),
 lab AS (
   SELECT *, CASE
@@ -1364,15 +1229,21 @@ sc AS (
     ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE) END AS due_ts
   FROM lab WHERE task IS NOT NULL
 )
+-- kind 0 = stuck: NO completed_at and past due (matches TASKSLA_SQL's cls -- a task carrying a
+--          finish timestamp is on_time or late, never stuck, whatever its status label says)
+-- kind 1 = completed beyond SLA: completed_at after due; over_min is how late it finished
 SELECT id AS task_id, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm, seller_id,
   COALESCE(sname,'') AS sname, sub_type, task_status,
   FORMAT_TIMESTAMP('%Y-%m-%d', due_ts, 'Asia/Kolkata') AS due_d,
-  CAST(ROUND(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), due_ts, MINUTE)) AS INT64) AS over_min
-FROM sc WHERE CURRENT_TIMESTAMP() > due_ts
+  FORMAT_TIMESTAMP('%Y-%m-%d', completed_at, 'Asia/Kolkata') AS done_d,
+  IF(completed_at IS NULL, 0, 1) AS kind,
+  CAST(ROUND(TIMESTAMP_DIFF(COALESCE(completed_at, CURRENT_TIMESTAMP()), due_ts, MINUTE)) AS INT64) AS over_min
+FROM sc
+WHERE (completed_at IS NULL AND CURRENT_TIMESTAMP() > due_ts) OR completed_at > due_ts
 ORDER BY over_min DESC
 """
 
-STUCK_STATUS = ["pending", "closed", "no status"]
+STUCK_STATUS = ["pending", "closed", "no status", "completed"]
 
 
 def parse_stuck(csv_text):
@@ -1384,7 +1255,9 @@ def parse_stuck(csv_text):
     to the aggregate by name and date string instead, and EXCLUDE_GCS is applied
     here too so the two views agree on who exists.
 
-    Row = [dayIdx, taskIdx, personIdx, sellerIdx, subIdx, statusIdx, overMin, dueDayIdx, taskId]
+    Row = [dayIdx, taskIdx, personIdx, sellerIdx, subIdx, statusIdx, overMin, dueDayIdx, taskId,
+           kind, doneDayIdx]
+    kind 0 = stuck (still open past SLA), 1 = completed beyond SLA; doneDayIdx is -1 when open.
 
     taskId is the raw workboard_tasks.id, carried inline rather than indexed: it is
     unique per row, so an index table would be the same bytes plus a lookup.
@@ -1410,11 +1283,15 @@ def parse_stuck(csv_text):
         except ValueError:
             om = 0
         st = (r.get("task_status") or "").strip() or "no status"
+        if st not in STUCK_STATUS:
+            STUCK_STATUS.append(st)
+        kind = 1 if (r.get("kind") or "0").strip() == "1" else 0
         out.append([idx(r["d"], days, di), idx(r["task"], tasks, ti), idx(nm, people, pi),
                     si[sid], idx((r.get("sub_type") or "").strip(), subs, bi),
-                    STUCK_STATUS.index(st) if st in STUCK_STATUS else 0, om,
-                    idx(r.get("due_d") or r["d"], days, di), r.get("task_id") or ""])
-    out.sort(key=lambda x: -x[6])
+                    STUCK_STATUS.index(st), om,
+                    idx(r.get("due_d") or r["d"], days, di), r.get("task_id") or "",
+                    kind, idx(r["done_d"], days, di) if kind and r.get("done_d") else -1])
+    out.sort(key=lambda x: (x[9], -x[6]))
     return {"days": days, "people": people, "tasks": tasks, "sellers": sellers,
             "names": snames, "subs": subs, "status": STUCK_STATUS, "rows": out}
 
@@ -1610,18 +1487,11 @@ def main():
     prelive = parse_prelive(run_csv(session, PRELIVE_SQL))
     blocks = parse_block(run_csv(session, BLOCK_SQL))
     blockfb = parse_blockfb(run_csv(session, BLOCKFB_SQL))
-    tbe, tbn, tforced, tgme, tgmn = build_team_map(session)
-    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), tbe, tbn, tforced, tgme, tgmn)
+    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))
     _gc = tasksla["roles"].get("GC", {})
-    _un = sum(1 for c in _gc.get("cats", []) if c == "Unmapped")
     _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
     if _left:
         print(f"  ! EXCLUDE_GCS did not take effect for: {_left}", file=sys.stderr)
-    _gmsrc = _gc.get("gmsrc", [])
-    print(f"  team map: {len(tbe)} emails, {len(tbn)} names; "
-          f"{_un} GC(s) unmapped of {len(_gc.get('people', []))}; "
-          f"GM from sheet {_gmsrc.count('sheet')}, roster {_gmsrc.count('roster')}, inferred {_gmsrc.count('inferred')}, "
-          f"none {_gmsrc.count('none')}")
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "gcgm": gcgm, "gcgmSellers": gcgms, "tsSop": tssop, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
                "blocks": blocks, "blockPlatform": blockfb, "stuck": stuck,
