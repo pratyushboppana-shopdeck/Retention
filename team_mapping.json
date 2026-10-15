@@ -1,6 +1,6 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-10-14",
+ "fetched": "2026-10-15",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
@@ -509,41 +509,6 @@
    "active": true
   },
   {
-   "gc": "Aditi Gupta",
-   "gm": "Aakash Aakash",
-   "cl": "Roopesh B",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "Eva Ambust",
-   "gm": "Aakash Aakash",
-   "cl": "Roopesh B",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "AYUSH JAIN",
-   "gm": "Aakash Aakash",
-   "cl": "Roopesh B",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "Komal Giri",
-   "gm": "Aakash Aakash",
-   "cl": "Roopesh B",
-   "role": "1-5K GL",
-   "active": true
-  },
-  {
-   "gc": "Naina Kumari",
-   "gm": "Aakash Aakash",
-   "cl": "Roopesh B",
-   "role": "1-5K GL",
-   "active": true
-  },
-  {
    "gc": "Nikita Sinha",
    "gm": "Aaruni Vaidya",
    "cl": "Pratyush B",
@@ -597,6 +562,41 @@
    "gm": "Aaruni Vaidya",
    "cl": "Pratyush B",
    "role": "Revival GC",
+   "active": true
+  },
+  {
+   "gc": "Aditi Gupta",
+   "gm": "Aakash Aakash",
+   "cl": "Roopesh B",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Eva Ambust",
+   "gm": "Aakash Aakash",
+   "cl": "Roopesh B",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "AYUSH JAIN",
+   "gm": "Aakash Aakash",
+   "cl": "Roopesh B",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Komal Giri",
+   "gm": "Aakash Aakash",
+   "cl": "Roopesh B",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "Naina Kumari",
+   "gm": "Aakash Aakash",
+   "cl": "Roopesh B",
+   "role": "1-5K GL",
    "active": true
   },
   {
