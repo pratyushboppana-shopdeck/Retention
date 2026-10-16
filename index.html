@@ -87,11 +87,13 @@
   .gbdef{font-size:13px !important;color:#3d4036 !important;}
   .gbbars{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:#fff;max-width:760px;}
   .gbbarh{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:6px;}
-  .gbbar{display:grid;grid-template-columns:130px minmax(120px,1fr) 70px 90px 90px;gap:10px;align-items:center;padding:4px 0;font-size:12.5px;}
+  .gbbar{display:grid;grid-template-columns:140px minmax(120px,1fr) 70px 70px 100px;gap:10px;align-items:center;padding:4px 0;font-size:12.5px;}
   .gbt{position:relative;height:12px;background:#ece9de;border-radius:3px;}
   .gbt i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;}
   .gbt em{position:absolute;top:-4px;bottom:-4px;border-left:2px dashed #23251f;}
-  .gbv{text-align:right;} .gbg{font-weight:700;} .gbs{color:var(--muted);font-size:11.5px;text-align:right;}
+  .gbv{text-align:right;} .gbg{font-weight:700;}
+  .gbhdr{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);}
+  .gbtot{border-top:1px solid var(--line);font-weight:650;} .gbs{color:var(--muted);font-size:11.5px;text-align:right;}
   .gbfine{font-size:11.5px;color:var(--muted);}
 
   .reason-head{margin-bottom:12px;font-size:14px;}
@@ -1520,24 +1522,25 @@ function gbPaint(){
   const graded=C.rows.filter(r=>r.n&&r.grp!=='none').sort((a,b)=>b.p-a.p);
   const ex=graded.find(r=>r.grp==='good'), exb=[...graded].reverse().find(r=>r.grp==='bad');
   const mem=gr=>{ const r=C.rows.filter(x=>x.grp===gr&&x.n).sort((a,b)=>b.p-a.p);
-    return r.length?r.map(x=>'<b>'+esc(x.name)+'</b> '+Math.round(100*x.p)+' <span class="gbs">('+x.n.toLocaleString()+' sellers)</span>').join(', '):'none right now'; };
+    return r.length?r.map(x=>'<b>'+esc(x.name)+'</b>').join(', '):'none right now'; };
   const bar=r=>{ const v=Math.round(100*r.p);
     return '<div class="gbbar"><span class="gbn">'+esc(r.name)+'</span>'+
       '<span class="gbt"><i style="width:'+v+'%;background:'+GB_COL[r.grp]+'"></i><em style="left:'+(100*C.avg).toFixed(1)+'%"></em></span>'+
-      '<span class="gbv"><b>'+v+'</b> of 100</span><span class="gbg" style="color:'+(r.grp==='good'?'#185FA5':r.grp==='bad'?'#a8501f':'#6b6e63')+'">'+GB_LAB[r.grp].replace(' offers','')+'</span>'+
-      '<span class="gbs">'+r.n.toLocaleString()+' sellers</span></div>'; };
+      '<span class="gbv"><b>'+(100*r.p).toFixed(1)+'%</b></span><span class="gbs">'+r.n.toLocaleString()+'</span>'+
+      '<span class="gbg" style="color:'+(r.grp==='good'?'#185FA5':r.grp==='bad'?'#a8501f':'#6b6e63')+'">'+(r.grp==='none'?'No offer':GB_LAB[r.grp].replace(' offers',''))+'</span></div>'; };
   document.getElementById('gbDef').innerHTML=
     '<div class="gbdh">What is a good offer and a bad offer?</div>'+
-    '<p>For each offer we ask one question: <b>out of every 100 sellers who went live on it, how many were still spending &#8377;3,000+ in their 3rd week?</b> '+
-    'Then we compare it with the average seller over '+esc(winTxt)+': <b>'+avg100+' of 100</b>.</p>'+
-    '<ul><li><b style="color:#185FA5">Good offer</b> = more than <b>'+avg100+' of 100</b> of its sellers keep spending: '+mem('good')+'</li>'+
-    '<li><b style="color:#a8501f">Bad offer</b> = fewer than <b>'+avg100+' of 100</b> keep spending: '+mem('bad')+'</li>'+
+    '<p>For each offer we ask: <b>how many of its sellers are still spending &#8377;3,000+ in their 3rd week</b>, compared with the average seller?</p>'+
+    '<ul><li><b style="color:#185FA5">Good offer</b> = more of its sellers keep spending than average: '+mem('good')+'</li>'+
+    '<li><b style="color:#a8501f">Bad offer</b> = fewer of its sellers keep spending than average: '+mem('bad')+'</li>'+
     '<li><b>Not yet clear</b> = too few sellers to say either way: '+mem('unclear')+'</li>'+
     '<li><b>No offer</b> &mdash; shown separately, never called good or bad: '+mem('none')+'</li></ul>'+
-    (ex&&exb?'<p><b>Example:</b> on average <b>'+avg100+' of 100</b> sellers keep spending. On <b>'+esc(ex.name)+'</b> it is <b>'+Math.round(100*ex.p)+'</b> &rarr; good. '+
-      'On <b>'+esc(exb.name)+'</b> it is <b>'+Math.round(100*exb.p)+'</b> &rarr; bad.</p>':'')+
-    '<div class="gbbars"><div class="gbbarh"><span>Sellers who went live '+esc(winTxt)+'</span><span>dashed line = average, '+avg100+' of 100</span></div>'+graded.map(bar).join('')+'</div>'+
-    '<p class="gbfine">Fine print: the comparison uses the last 6 complete months, so groups update by themselves as new months finish. '+
+    '<div class="gbdh" style="margin-top:12px">The numbers behind the groups</div>'+
+    '<div class="gbbars"><div class="gbbar gbhdr"><span>Offer</span><span>Still spending in week 3 &mdash; dashed line = average seller, '+(100*C.avg).toFixed(1)+'%</span>'+
+      '<span class="gbv">Retention</span><span class="gbs">Sellers</span><span>Group</span></div>'+
+      graded.map(bar).join('')+C.rows.filter(r=>r.grp==='none'&&r.n).sort((a,b)=>b.p-a.p).map(bar).join('')+
+      '<div class="gbbar gbtot"><span>All sellers</span><span></span><span class="gbv"><b>'+(100*C.avg).toFixed(1)+'%</b></span><span class="gbs">'+C.N.toLocaleString()+'</span><span></span></div></div>'+
+    '<p class="gbfine">Fine print: compared over sellers who went live '+esc(winTxt)+' (the last 6 complete months), so groups update by themselves as new months finish. '+
     'An offer is only called good or bad when the gap from average is too big to be luck for its number of sellers (95% confidence); otherwise it is &ldquo;not yet clear&rdquo;. '+
     'November 2025 is only the line we compare against &mdash; most of these offers did not exist then, so &ldquo;Nov 2025 good offers&rdquo; is the '+NV.good[0]+' good-offer sellers who went live that month.</p>';
 }
