@@ -57,6 +57,30 @@
   .state.err{color:#b0322b;}
   #chartCard{display:none;}
   #reasonCard{display:none;}
+  #mixCard{display:none;}
+  .mixfg{display:inline-flex;gap:7px;align-items:center;}
+  .mixfl{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+  #mixAnswer{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0 14px;}
+  @media (max-width:1100px){#mixAnswer{grid-template-columns:1fr;}}
+  .mixans{border:1px solid var(--line);background:#fbfaf5;border-radius:10px;padding:12px 14px;}
+  .mixg{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+  .mixans-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:14px;}
+  .mixans-b{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;align-items:flex-start;}
+  .mixsplit{display:flex;gap:8px;flex:none;}
+  .mixsplit>div{background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-width:92px;}
+  .mixsplit small{display:block;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
+  .mixsplit b{font-size:17px;}
+  .mixwhy{flex:1 1 380px;font-size:13px;line-height:1.5;} .mixwhy ul{margin:4px 0 0;padding-left:18px;} .mixwhy i{color:#8a5a12;font-style:normal;font-size:11px;}
+  .mixpill{display:inline-block;font-size:11px;font-weight:750;padding:2px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em;}
+  .mixpill.up{background:#e1efe6;color:#1f4d37;} .mixpill.down{background:#f6dcd7;color:#8d2c22;} .mixpill.flat{background:#efede4;color:#55584e;}
+  .mixgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  @media (max-width:980px){.mixgrid{grid-template-columns:1fr;}}
+  table.mixtab{border-collapse:collapse;font-size:12px;min-width:100%;}
+  table.mixtab th{position:sticky;top:0;background:#f3f2ea;font-size:10.5px;font-weight:700;color:#3d4036;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left;}
+  table.mixtab td{padding:5px 8px;border-bottom:1px solid #efeee7;white-space:nowrap;}
+  table.mixtab .num{text-align:right;} table.mixtab td.seg small{display:block;font-size:10px;color:var(--muted);}
+  table.mixtab tr.imm td{opacity:.6;}
+
   .reason-head{margin-bottom:12px;font-size:14px;}
   .reason-head b{font-size:14px;}
   #reasonToggles .item .swatch{width:12px;height:12px;border-radius:3px;}
@@ -539,6 +563,31 @@
     </details>
     <div class="drill-h3">Matrix &mdash; reason (rows) &times; ISO year-week (columns), % of go-lives</div>
     <div class="tablewrap" style="max-height:none"><table class="matrix" id="reasonMatrix"></table></div>
+  </div>
+
+  <div class="card" id="mixCard">
+    <div class="reason-head">
+      <div><b>Retention by offer &amp; source mix</b> <span class="hint">&mdash; did retention move because the cohort changed, or because sellers retained differently?</span></div>
+    </div>
+    <div class="controls" style="gap:14px">
+      <span class="mixfg"><span class="mixfl">Split by</span>
+        <span class="slaseg" id="mixBy"><button type="button" data-v="of" class="on">Offer</button><button type="button" data-v="so">Source</button></span></span>
+      <span class="mixfg"><span class="mixfl">Period</span>
+        <span class="slaseg" id="mixGrain"><button type="button" data-v="week" class="on">Year-week</button><button type="button" data-v="month">Month</button></span></span>
+      <span class="mixfg"><span class="mixfl">Retention at</span>
+        <span class="slaseg" id="mixWk"></span></span>
+    </div>
+    <div id="mixAnswer"></div>
+    <div class="mixgrid">
+      <div><div class="drill-h3" id="mixC1T">Cohort mix &amp; overall retention</div>
+        <div class="chart-box" style="height:320px"><canvas id="mixChart1" role="img" aria-label="Stacked bars of each segment's share of go-lives by period, with the overall retention line."></canvas></div></div>
+      <div><div class="drill-h3" id="mixC2T">Retention within each segment</div>
+        <div class="chart-box" style="height:320px"><canvas id="mixChart2" role="img" aria-label="Retention rate per segment by period."></canvas></div></div>
+    </div>
+    <div class="drill-h3" style="margin-top:16px">Every period &mdash; change vs the one before, split into mix and rate
+      <button type="button" id="mixCsv" class="mbtn" style="margin-left:8px">Download CSV</button></div>
+    <div class="tablewrap" style="max-height:520px;overflow:auto"><table class="mixtab" id="mixTable"></table></div>
+    <footer id="mixFoot"></footer>
   </div>
 
   <div class="card" id="drillCard">
@@ -1128,6 +1177,7 @@ async function load(){
     // cohort sizes from the curve, so the GC/GM tab can say how much of each cohort it attributes
     window.COHORTN={}; csv.split('\n').slice(1).forEach(l=>{const c=l.split(','); if(c[0]) window.COHORTN[c[0]]=+c[1]||0;});
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
+    window.MIXL={of:snap.offers||null, so:snap.sources||null};
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
     GCGM=snap.gcgm||null; gcgmInit=false;
     WEEKACT=snap.weekActuals||null;
@@ -1154,6 +1204,7 @@ async function load(){
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
     render(groups,snap);
     buildReasonTrend(rows,window.DIAG);
+    buildMix();
   }catch(e){
     fail('Could not load the retention snapshot ('+e.message+'). It refreshes automatically every 3 hours; try reloading shortly.');
   }
@@ -1239,6 +1290,168 @@ function buildWoW(g,cohort,wk){
 let reasonChart=null;
 function isoStr(co){return co.y+'-W'+String(co.w).padStart(2,'0');}
 function hx(hex,a){const n=parseInt(hex.slice(1),16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';}
+// ===== Retention by offer / source mix =====
+// Each period's retention change vs the period before is split into
+//   mix  = sum_i (share1_i - share0_i) * (rate0_i + rate1_i)/2   -- the cohort changed shape
+//   rate = sum_i (rate1_i - rate0_i) * (share0_i + share1_i)/2   -- sellers retained differently
+// which adds up to the change exactly (symmetric/Shapley split, no residual). A segment absent
+// from one period borrows the other period's rate, so its whole effect lands in mix.
+// Maturity is gated on the PERIOD: a week or month counts for Wk only once every seller in it
+// has had week k elapse, so a partial month never flatters itself with only its early weeks.
+const MIX_COL=['#185FA5','#1D9E75','#B8651A','#7A4E9E','#C0392B','#BA7517','#5f8a3a','#9a9d92','#c9c6b4'];
+const mixSt={by:'of', grain:'week', wk:3};
+let mixC1=null, mixC2=null, mixInit=false;
+const MIX_MIN_N=20;   // a segment-period below this is shown, but not drawn as a rate point
+function mixIsoMon(w){
+  const [y,ww]=w.split('-W').map(Number), j4=new Date(Date.UTC(y,0,4));
+  const m=new Date(j4); m.setUTCDate(j4.getUTCDate()-((j4.getUTCDay()||7)-1)+(ww-1)*7); return m;
+}
+function mixNowMon(){
+  const t=new Date(Date.now()+5.5*3600e3), d=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth(),t.getUTCDate()));
+  d.setUTCDate(d.getUTCDate()-((d.getUTCDay()||7)-1)); return d;
+}
+const mixWeeksElapsed=(w,now)=>Math.round((now-mixIsoMon(w))/(7*864e5));
+function mixLabel(k,g){
+  if((g||mixSt.grain)==='week') return k;
+  const [y,m]=k.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+' '+y;
+}
+function mixData(grain){
+  const D=window.DIAG||[], L=(window.MIXL||{})[mixSt.by]||[], k=mixSt.wk, now=mixNowMon();
+  const key=(grain||mixSt.grain)==='week'?(d=>d.w):(d=>d.mo);
+  const P={};
+  D.forEach(d=>{
+    const p=key(d); if(!p) return;
+    const seg=d[mixSt.by]; if(seg==null) return;
+    const o=P[p]||(P[p]={k:p,n:0,ret:0,mature:true,seg:L.map(()=>({n:0,ret:0}))});
+    o.n++; const r=(d.sp[k-1]||0)>=3000?1:0; o.ret+=r; o.seg[seg].n++; o.seg[seg].ret+=r;
+    if(mixWeeksElapsed(d.w,now)<=k) o.mature=false;
+  });
+  const per=Object.values(P).sort((a,b)=>a.k<b.k?-1:1);
+  per.forEach(o=>{ o.rate=o.n?o.ret/o.n:null; o.seg.forEach(s=>{ s.share=o.n?s.n/o.n:0; s.rate=s.n?s.ret/s.n:null; }); });
+  // decomposition vs the previous period, only when both are mature
+  per.forEach((o,i)=>{
+    const p=per[i-1]; o.d=null;
+    if(!p||!o.mature||!p.mature) return;
+    let mix=0, rate=0; const by=[];
+    L.forEach((_,j)=>{
+      const a=p.seg[j], b=o.seg[j]; if(!a.n&&!b.n) return;
+      const r0=a.rate==null?b.rate:a.rate, r1=b.rate==null?a.rate:b.rate;
+      const m=(b.share-a.share)*(r0+r1)/2, r=(r1-r0)*(a.share+b.share)/2;
+      mix+=m; rate+=r; by.push({j,m,r,t:m+r,s0:a.share,s1:b.share,r0:a.rate,r1:b.rate,n0:a.n,n1:b.n});
+    });
+    // noise band for the overall change: 1.96 x the standard error of a difference of proportions
+    const se=Math.sqrt(p.rate*(1-p.rate)/p.n+o.rate*(1-o.rate)/o.n);
+    o.d={delta:o.rate-p.rate, mix, rate, by, noise:1.96*se, prev:p};
+  });
+  return {per, L};
+}
+const pp=v=>(v<0?'−':'+')+Math.abs(100*v).toFixed(1)+' pp';
+const pc=v=>v==null?'—':(100*v).toFixed(1)+'%';
+function mixAnswer(g,noun,k){
+  const {per,L}=mixData(g), last=[...per].reverse().find(o=>o.d), G=g==='week'?'Week':'Month';
+  if(!last) return '<div class="mixans"><div class="drill-sub">'+G+': not enough mature periods for W'+k+' yet.</div></div>';
+  const d=last.d, real=Math.abs(d.delta)>d.noise, dir=d.delta>0?'rose':'fell';
+  const verdict=!real?'<span class="mixpill flat">No real change</span>':d.delta>0?'<span class="mixpill up">Gain</span>':'<span class="mixpill down">Drop</span>';
+  const mostly=Math.abs(d.mix)>Math.abs(d.rate)
+    ? 'Mostly <b>'+noun+' mix</b>: the cohort shifted toward '+(d.mix<0?'lower':'higher')+'-retaining '+noun+'s'
+    : 'Mostly <b>retention within '+noun+'s</b>: sellers on the same '+noun+' retained '+(d.rate<0?'worse':'better');
+  const top=[...d.by].sort((a,b)=>Math.abs(b.t)-Math.abs(a.t)).slice(0,3).filter(x=>Math.abs(x.t)>=0.0005);
+  return `<div class="mixans"><div class="mixans-h"><span class="mixg">${G}</span>${verdict}
+      <span>W${k} 3K retention ${dir} <b>${Math.abs(100*d.delta).toFixed(1)} pp</b>${real?'':' (within noise)'}: <b>${pc(d.prev.rate)}</b>
+      in ${esc(mixLabel(d.prev.k,g))} (n=${d.prev.n.toLocaleString()}) &rarr; <b>${pc(last.rate)}</b> in ${esc(mixLabel(last.k,g))} (n=${last.n.toLocaleString()}).</span></div>
+    <div class="mixans-b">
+      <div class="mixsplit"><div><small>Mix effect</small><b style="color:${d.mix<0?'#b5372a':'#2f6d4f'}">${pp(d.mix)}</b></div>
+        <div><small>Rate effect</small><b style="color:${d.rate<0?'#b5372a':'#2f6d4f'}">${pp(d.rate)}</b></div>
+        <div><small>Noise band</small><b>±${(100*d.noise).toFixed(1)} pp</b></div></div>
+      <div class="mixwhy">${real?mostly+'.':'Inside the ±'+(100*d.noise).toFixed(1)+' pp a cohort this size moves by chance, so treat it as flat. '+(Math.abs(d.mix)>Math.abs(d.rate)?'What did move was mostly mix.':'What did move was mostly rate.')}
+        ${top.length?'<ul>'+top.map(x=>`<li><b>${esc(L[x.j])}</b> <span style="color:${x.t<0?'#b5372a':'#2f6d4f'}">${pp(x.t)}</span> &mdash;
+          retention ${pc(x.r0)} &rarr; ${pc(x.r1)} (rate ${pp(x.r)}), share ${pc(x.s0)} &rarr; ${pc(x.s1)} (mix ${pp(x.m)})${Math.min(x.n0,x.n1)<MIX_MIN_N?' <i>small n</i>':''}</li>`).join('')+'</ul>':''}</div>
+    </div></div>`;
+}
+function mixPaint(){
+  const {per,L}=mixData(), k=mixSt.wk, noun=mixSt.by==='of'?'offer':'source';
+  const used=L.map((_,j)=>per.some(o=>o.seg[j].n)).map((u,j)=>u?j:-1).filter(j=>j>=0);
+  // ---- the answer: latest mature month AND week vs the one before, whatever the table shows ----
+  // A weekly cohort (~230 sellers) swings ~±9 pp by chance, so the month is usually the one that
+  // can say "gain" or "drop"; the week is there for speed.
+  document.getElementById('mixAnswer').innerHTML=['month','week'].map(g=>mixAnswer(g,noun,k)).join('');
+  // ---- charts ----
+  const labels=per.map(o=>mixLabel(o.k)+(o.mature?'':' *'));
+  if(mixC1) mixC1.destroy();
+  mixC1=new Chart(document.getElementById('mixChart1'),{data:{labels,datasets:[
+      {type:'line',label:'W'+k+' retention (all)',data:per.map(o=>o.mature?+(100*o.rate).toFixed(1):null),yAxisID:'y1',
+       borderColor:'#23251f',backgroundColor:'#23251f',borderWidth:2.5,tension:.25,pointRadius:2,order:0}]
+     .concat(used.map(j=>({type:'bar',label:L[j],data:per.map(o=>+(100*o.seg[j].share).toFixed(1)),stack:'m',
+       backgroundColor:MIX_COL[j%MIX_COL.length],order:1})))},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:mixSt.grain==='week'?90:0}},
+        y:{stacked:true,max:100,beginAtZero:true,ticks:{callback:v=>v+'%',color:AXIS},title:{display:true,text:'share of go-lives',color:AXIS_TITLE}},
+        y1:{position:'right',beginAtZero:true,suggestedMax:70,grid:{drawOnChartArea:false},ticks:{callback:v=>v+'%',color:AXIS},
+          title:{display:true,text:'W'+k+' retention',color:AXIS_TITLE}}}}});
+  if(mixC2) mixC2.destroy();
+  mixC2=new Chart(document.getElementById('mixChart2'),{type:'line',data:{labels,datasets:
+      [{label:'All',data:per.map(o=>o.mature?+(100*o.rate).toFixed(1):null),borderColor:'#23251f',backgroundColor:'#23251f',borderDash:[5,4],borderWidth:2,pointRadius:0,tension:.25}]
+      .concat(used.map(j=>({label:L[j],data:per.map(o=>o.mature&&o.seg[j].n>=MIX_MIN_N?+(100*o.seg[j].rate).toFixed(1):null),
+        borderColor:MIX_COL[j%MIX_COL.length],backgroundColor:MIX_COL[j%MIX_COL.length],borderWidth:2,pointRadius:1.5,tension:.25,spanGaps:true})))},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:10,font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')}}},
+      scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:mixSt.grain==='week'?90:0}},
+        y:{beginAtZero:true,ticks:{callback:v=>v+'%',color:AXIS},title:{display:true,text:'W'+k+' retention',color:AXIS_TITLE}}}}});
+  document.getElementById('mixC1T').innerHTML='Cohort '+noun+' mix (bars) &amp; overall W'+k+' retention (line)';
+  document.getElementById('mixC2T').innerHTML='W'+k+' retention within each '+noun+' <span class="hint">(points need '+MIX_MIN_N+'+ sellers)</span>';
+  // ---- table ----
+  let h='<thead><tr><th>Period</th><th class="num">Go-lives</th><th class="num">W'+k+'</th><th class="num">vs prev</th>'+
+    '<th class="num">Mix</th><th class="num">Rate</th><th>Read</th>'+used.map(j=>'<th class="num seg"><span class="defdot" style="background:'+MIX_COL[j%MIX_COL.length]+'"></span>'+esc(L[j])+'</th>').join('')+'</tr></thead><tbody>';
+  [...per].reverse().forEach(o=>{
+    const d=o.d;
+    const read=!o.mature?'<span class="hint">in flight</span>':!d?'':
+      Math.abs(d.delta)<=d.noise?'<span class="mixpill flat">flat</span>':
+      '<span class="mixpill '+(d.delta>0?'up':'down')+'">'+(d.delta>0?'gain':'drop')+'</span> '+(Math.abs(d.mix)>Math.abs(d.rate)?'mix':'rate');
+    const c=v=>'<td class="num" style="color:'+(v<0?'#b5372a':'#2f6d4f')+';font-weight:650">'+pp(v)+'</td>';
+    h+='<tr'+(o.mature?'':' class="imm"')+'><td>'+esc(mixLabel(o.k))+'</td><td class="num">'+o.n.toLocaleString()+'</td>'+
+      '<td class="num"><b>'+(o.mature?pc(o.rate):'—')+'</b></td>'+
+      (d?c(d.delta)+c(d.mix)+c(d.rate):'<td></td><td></td><td></td>')+'<td>'+read+'</td>'+
+      used.map(j=>{ const s=o.seg[j]; if(!s.n) return '<td class="num seg"><span class="hint">·</span></td>';
+        const diff=o.mature&&s.rate!=null&&o.rate!=null?s.rate-o.rate:0, small=s.n<MIX_MIN_N;
+        return '<td class="num seg" title="'+esc(L[j])+': '+s.n+' of '+o.n+' go-lives, '+s.ret+' retained">'+
+          '<b style="color:'+(!o.mature||small?'#8a8d80':diff<-0.03?'#b5372a':diff>0.03?'#2f6d4f':'#23251f')+'">'+(o.mature?pc(s.rate):'—')+'</b>'+
+          '<small>'+Math.round(100*s.share)+'% · n'+s.n+'</small></td>'; }).join('')+'</tr>';
+  });
+  document.getElementById('mixTable').innerHTML=h+'</tbody>';
+  document.getElementById('mixFoot').innerHTML=
+    '<b>Retention</b> = marketing spend &ge; &#8377;3,000 in relative week '+k+' after go-live (first ISO week over &#8377;1,000, HIT). '+
+    'A period counts only once every seller in it has reached week '+k+'; later periods show their mix with <span class="hint">in flight</span> and a * on the charts. '+
+    '<b>Mix</b> is the part of the change from the cohort shifting between '+noun+'s; <b>rate</b> is the part from retention moving within the same '+noun+'; together they equal the change exactly. '+
+    '<b>Noise band</b>: 95% range of chance movement for two cohorts of these sizes &mdash; a change inside it is called flat. '+
+    'Per-'+noun+' cells show retention (coloured when 3+ pp off the period overall), then share of go-lives and n; grey = under '+MIX_MIN_N+' sellers. '+
+    (mixSt.by==='of'
+      ? '<b>Offer</b> comes from the seller&rsquo;s most recent Salesforce lead that carries an offer, normalised as card 11931; &ldquo;NA&rdquo; is an explicit no-offer, &ldquo;No lead&rdquo; means no lead or no offer recorded (most Nov&ndash;Jan go-lives).'
+      : '<b>Source</b> is the seller&rsquo;s latest Salesforce lead, normalised as card 11931; &ldquo;No lead&rdquo; means no lead record.');
+}
+function mixCsv(){
+  const {per,L}=mixData(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[['period','segment','go_lives','retained','share_pct','retention_pct','period_retention_pct','mature'].join(',')];
+  per.forEach(o=>L.forEach((name,j)=>{ const s=o.seg[j]; if(!s.n) return;
+    out.push([o.k,name,s.n,s.ret,(100*s.share).toFixed(1),s.rate==null?'':(100*s.rate).toFixed(1),(100*o.rate).toFixed(1),o.mature?1:0].map(q).join(',')); }));
+  saveCsv('retention_by_'+(mixSt.by==='of'?'offer':'source')+'_'+mixSt.grain+'_w'+mixSt.wk+'.csv', out.join('\n'));
+}
+function buildMix(){
+  const card=document.getElementById('mixCard');
+  if(!window.DIAG||!window.DIAG.length||!window.MIXL||!window.DIAG.some(d=>d.of!=null)){ card.style.display='none'; return; }
+  if(!mixInit){
+    mixInit=true;
+    document.getElementById('mixWk').innerHTML=[1,2,3,4,5,6,7].map(w=>'<button type="button" data-v="'+w+'"'+(w===mixSt.wk?' class="on"':'')+'>W'+w+'</button>').join('');
+    [['mixBy','by',v=>v],['mixGrain','grain',v=>v],['mixWk','wk',v=>+v]].forEach(([id,key,f])=>
+      document.querySelectorAll('#'+id+' button').forEach(b=>b.addEventListener('click',()=>{
+        mixSt[key]=f(b.dataset.v);
+        document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x===b));
+        mixPaint(); })));
+    document.getElementById('mixCsv').addEventListener('click',mixCsv);
+  }
+  card.style.display=(document.querySelector('#tabs .tab.active')||{}).dataset?.view==='curve'?'block':'none';
+  mixPaint();
+}
 function buildReasonTrend(rows,diag){
   const card=document.getElementById('reasonCard');
   if(!diag||!diag.length){ card.style.display='none'; return; }
@@ -1416,7 +1629,7 @@ function retColor(p){return p<0.35?'#C0392B':(p<0.50?'#BA7517':'#2f6d4f');}
 function setView(v){
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
   const curve=v==='curve';
-  ['chartCard','reasonCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
+  ['chartCard','reasonCard','mixCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
   document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
   document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
   document.getElementById('clCard').style.display=v==='clsc'?'block':'none';
