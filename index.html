@@ -83,7 +83,16 @@
   .gbhead{font-size:13.5px;margin:4px 0 8px;line-height:1.5;}
   .gbdef{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 4px;max-width:1100px;}
   .gbdef b{color:#3d4036;} .gbdef p{margin:4px 0;} .gbdef ul{margin:4px 0;padding-left:18px;} .gbdef li{margin:3px 0;}
-  .gbdh{font-size:12.5px;font-weight:700;color:#23251f;margin-bottom:2px;}
+  .gbdh{font-size:14px;font-weight:700;color:#23251f;margin:6px 0 2px;}
+  .gbdef{font-size:13px !important;color:#3d4036 !important;}
+  .gbbars{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:#fff;max-width:760px;}
+  .gbbarh{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);margin-bottom:6px;}
+  .gbbar{display:grid;grid-template-columns:130px minmax(120px,1fr) 70px 90px 90px;gap:10px;align-items:center;padding:4px 0;font-size:12.5px;}
+  .gbt{position:relative;height:12px;background:#ece9de;border-radius:3px;}
+  .gbt i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;}
+  .gbt em{position:absolute;top:-4px;bottom:-4px;border-left:2px dashed #23251f;}
+  .gbv{text-align:right;} .gbg{font-weight:700;} .gbs{color:var(--muted);font-size:11.5px;text-align:right;}
+  .gbfine{font-size:11.5px;color:var(--muted);}
 
   .reason-head{margin-bottom:12px;font-size:14px;}
   .reason-head b{font-size:14px;}
@@ -1505,30 +1514,32 @@ function gbPaint(){
       (gap<0?'−':'+')+Math.abs(gap).toFixed(1)+' pp, noise band ±'+se.toFixed(1)+' pp'+(NV.good[0]<100?' (wide because Nov had only '+NV.good[0]+' good-offer sellers)':'')+'.'+
       (bv!=null?' Bad offers: <b>'+bv.toFixed(1)+'%</b> (n'+last.bad[0]+'), '+(100*last.bad[0]/last.all[0]).toFixed(0)+'% of that cohort.':'');
   } else h.textContent='';
-  // plain-language explanation under the chart, naming today's members of each group
-  const fm=m=>mixLabel(m,'month'), avgTxt=(100*C.avg).toFixed(1)+'%';
-  const list=gr=>{ const r=C.rows.filter(x=>x.grp===gr&&x.n).sort((a,b)=>b.p-a.p);
-    return r.length?r.map(x=>'<b>'+esc(x.name)+'</b> '+(100*x.p).toFixed(1)+'% (n'+x.n.toLocaleString()+')').join(', '):'none right now'; };
-  const winTxt=C.win.length?fm(C.win[0])+' to '+fm(C.win[C.win.length-1]):'no mature months yet';
+  // plain-language explanation under the chart: "out of 100 sellers", one bar per offer
+  const fm=m=>mixLabel(m,'month'), avg100=Math.round(100*C.avg);
+  const winTxt=C.win.length?fm(C.win[0])+' to '+fm(C.win[C.win.length-1]):'no complete months yet';
+  const graded=C.rows.filter(r=>r.n&&r.grp!=='none').sort((a,b)=>b.p-a.p);
+  const ex=graded.find(r=>r.grp==='good'), exb=[...graded].reverse().find(r=>r.grp==='bad');
+  const mem=gr=>{ const r=C.rows.filter(x=>x.grp===gr&&x.n).sort((a,b)=>b.p-a.p);
+    return r.length?r.map(x=>'<b>'+esc(x.name)+'</b> '+Math.round(100*x.p)+' <span class="gbs">('+x.n.toLocaleString()+' sellers)</span>').join(', '):'none right now'; };
+  const bar=r=>{ const v=Math.round(100*r.p);
+    return '<div class="gbbar"><span class="gbn">'+esc(r.name)+'</span>'+
+      '<span class="gbt"><i style="width:'+v+'%;background:'+GB_COL[r.grp]+'"></i><em style="left:'+(100*C.avg).toFixed(1)+'%"></em></span>'+
+      '<span class="gbv"><b>'+v+'</b> of 100</span><span class="gbg" style="color:'+(r.grp==='good'?'#185FA5':r.grp==='bad'?'#a8501f':'#6b6e63')+'">'+GB_LAB[r.grp].replace(' offers','')+'</span>'+
+      '<span class="gbs">'+r.n.toLocaleString()+' sellers</span></div>'; };
   document.getElementById('gbDef').innerHTML=
-    '<div class="gbdh">How offers are grouped</div>'+
-    '<p>We look at every seller who went live in the last 6 months that are complete for W3 (<b>'+winTxt+'</b>) and ask, per offer: '+
-    'what share of its sellers were still spending &#8377;3,000+ in week 3? The average across all '+C.N.toLocaleString()+' of them is <b>'+avgTxt+'</b>.</p><ul>'+
-    '<li><span class="defdot" style="background:'+GB_COL.good+'"></span><b>Good offers</b> retain <i>better</i> than that average, by more than chance could explain '+
-    '(even the low end of their 95% range is above '+avgTxt+'). Now: '+list('good')+'.</li>'+
-    '<li><span class="defdot" style="background:'+GB_COL.bad+'"></span><b>Bad offers</b> retain <i>worse</i> than the average, again by more than chance '+
-    '(even the high end of their range is below '+avgTxt+'). Now: '+list('bad')+'.</li>'+
-    '<li><span class="defdot" style="background:'+GB_COL.unclear+'"></span><b>Not yet clear</b>: the offer could be either side of average &mdash; usually too few sellers to tell. Now: '+list('unclear')+'.</li>'+
-    '<li><span class="defdot" style="background:'+GB_COL.none+'"></span><b>No offer</b> is kept separate and never graded: <b>NA</b> (offer explicitly recorded as none), '+
-    '<b>No offer recorded</b> (the offer field is blank on every lead) and <b>Other</b> (an offer name we cannot map). Now: '+list('none')+'.</li></ul>'+
-    '<p>The groups are re-graded automatically as each new month completes W3, so an offer can move. The grading always uses W3; '+
-    'the lines then follow whichever period and retention week you pick above. <b>November 2025</b> is the yardstick, not the grader: '+
-    'most of today&rsquo;s offers did not exist yet and 75% of Nov go-lives had no offer recorded, so &ldquo;Nov 2025 good offers&rdquo; is just the good offers that were live that month. '+
-    'A point needs '+MIX_MIN_N+'+ sellers; * = period not yet complete.</p>'+
-    '<table class="mixtab" style="margin-top:6px;min-width:0"><thead><tr><th>Offer</th><th class="num">W3, '+esc(winTxt)+'</th><th class="num">95% range</th><th class="num">Sellers</th><th>Group</th></tr></thead><tbody>'+
-    C.rows.filter(r=>r.n).sort((a,b)=>['good','bad','unclear','none'].indexOf(a.grp)-['good','bad','unclear','none'].indexOf(b.grp)||b.p-a.p).map(r=>
-      '<tr><td><span class="defdot" style="background:'+GB_COL[r.grp]+'"></span>'+esc(r.name)+'</td><td class="num"><b>'+(100*r.p).toFixed(1)+'%</b></td>'+
-      '<td class="num">'+(100*(r.p-r.ci)).toFixed(1)+'&ndash;'+(100*(r.p+r.ci)).toFixed(1)+'%</td><td class="num">'+r.n.toLocaleString()+'</td><td>'+GB_LAB[r.grp]+'</td></tr>').join('')+'</tbody></table>';
+    '<div class="gbdh">What is a good offer and a bad offer?</div>'+
+    '<p>For each offer we ask one question: <b>out of every 100 sellers who went live on it, how many were still spending &#8377;3,000+ in their 3rd week?</b> '+
+    'Then we compare it with the average seller over '+esc(winTxt)+': <b>'+avg100+' of 100</b>.</p>'+
+    '<ul><li><b style="color:#185FA5">Good offer</b> = more than <b>'+avg100+' of 100</b> of its sellers keep spending: '+mem('good')+'</li>'+
+    '<li><b style="color:#a8501f">Bad offer</b> = fewer than <b>'+avg100+' of 100</b> keep spending: '+mem('bad')+'</li>'+
+    '<li><b>Not yet clear</b> = too few sellers to say either way: '+mem('unclear')+'</li>'+
+    '<li><b>No offer</b> &mdash; shown separately, never called good or bad: '+mem('none')+'</li></ul>'+
+    (ex&&exb?'<p><b>Example:</b> on average <b>'+avg100+' of 100</b> sellers keep spending. On <b>'+esc(ex.name)+'</b> it is <b>'+Math.round(100*ex.p)+'</b> &rarr; good. '+
+      'On <b>'+esc(exb.name)+'</b> it is <b>'+Math.round(100*exb.p)+'</b> &rarr; bad.</p>':'')+
+    '<div class="gbbars"><div class="gbbarh"><span>Sellers who went live '+esc(winTxt)+'</span><span>dashed line = average, '+avg100+' of 100</span></div>'+graded.map(bar).join('')+'</div>'+
+    '<p class="gbfine">Fine print: the comparison uses the last 6 complete months, so groups update by themselves as new months finish. '+
+    'An offer is only called good or bad when the gap from average is too big to be luck for its number of sellers (95% confidence); otherwise it is &ldquo;not yet clear&rdquo;. '+
+    'November 2025 is only the line we compare against &mdash; most of these offers did not exist then, so &ldquo;Nov 2025 good offers&rdquo; is the '+NV.good[0]+' good-offer sellers who went live that month.</p>';
 }
 function mixCsv(){
   const {per,L}=mixData(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
