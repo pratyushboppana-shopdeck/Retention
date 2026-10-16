@@ -1426,7 +1426,7 @@ function mixPaint(){
     '<b>Noise band</b>: 95% range of chance movement for two cohorts of these sizes &mdash; a change inside it is called flat. '+
     'Per-'+noun+' cells show retention (coloured when 3+ pp off the period overall), then share of go-lives and n; grey = under '+MIX_MIN_N+' sellers. '+
     (mixSt.by==='of'
-      ? '<b>Offer</b> comes from the seller&rsquo;s most recent Salesforce lead that carries an offer, normalised as card 11931; &ldquo;NA&rdquo; is an explicit no-offer, &ldquo;No lead&rdquo; means no lead or no offer recorded (most Nov&ndash;Jan go-lives).'
+      ? '<b>Offer</b> comes from the seller&rsquo;s most recent Salesforce lead that carries a real offer, normalised as card 11931; if none, the latest lead&rsquo;s value. &ldquo;NA&rdquo; is an offer explicitly recorded as none; &ldquo;No offer recorded&rdquo; means the offer field is blank on every lead the seller has (or, rarely, there is no lead) &mdash; most Nov&ndash;Jan go-lives, and rising again from Aug 2026.'
       : '<b>Source</b> is the seller&rsquo;s latest Salesforce lead, normalised as card 11931; &ldquo;No lead&rdquo; means no lead record.');
 }
 function mixCsv(){

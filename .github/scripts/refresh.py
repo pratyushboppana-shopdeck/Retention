@@ -113,10 +113,10 @@ paytix AS (
     AND (t.status!='completed' OR DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'),g.golive_date,ISOWEEK)>3) GROUP BY 1
 ),
 mgr AS (SELECT seller_id, MAX(gc_name) gc, MAX(gm_name) gm, MAX(kam_name) kam FROM `blitzscale-prod-project.analytics.seller_console_metrics_summary` GROUP BY 1),
--- Lead source and offer, normalised exactly as card 11931 does. Source = the seller's latest
--- Salesforce lead. Offer = the latest lead that actually CARRIES an offer (owner, 2026-10-16):
--- ~290 sellers' latest lead is blank while an older one has the offer; only when no lead has
--- one does it fall back to the latest lead's value ('NA', or 'No lead' when blank/absent).
+-- Lead source and offer, normalised as card 11931 does. Source = the seller's latest Salesforce
+-- lead. Offer (owner, 2026-10-16): the latest lead carrying a REAL offer; else the latest lead
+-- with any value at all ('NA' = an explicit no-offer); else 'No offer recorded' -- which is
+-- almost always a lead whose offer field nobody filled, not a missing lead.
 sfl AS (
   SELECT REGEXP_REPLACE(TRIM(Seller_ID__c),r'^"|"$','') seller_id, TRIM(Source__c) src, TRIM(Offers__c) o,
     COALESCE(DATE(TIMESTAMP(Website_Form_Filled_D_T__c),'Asia/Kolkata'),DATE(TIMESTAMP(CreatedDate),'Asia/Kolkata')) d,
@@ -129,6 +129,9 @@ sfl_latest AS (SELECT seller_id, src, o FROM (
 sfl_offer AS (SELECT seller_id, o FROM (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY seller_id ORDER BY d DESC, c DESC) rn FROM sfl
   WHERE o IS NOT NULL AND o NOT IN ('','NA')) WHERE rn=1),
+sfl_any AS (SELECT seller_id, o FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY seller_id ORDER BY d DESC, c DESC) rn FROM sfl
+  WHERE o IS NOT NULL AND o!='') WHERE rn=1),
 lead AS (
   SELECT l.seller_id,
     CASE
@@ -138,20 +141,20 @@ lead AS (
       WHEN l.src IS NULL OR l.src='' THEN 'No lead'
       ELSE 'Other' END source,
     CASE
-      WHEN COALESCE(f.o,l.o) IN ('Zero(0) SD','0% Commission 1st Month','0% Commission for First 30 Days') THEN 'Zero(SD)'
-      WHEN COALESCE(f.o,l.o) IN ('2K+5K','₹2K Deposit + ₹5K Marketing') THEN '2K+5K'
-      WHEN COALESCE(f.o,l.o) IN ('5K+5K','₹5K Deposit + ₹5K Marketing') THEN '5K+5K'
-      WHEN COALESCE(f.o,l.o) IN ('5k SD post 10k Spend','₹5K Credit After ₹10K Spend') THEN '5k SD post 10k'
-      WHEN COALESCE(f.o,l.o) IN ('5k SD post 15k Spend','₹5K Credit After ₹15K Spend') THEN '5k SD post 15k'
-      WHEN COALESCE(f.o,l.o) IN ('5k+0% Commission','₹5K Credit + 0% Commission Combo') THEN '5k+0% Comm'
-      WHEN COALESCE(f.o,l.o) = 'NA' THEN 'NA'
-      WHEN COALESCE(f.o,l.o) IS NULL OR COALESCE(f.o,l.o)='' THEN 'No lead'
+      WHEN COALESCE(f.o,a.o) IN ('Zero(0) SD','0% Commission 1st Month','0% Commission for First 30 Days') THEN 'Zero(SD)'
+      WHEN COALESCE(f.o,a.o) IN ('2K+5K','₹2K Deposit + ₹5K Marketing') THEN '2K+5K'
+      WHEN COALESCE(f.o,a.o) IN ('5K+5K','₹5K Deposit + ₹5K Marketing') THEN '5K+5K'
+      WHEN COALESCE(f.o,a.o) IN ('5k SD post 10k Spend','₹5K Credit After ₹10K Spend') THEN '5k SD post 10k'
+      WHEN COALESCE(f.o,a.o) IN ('5k SD post 15k Spend','₹5K Credit After ₹15K Spend') THEN '5k SD post 15k'
+      WHEN COALESCE(f.o,a.o) IN ('5k+0% Commission','₹5K Credit + 0% Commission Combo') THEN '5k+0% Comm'
+      WHEN COALESCE(f.o,a.o) = 'NA' THEN 'NA'
+      WHEN COALESCE(f.o,a.o) IS NULL THEN 'No offer recorded'
       ELSE 'Other' END offer
-  FROM sfl_latest l LEFT JOIN sfl_offer f USING(seller_id)
+  FROM sfl_latest l LEFT JOIN sfl_offer f USING(seller_id) LEFT JOIN sfl_any a USING(seller_id)
 ),
 base AS (
   SELECT g.seller_id, g.gw, FORMAT_DATE('%Y-%m', g.golive_date) gmo,
-    COALESCE(ld.offer,'No lead') offer, COALESCE(ld.source,'No lead') source,
+    COALESCE(ld.offer,'No offer recorded') offer, COALESCE(ld.source,'No lead') source,
     ROUND(sw.sp1) sp1,ROUND(sw.sp2) sp2,ROUND(sw.sp3) sp3,ROUND(sw.sp4) sp4,ROUND(sw.sp5) sp5,ROUND(sw.sp6) sp6,ROUND(sw.sp7) sp7,
     IF(g.golive_date<=DATE_SUB(CURRENT_DATE(),INTERVAL 28 DAY),1,0) w3_mature,
     IF(sw.sp3>=3000,1,0) retained_w3,
@@ -208,7 +211,7 @@ def run_card_csv(session, card_id):
         return r.read().decode("utf-8", "replace")
 
 
-OFFERS = ["5K+5K", "5k+0% Comm", "5k SD post 15k", "5k SD post 10k", "2K+5K", "Zero(SD)", "Other", "NA", "No lead"]
+OFFERS = ["5K+5K", "5k+0% Comm", "5k SD post 15k", "5k SD post 10k", "2K+5K", "Zero(SD)", "Other", "NA", "No offer recorded"]
 SOURCES = ["Marketing Lead", "Website Inbound", "Channel Partner", "FOS", "App leads", "Other", "No lead"]
 
 
@@ -228,7 +231,7 @@ def parse_diag(csv_text):
             "b": BIDX.get((r.get("bucket") or "").strip(), 6),
             "gc": r.get("gc") or "-", "gm": r.get("gm") or "-", "kam": r.get("kam") or "-",
             "mo": r.get("golive_month") or "",
-            "of": ix((r.get("offer") or "No lead").strip(), OFFERS),
+            "of": ix((r.get("offer") or "No offer recorded").strip(), OFFERS),
             "so": ix((r.get("source") or "No lead").strip(), SOURCES),
         })
     return out
