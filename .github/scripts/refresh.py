@@ -79,6 +79,16 @@ sw AS (
     SUM(IF(DATE_DIFF(v.start_date,g.golive_date,ISOWEEK) BETWEEN 0 AND 3,v.total_orders,0)) ord03
   FROM golive g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id GROUP BY 1
 ),
+-- Cumulative marketing spend since go-live, to date, and the relative week it first reached
+-- Rs 30,000 (the "eventually reaches 30K" chart; owner chose ever-to-date, 2026-10-16).
+c30 AS (
+  SELECT seller_id, CAST(ROUND(MAX(cum)) AS INT64) cum_spend, MIN(IF(cum>=30000, rw, NULL)) wk_to_30k
+  FROM (SELECT seller_id, rw, SUM(sp) OVER (PARTITION BY seller_id ORDER BY rw) cum FROM (
+    SELECT g.seller_id, DATE_DIFF(v.start_date,g.golive_date,ISOWEEK) rw, SUM(COALESCE(v.marketing_spend,0)) sp
+    FROM golive g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id
+    WHERE v.start_date>=g.golive_date GROUP BY 1,2))
+  GROUP BY 1
+),
 ord AS (
   SELECT g.seller_id, COUNT(*) n_orders_02,
     SUM(oi.selling_price*oi.quantity+oi.cod_charge+oi.delivery_fees-oi.total_discount) gmv02
@@ -155,6 +165,7 @@ lead AS (
 base AS (
   SELECT g.seller_id, g.gw, FORMAT_DATE('%Y-%m', g.golive_date) gmo,
     COALESCE(ld.offer,'No offer recorded') offer, COALESCE(ld.source,'No lead') source,
+    COALESCE(c30.cum_spend,0) cum_spend, c30.wk_to_30k,
     ROUND(sw.sp1) sp1,ROUND(sw.sp2) sp2,ROUND(sw.sp3) sp3,ROUND(sw.sp4) sp4,ROUND(sw.sp5) sp5,ROUND(sw.sp6) sp6,ROUND(sw.sp7) sp7,
     IF(g.golive_date<=DATE_SUB(CURRENT_DATE(),INTERVAL 28 DAY),1,0) w3_mature,
     IF(sw.sp3>=3000,1,0) retained_w3,
@@ -164,10 +175,10 @@ base AS (
     COALESCE(NULLIF(m.gc,''),'-') gc, COALESCE(NULLIF(m.gm,''),'-') gm, COALESCE(NULLIF(m.kam,''),'-') kam
   FROM golive g LEFT JOIN sw USING(seller_id) LEFT JOIN ord o USING(seller_id) LEFT JOIN fb USING(seller_id)
   LEFT JOIN adtix a USING(seller_id) LEFT JOIN paytix p USING(seller_id) LEFT JOIN mgr m USING(seller_id)
-  LEFT JOIN lead ld USING(seller_id)
+  LEFT JOIN lead ld USING(seller_id) LEFT JOIN c30 USING(seller_id)
 ),
 med AS (SELECT APPROX_QUANTILES(sgmv,2)[OFFSET(1)] m_sgmv, APPROX_QUANTILES(rto_rate,2)[OFFSET(1)] m_rto FROM base WHERE w3_mature=1 AND retained_w3=0)
-SELECT b.seller_id, b.gw AS golive_iso_week, b.gmo AS golive_month, b.offer, b.source, b.sp1,b.sp2,b.sp3,b.sp4,b.sp5,b.sp6,b.sp7,
+SELECT b.seller_id, b.gw AS golive_iso_week, b.gmo AS golive_month, b.offer, b.source, b.cum_spend, b.wk_to_30k, b.sp1,b.sp2,b.sp3,b.sp4,b.sp5,b.sp6,b.sp7,
   CASE
     WHEN b.ad_impact=1 THEN 'Ad-account / platform block'
     WHEN b.pay_impact=1 THEN 'Payment / funding block'
@@ -233,6 +244,8 @@ def parse_diag(csv_text):
             "mo": r.get("golive_month") or "",
             "of": ix((r.get("offer") or "No offer recorded").strip(), OFFERS),
             "so": ix((r.get("source") or "No lead").strip(), SOURCES),
+            "cs": gi("cum_spend"),
+            "w30": gi("wk_to_30k") if (r.get("wk_to_30k") or "").strip() else -1,
         })
     return out
 
