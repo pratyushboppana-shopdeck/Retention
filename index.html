@@ -80,6 +80,10 @@
   table.mixtab td{padding:5px 8px;border-bottom:1px solid #efeee7;white-space:nowrap;}
   table.mixtab .num{text-align:right;} table.mixtab td.seg small{display:block;font-size:10px;color:var(--muted);}
   table.mixtab tr.imm td{opacity:.6;}
+  .gbhead{font-size:13.5px;margin:4px 0 8px;line-height:1.5;}
+  .gbdef{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 4px;max-width:1100px;}
+  .gbdef b{color:#3d4036;} .gbdef p{margin:4px 0;} .gbdef ul{margin:4px 0;padding-left:18px;} .gbdef li{margin:3px 0;}
+  .gbdh{font-size:12.5px;font-weight:700;color:#23251f;margin-bottom:2px;}
 
   .reason-head{margin-bottom:12px;font-size:14px;}
   .reason-head b{font-size:14px;}
@@ -584,6 +588,10 @@
       <div><div class="drill-h3" id="mixC2T">Retention within each segment</div>
         <div class="chart-box" style="height:320px"><canvas id="mixChart2" role="img" aria-label="Retention rate per segment by period."></canvas></div></div>
     </div>
+    <div class="drill-h3" style="margin-top:18px">Good vs bad offers &mdash; are we back at November&rsquo;s level?</div>
+    <div class="gbhead" id="gbHead"></div>
+    <div class="chart-box" style="height:320px"><canvas id="gbChart" role="img" aria-label="W3 retention for good-offer, bad-offer and no-offer sellers by period, against November 2025 benchmark lines."></canvas></div>
+    <div class="gbdef" id="gbDef"></div>
     <div class="drill-h3" style="margin-top:16px">Every period &mdash; change vs the one before, split into mix and rate
       <button type="button" id="mixCsv" class="mbtn" style="margin-left:8px">Download CSV</button></div>
     <div class="tablewrap" style="max-height:520px;overflow:auto"><table class="mixtab" id="mixTable"></table></div>
@@ -1300,7 +1308,7 @@ function hx(hex,a){const n=parseInt(hex.slice(1),16);return 'rgba('+((n>>16)&255
 // has had week k elapse, so a partial month never flatters itself with only its early weeks.
 const MIX_COL=['#185FA5','#1D9E75','#B8651A','#7A4E9E','#C0392B','#BA7517','#5f8a3a','#9a9d92','#c9c6b4'];
 const mixSt={by:'of', grain:'week', wk:3};
-let mixC1=null, mixC2=null, mixInit=false;
+let mixC1=null, mixC2=null, mixInit=false, gbC=null;
 const MIX_MIN_N=20;   // a segment-period below this is shown, but not drawn as a rate point
 function mixIsoMon(w){
   const [y,ww]=w.split('-W').map(Number), j4=new Date(Date.UTC(y,0,4));
@@ -1419,6 +1427,7 @@ function mixPaint(){
           '<small>'+Math.round(100*s.share)+'% · n'+s.n+'</small></td>'; }).join('')+'</tr>';
   });
   document.getElementById('mixTable').innerHTML=h+'</tbody>';
+  gbPaint();
   document.getElementById('mixFoot').innerHTML=
     '<b>Retention</b> = marketing spend &ge; &#8377;3,000 in relative week '+k+' after go-live (first ISO week over &#8377;1,000, HIT). '+
     'A period counts only once every seller in it has reached week '+k+'; later periods show their mix with <span class="hint">in flight</span> and a * on the charts. '+
@@ -1428,6 +1437,98 @@ function mixPaint(){
     (mixSt.by==='of'
       ? '<b>Offer</b> comes from the seller&rsquo;s most recent Salesforce lead that carries a real offer, normalised as card 11931; if none, the latest lead&rsquo;s value. &ldquo;NA&rdquo; is an offer explicitly recorded as none; &ldquo;No offer recorded&rdquo; means the offer field is blank on every lead the seller has (or, rarely, there is no lead) &mdash; most Nov&ndash;Jan go-lives, and rising again from Aug 2026.'
       : '<b>Source</b> is the seller&rsquo;s latest Salesforce lead, normalised as card 11931; &ldquo;No lead&rdquo; means no lead record.');
+}
+// ---- good vs bad offers ----
+// An offer is GOOD when its pooled W3 retention over the last 6 W3-mature go-live months is above
+// the all-seller rate for those months even at the low end of its 95% range, BAD when it is below
+// even at the high end; anything else is "not yet clear". NA, No offer recorded and Other are not
+// offers to judge and form their own line. Classification is always on W3 (the metric the
+// definition is about); the chart then follows the card's period and retention-week controls.
+const GB_NOOFFER=['NA','No offer recorded','Other'];
+function gbClassify(){
+  const D=window.DIAG||[], O=(window.MIXL||{}).of||[], now=mixNowMon();
+  const months={};
+  D.forEach(d=>{ if(!d.mo) return; const m=months[d.mo]||(months[d.mo]={mature:true}); if(mixWeeksElapsed(d.w,now)<=3) m.mature=false; });
+  const win=Object.keys(months).filter(m=>months[m].mature).sort().slice(-6), ws=new Set(win);
+  const per=O.map(()=>({n:0,r:0})); let N=0, Rt=0;
+  D.forEach(d=>{ if(!ws.has(d.mo)) return; const r=(d.sp[2]||0)>=3000?1:0; per[d.of].n++; per[d.of].r+=r; N++; Rt+=r; });
+  const avg=N?Rt/N:0;
+  const rows=O.map((name,j)=>{
+    const s=per[j], p=s.n?s.r/s.n:null, ci=s.n?1.96*Math.sqrt(p*(1-p)/s.n):null;
+    const grp=GB_NOOFFER.includes(name)?'none':!s.n?'unclear':(p-ci>avg?'good':p+ci<avg?'bad':'unclear');
+    return {j,name,n:s.n,p,ci,grp};
+  });
+  return {win,avg,N,rows,grpOf:rows.map(r=>r.grp)};
+}
+const GB_COL={good:'#2a78d6',bad:'#eb6834',unclear:'#b4b2a9',none:'#898781'};
+const GB_LAB={good:'Good offers',bad:'Bad offers',unclear:'Not yet clear',none:'No offer (NA / not recorded / other)'};
+function gbPaint(){
+  const C=gbClassify(), k=mixSt.wk, g=mixSt.grain, now=mixNowMon(), D=window.DIAG||[];
+  const key=g==='week'?(d=>d.w):(d=>d.mo), P={};
+  D.forEach(d=>{ const p=key(d); if(!p) return;
+    const o=P[p]||(P[p]={k:p,mature:true,good:[0,0],bad:[0,0],unclear:[0,0],none:[0,0],all:[0,0]});
+    if(mixWeeksElapsed(d.w,now)<=k) o.mature=false;
+    const r=(d.sp[k-1]||0)>=3000?1:0, gr=C.grpOf[d.of];
+    o[gr][0]++; o[gr][1]+=r; o.all[0]++; o.all[1]+=r; });
+  const per=Object.values(P).sort((a,b)=>a.k<b.k?-1:1);
+  const rate=(o,gr)=>o.mature&&o[gr][0]>=MIX_MIN_N?+(100*o[gr][1]/o[gr][0]).toFixed(1):null;
+  // November benchmark is always the MONTH of Nov 2025, whatever the grain
+  const NV={good:[0,0],all:[0,0]};
+  D.forEach(d=>{ if(d.mo!=='2025-11') return; const r=(d.sp[k-1]||0)>=3000?1:0;
+    NV.all[0]++; NV.all[1]+=r; if(C.grpOf[d.of]==='good'){ NV.good[0]++; NV.good[1]+=r; } });
+  const nvAll=NV.all[0]?100*NV.all[1]/NV.all[0]:null, nvGood=NV.good[0]?100*NV.good[1]/NV.good[0]:null;
+  const labels=per.map(o=>mixLabel(o.k)+(o.mature?'':' *'));
+  const groups=['good','bad','unclear','none'].filter(gr=>per.some(o=>o[gr][0]));
+  const ds=groups.map(gr=>({label:GB_LAB[gr],data:per.map(o=>rate(o,gr)),borderColor:GB_COL[gr],backgroundColor:GB_COL[gr],
+      borderWidth:gr==='good'||gr==='bad'?2.5:1.5,borderDash:gr==='none'?[2,3]:gr==='unclear'?[4,3]:undefined,
+      pointRadius:gr==='good'||gr==='bad'?2.5:0,tension:.25,spanGaps:true}));
+  const ref=(v,lab,col)=>({label:lab,data:per.map(()=>v==null?null:+v.toFixed(1)),borderColor:col,borderDash:[7,4],borderWidth:1.5,pointRadius:0});
+  if(nvGood!=null) ds.push(ref(nvGood,'Nov 2025 good offers ('+nvGood.toFixed(1)+'%, n'+NV.good[0]+')','#2a78d6'));
+  if(nvAll!=null) ds.push(ref(nvAll,'Nov 2025 overall ('+nvAll.toFixed(1)+'%, n'+NV.all[0]+')','#52514e'));
+  if(gbC) gbC.destroy();
+  gbC=new Chart(document.getElementById('gbChart'),{type:'line',data:{labels,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},tooltip:{callbacks:{label:c=>{
+        const o=per[c.dataIndex], gr=groups[c.datasetIndex];
+        return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')+(gr&&o?' (n'+o[gr][0]+')':''); }}}},
+      scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:g==='week'?90:0}},
+        y:{beginAtZero:false,suggestedMin:15,suggestedMax:70,ticks:{callback:v=>v+'%',color:AXIS},
+          title:{display:true,text:'W'+k+' retention',color:AXIS_TITLE}}}}});
+  // headline: latest mature period, good offers vs the November yardstick
+  const last=[...per].reverse().find(o=>o.mature&&o.good[0]>=MIX_MIN_N);
+  const h=document.getElementById('gbHead');
+  if(last&&nvGood!=null){
+    const gv=100*last.good[1]/last.good[0], bv=last.bad[0]?100*last.bad[1]/last.bad[0]:null, gap=gv-nvGood;
+    const se=Math.sqrt((gv/100)*(1-gv/100)/last.good[0]+(nvGood/100)*(1-nvGood/100)/NV.good[0])*196;
+    const v=Math.abs(gap)<=se?'<span class="mixpill flat">Within noise of Nov</span>':gap<0?'<span class="mixpill down">Below Nov</span>':'<span class="mixpill up">Above Nov</span>';
+    h.innerHTML=v+' Through the good-offer lens, '+esc(mixLabel(last.k))+' W'+k+' is <b>'+gv.toFixed(1)+'%</b> (n'+last.good[0]+') against <b>'+nvGood.toFixed(1)+'%</b> for Nov 2025 good offers &mdash; '+
+      (gap<0?'−':'+')+Math.abs(gap).toFixed(1)+' pp, noise band ±'+se.toFixed(1)+' pp'+(NV.good[0]<100?' (wide because Nov had only '+NV.good[0]+' good-offer sellers)':'')+'.'+
+      (bv!=null?' Bad offers: <b>'+bv.toFixed(1)+'%</b> (n'+last.bad[0]+'), '+(100*last.bad[0]/last.all[0]).toFixed(0)+'% of that cohort.':'');
+  } else h.textContent='';
+  // plain-language explanation under the chart, naming today's members of each group
+  const fm=m=>mixLabel(m,'month'), avgTxt=(100*C.avg).toFixed(1)+'%';
+  const list=gr=>{ const r=C.rows.filter(x=>x.grp===gr&&x.n).sort((a,b)=>b.p-a.p);
+    return r.length?r.map(x=>'<b>'+esc(x.name)+'</b> '+(100*x.p).toFixed(1)+'% (n'+x.n.toLocaleString()+')').join(', '):'none right now'; };
+  const winTxt=C.win.length?fm(C.win[0])+' to '+fm(C.win[C.win.length-1]):'no mature months yet';
+  document.getElementById('gbDef').innerHTML=
+    '<div class="gbdh">How offers are grouped</div>'+
+    '<p>We look at every seller who went live in the last 6 months that are complete for W3 (<b>'+winTxt+'</b>) and ask, per offer: '+
+    'what share of its sellers were still spending &#8377;3,000+ in week 3? The average across all '+C.N.toLocaleString()+' of them is <b>'+avgTxt+'</b>.</p><ul>'+
+    '<li><span class="defdot" style="background:'+GB_COL.good+'"></span><b>Good offers</b> retain <i>better</i> than that average, by more than chance could explain '+
+    '(even the low end of their 95% range is above '+avgTxt+'). Now: '+list('good')+'.</li>'+
+    '<li><span class="defdot" style="background:'+GB_COL.bad+'"></span><b>Bad offers</b> retain <i>worse</i> than the average, again by more than chance '+
+    '(even the high end of their range is below '+avgTxt+'). Now: '+list('bad')+'.</li>'+
+    '<li><span class="defdot" style="background:'+GB_COL.unclear+'"></span><b>Not yet clear</b>: the offer could be either side of average &mdash; usually too few sellers to tell. Now: '+list('unclear')+'.</li>'+
+    '<li><span class="defdot" style="background:'+GB_COL.none+'"></span><b>No offer</b> is kept separate and never graded: <b>NA</b> (offer explicitly recorded as none), '+
+    '<b>No offer recorded</b> (the offer field is blank on every lead) and <b>Other</b> (an offer name we cannot map). Now: '+list('none')+'.</li></ul>'+
+    '<p>The groups are re-graded automatically as each new month completes W3, so an offer can move. The grading always uses W3; '+
+    'the lines then follow whichever period and retention week you pick above. <b>November 2025</b> is the yardstick, not the grader: '+
+    'most of today&rsquo;s offers did not exist yet and 75% of Nov go-lives had no offer recorded, so &ldquo;Nov 2025 good offers&rdquo; is just the good offers that were live that month. '+
+    'A point needs '+MIX_MIN_N+'+ sellers; * = period not yet complete.</p>'+
+    '<table class="mixtab" style="margin-top:6px;min-width:0"><thead><tr><th>Offer</th><th class="num">W3, '+esc(winTxt)+'</th><th class="num">95% range</th><th class="num">Sellers</th><th>Group</th></tr></thead><tbody>'+
+    C.rows.filter(r=>r.n).sort((a,b)=>['good','bad','unclear','none'].indexOf(a.grp)-['good','bad','unclear','none'].indexOf(b.grp)||b.p-a.p).map(r=>
+      '<tr><td><span class="defdot" style="background:'+GB_COL[r.grp]+'"></span>'+esc(r.name)+'</td><td class="num"><b>'+(100*r.p).toFixed(1)+'%</b></td>'+
+      '<td class="num">'+(100*(r.p-r.ci)).toFixed(1)+'&ndash;'+(100*(r.p+r.ci)).toFixed(1)+'%</td><td class="num">'+r.n.toLocaleString()+'</td><td>'+GB_LAB[r.grp]+'</td></tr>').join('')+'</tbody></table>';
 }
 function mixCsv(){
   const {per,L}=mixData(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
