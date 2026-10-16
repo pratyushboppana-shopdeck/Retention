@@ -604,9 +604,9 @@
     <div class="chart-box" style="height:320px"><canvas id="gbChart" role="img" aria-label="W3 retention for good-offer, bad-offer and no-offer sellers by period, against November 2025 benchmark lines."></canvas></div>
     <div class="gbdef" id="gbDef"></div>
     <div id="c30Wrap">
-      <div class="drill-h3" style="margin-top:18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">Sellers who eventually reach &#8377;30K spend &mdash; by go-live month
+      <div class="drill-h3" style="margin-top:18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">Sellers reaching &#8377;30K spend within 6 weeks of go-live &mdash; by go-live month
         <span class="slaseg" id="c30By"><button type="button" data-v="group" class="on">Good / bad / no offer</button><button type="button" data-v="offer">Each offer</button></span></div>
-      <div class="chart-box" style="height:320px"><canvas id="c30Chart" role="img" aria-label="Share of each go-live month's sellers whose cumulative marketing spend has reached 30,000 rupees, by offer group."></canvas></div>
+      <div class="chart-box" style="height:320px"><canvas id="c30Chart" role="img" aria-label="Share of each go-live month's sellers whose cumulative marketing spend reached 30,000 rupees within 6 weeks of go-live, by offer group."></canvas></div>
       <div class="gbdef" id="c30Foot"></div>
     </div>
     <div class="drill-h3" style="margin-top:16px">Every period &mdash; change vs the one before, split into mix and rate
@@ -1550,10 +1550,12 @@ function gbPaint(){
     'An offer is only called good or bad when the gap from average is too big to be luck for its number of sellers (95% confidence); otherwise it is &ldquo;not yet clear&rdquo;. '+
     'November 2025 is only the line we compare against &mdash; most of these offers did not exist then, so &ldquo;Nov 2025 good offers&rdquo; is the '+NV.good[0]+' good-offer sellers who went live that month.</p>';
 }
-// ---- sellers who eventually reach Rs 30K cumulative spend, by go-live month ----
-// Per seller: cumulative marketing spend from the go-live week to date (gc_view_3). "Ever, to
-// date" (owner's choice) means older months have simply had longer, so each month is labelled
-// with how many weeks its youngest seller has had; the recent months are still climbing.
+// ---- sellers reaching Rs 30K cumulative spend within 6 weeks of go-live, by go-live month ----
+// Per seller: the relative week (0 = go-live week) in which cumulative marketing spend from go-live
+// first reached Rs 30,000 (gc_view_3). "Within 6 weeks" = by the end of week 6, the same week
+// numbering as W1-W7 retention. Fixed clock for every cohort, so a month only plots once every
+// seller in it has completed week 6.
+const C30_WK=6;
 const c30St={by:'group'};
 let c30C=null;
 function c30Paint(){
@@ -1562,18 +1564,18 @@ function c30Paint(){
   const keyOf=d=>c30St.by==='group'?C.grpOf[d.of]:O[d.of];
   const keys=c30St.by==='group'?['good','bad','unclear','none']:O.map((_,j)=>O[j]);
   const M={};
-  D.forEach(d=>{ if(!d.mo) return; const m=M[d.mo]||(M[d.mo]={k:d.mo,all:[0,0],minWk:1e9,g:{}});
-    const k=keyOf(d), r=d.w30>=0?1:0, o=m.g[k]||(m.g[k]=[0,0]);
-    o[0]++; o[1]+=r; m.all[0]++; m.all[1]+=r; m.minWk=Math.min(m.minWk,mixWeeksElapsed(d.w,now)); });
+  D.forEach(d=>{ if(!d.mo) return; const m=M[d.mo]||(M[d.mo]={k:d.mo,all:[0,0],mature:true,g:{}});
+    const k=keyOf(d), r=d.w30>=0&&d.w30<=C30_WK?1:0, o=m.g[k]||(m.g[k]=[0,0]);
+    o[0]++; o[1]+=r; m.all[0]++; m.all[1]+=r; if(mixWeeksElapsed(d.w,now)<=C30_WK) m.mature=false; });
   const per=Object.values(M).sort((a,b)=>a.k<b.k?-1:1);
-  const labels=per.map(o=>mixLabel(o.k,'month')+' ('+Math.max(0,o.minWk)+'w+)');
+  const labels=per.map(o=>mixLabel(o.k,'month')+(o.mature?'':' *'));
   const used=keys.filter(k=>per.some(o=>o.g[k]&&o.g[k][0]));
   const col=k=>c30St.by==='group'?GB_COL[k]:MIX_COL[O.indexOf(k)%MIX_COL.length];
   const lab=k=>c30St.by==='group'?GB_LAB[k]:k;
-  const ds=used.map(k=>({label:lab(k),data:per.map(o=>o.g[k]&&o.g[k][0]>=MIX_MIN_N?+(100*o.g[k][1]/o.g[k][0]).toFixed(1):null),
+  const ds=used.map(k=>({label:lab(k),data:per.map(o=>o.mature&&o.g[k]&&o.g[k][0]>=MIX_MIN_N?+(100*o.g[k][1]/o.g[k][0]).toFixed(1):null),
       borderColor:col(k),backgroundColor:col(k),borderWidth:c30St.by==='group'&&(k==='good'||k==='bad')?2.5:2,
       borderDash:c30St.by==='group'&&k==='none'?[2,3]:c30St.by==='group'&&k==='unclear'?[4,3]:undefined,pointRadius:2,tension:.25,spanGaps:true}))
-    .concat([{label:'All sellers',data:per.map(o=>+(100*o.all[1]/o.all[0]).toFixed(1)),borderColor:'#23251f',borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:.25}]);
+    .concat([{label:'All sellers',data:per.map(o=>o.mature?+(100*o.all[1]/o.all[0]).toFixed(1):null),borderColor:'#23251f',borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:.25}]);
   if(c30C) c30C.destroy();
   c30C=new Chart(document.getElementById('c30Chart'),{type:'line',data:{labels,datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
@@ -1581,11 +1583,11 @@ function c30Paint(){
         const o=per[c.dataIndex], k=used[c.datasetIndex], g=k!=null?o.g[k]:o.all;
         return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')+(g?' ('+g[1]+' of '+g[0]+')':''); }}}},
       scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS}},
-        y:{beginAtZero:true,ticks:{callback:v=>v+'%',color:AXIS},title:{display:true,text:'% reached ₹30K so far',color:AXIS_TITLE}}}}});
+        y:{beginAtZero:true,ticks:{callback:v=>v+'%',color:AXIS},title:{display:true,text:'% reached ₹30K by week '+C30_WK,color:AXIS_TITLE}}}}});
   document.getElementById('c30Foot').innerHTML=
-    '<b>Reached &#8377;30K</b> = the seller&rsquo;s total marketing spend from their go-live week up to today adds up to &#8377;30,000 or more. '+
-    'Each point is the share of that month&rsquo;s go-lives who have got there <b>so far</b>. Older months have had more time, so they read higher; '+
-    'the label shows the weeks the month&rsquo;s youngest go-live has had (e.g. &ldquo;6w+&rdquo;), and the latest months are still climbing. '+
+    '<b>Reached &#8377;30K within 6 weeks</b> = the seller&rsquo;s total marketing spend from their go-live week (week 0) through week '+C30_WK+
+    ' adds up to &#8377;30,000 or more. Each point is the share of that month&rsquo;s go-lives who got there. Every month gets the same 6-week clock, so months compare fairly; '+
+    'a month appears only once every seller in it has finished week '+C30_WK+' (* = not yet). '+
     'Offer groups are the same good / bad / not yet clear / no offer groups as the chart above. Points need '+MIX_MIN_N+'+ sellers.';
 }
 function mixCsv(){
