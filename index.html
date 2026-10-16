@@ -1564,30 +1564,40 @@ function c30Paint(){
   const keyOf=d=>c30St.by==='group'?C.grpOf[d.of]:O[d.of];
   const keys=c30St.by==='group'?['good','bad','unclear','none']:O.map((_,j)=>O[j]);
   const M={};
-  D.forEach(d=>{ if(!d.mo) return; const m=M[d.mo]||(M[d.mo]={k:d.mo,all:[0,0],mature:true,g:{}});
+  // A month still in progress is shown PARTIAL: only its sellers who have finished week 6 count,
+  // and the point is drawn hollow on a dashed segment so it never reads as the final number.
+  D.forEach(d=>{ if(!d.mo) return; const m=M[d.mo]||(M[d.mo]={k:d.mo,all:[0,0],tot:0,mature:true,g:{}});
+    m.tot++;
+    if(mixWeeksElapsed(d.w,now)<=C30_WK){ m.mature=false; return; }
     const k=keyOf(d), r=d.w30>=0&&d.w30<=C30_WK?1:0, o=m.g[k]||(m.g[k]=[0,0]);
-    o[0]++; o[1]+=r; m.all[0]++; m.all[1]+=r; if(mixWeeksElapsed(d.w,now)<=C30_WK) m.mature=false; });
+    o[0]++; o[1]+=r; m.all[0]++; m.all[1]+=r; });
   const per=Object.values(M).sort((a,b)=>a.k<b.k?-1:1);
-  const labels=per.map(o=>mixLabel(o.k,'month')+(o.mature?'':' *'));
+  const part=o=>!o.mature&&o.all[0]>=MIX_MIN_N;
+  const labels=per.map(o=>mixLabel(o.k,'month')+(o.mature?'':part(o)?' (partial)':' *'));
   const used=keys.filter(k=>per.some(o=>o.g[k]&&o.g[k][0]));
   const col=k=>c30St.by==='group'?GB_COL[k]:MIX_COL[O.indexOf(k)%MIX_COL.length];
   const lab=k=>c30St.by==='group'?GB_LAB[k]:k;
-  const ds=used.map(k=>({label:lab(k),data:per.map(o=>o.mature&&o.g[k]&&o.g[k][0]>=MIX_MIN_N?+(100*o.g[k][1]/o.g[k][0]).toFixed(1):null),
+  const pt=(o,g)=>(o.mature||part(o))&&g&&g[0]>=MIX_MIN_N?+(100*g[1]/g[0]).toFixed(1):null;
+  const partStyle=c=>({segment:{borderDash:x=>part(per[x.p1DataIndex])?[4,4]:undefined},
+    pointBackgroundColor:per.map(o=>part(o)?'#ffffff':c), pointRadius:per.map(o=>part(o)?4:2), pointBorderWidth:per.map(o=>part(o)?2:1)});
+  const ds=used.map(k=>({label:lab(k),...partStyle(col(k)),data:per.map(o=>pt(o,o.g[k])),
       borderColor:col(k),backgroundColor:col(k),borderWidth:c30St.by==='group'&&(k==='good'||k==='bad')?2.5:2,
       borderDash:c30St.by==='group'&&k==='none'?[2,3]:c30St.by==='group'&&k==='unclear'?[4,3]:undefined,pointRadius:2,tension:.25,spanGaps:true}))
-    .concat([{label:'All sellers',data:per.map(o=>o.mature?+(100*o.all[1]/o.all[0]).toFixed(1):null),borderColor:'#23251f',borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:.25}]);
+    .concat([{label:'All sellers',data:per.map(o=>pt(o,o.all)),borderColor:'#23251f',borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:.25}]);
   if(c30C) c30C.destroy();
   c30C=new Chart(document.getElementById('c30Chart'),{type:'line',data:{labels,datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},tooltip:{callbacks:{label:c=>{
         const o=per[c.dataIndex], k=used[c.datasetIndex], g=k!=null?o.g[k]:o.all;
-        return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')+(g?' ('+g[1]+' of '+g[0]+')':''); }}}},
+        return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')+(g?' ('+g[1]+' of '+g[0]+')':'')+
+          (part(o)&&c.datasetIndex===0?' · partial: '+o.all[0]+' of '+o.tot+' sellers have finished week '+C30_WK:''); }}}},
       scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS}},
         y:{beginAtZero:true,ticks:{callback:v=>v+'%',color:AXIS},title:{display:true,text:'% reached ₹30K by week '+C30_WK,color:AXIS_TITLE}}}}});
   document.getElementById('c30Foot').innerHTML=
     '<b>Reached &#8377;30K within 6 weeks</b> = the seller&rsquo;s total marketing spend from their go-live week (week 0) through week '+C30_WK+
     ' adds up to &#8377;30,000 or more. Each point is the share of that month&rsquo;s go-lives who got there. Every month gets the same 6-week clock, so months compare fairly; '+
-    'a month appears only once every seller in it has finished week '+C30_WK+' (* = not yet). '+
+    'a month still in progress is shown as <b>partial</b> (hollow point, dashed line): only its sellers who have finished week '+C30_WK+' are counted, so it can still move; '+
+    '* = no seller in that month has finished week '+C30_WK+' yet. '+
     'Offer groups are the same good / bad / not yet clear / no offer groups as the chart above. Points need '+MIX_MIN_N+'+ sellers.';
 }
 function mixCsv(){
