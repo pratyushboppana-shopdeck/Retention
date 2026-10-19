@@ -1220,6 +1220,7 @@ async function load(){
     TSSOP=snap.tsSop||null; tsInit=false;
     UNAS=snap.unassign||null; unInit=false;
     BLK=snap.blocks||null; BLKPLAT=snap.blockPlatform||null; blkInit=false;
+    window.SNAP_AT=snap.generated_at||null;
     setStamp(snap.generated_at);
     STUCK=snap.stuck||null;
     PRELIVE=snap.prelive||null;
@@ -1331,8 +1332,13 @@ function mixIsoMon(w){
   const [y,ww]=w.split('-W').map(Number), j4=new Date(Date.UTC(y,0,4));
   const m=new Date(j4); m.setUTCDate(j4.getUTCDate()-((j4.getUTCDay()||7)-1)+(ww-1)*7); return m;
 }
+// "Now" is the snapshot's own date, not the viewer's clock. The snapshot holds spend through the
+// day BEFORE it was built (gc_view_3 lands each morning with yesterday), so a week counts as
+// complete only once a snapshot was built after it ended. Using the wall clock showed W39's W3 as
+// final on Monday 19 Oct from a Sunday snapshot missing Sunday's spend: 34.1% instead of 40.6%.
 function mixNowMon(){
-  const t=new Date(Date.now()+5.5*3600e3), d=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth(),t.getUTCDate()));
+  const base=window.SNAP_AT?new Date(window.SNAP_AT).getTime():Date.now();
+  const t=new Date(base+5.5*3600e3), d=new Date(Date.UTC(t.getUTCFullYear(),t.getUTCMonth(),t.getUTCDate()));
   d.setUTCDate(d.getUTCDate()-((d.getUTCDay()||7)-1)); return d;
 }
 const mixWeeksElapsed=(w,now)=>Math.round((now-mixIsoMon(w))/(7*864e5));
