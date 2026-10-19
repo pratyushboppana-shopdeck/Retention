@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # a refresh trigger is not a code change; deploying on it queued in the shared 'pages'
+    # group and GitHub cancelled the pending refresh run in favour of this one (2026-10-19)
+    paths-ignore: ['.refresh-trigger']
   workflow_dispatch:
 
 permissions:

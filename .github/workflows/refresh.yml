@@ -32,8 +32,11 @@ permissions:
   pages: write
   id-token: write
 
+# Own group: in the shared 'pages' group a waiting refresh was cancelled whenever a deploy
+# queued behind it (GitHub keeps only the newest pending run per group). Two pending refreshes
+# can still replace each other, which is harmless -- whichever runs does the day's refresh.
 concurrency:
-  group: pages
+  group: refresh
   cancel-in-progress: false
 
 jobs:
