@@ -16,6 +16,13 @@ name: Refresh retention snapshot
 on:
   schedule:
     - cron: '7,37 3-6 * * *'
+  # The reliable trigger. GitHub's scheduler started only ONE of the eight offers above per day,
+  # between 13:10 and 15:55 IST, every day 2026-10-12..18 -- so the 11:00 deadline was never met.
+  # A Claude cloud routine (Anthropic's scheduler, on time) pushes a timestamp to .refresh-trigger
+  # at 08:50 and 09:50 IST; a push starts this workflow within seconds. Treated like a scheduled
+  # offer: not before 08:30 IST, and it stands down once the day is done.
+  push:
+    paths: ['.refresh-trigger']
   workflow_dispatch:         # manual run: always refreshes, ignores the done-for-today mark
 
 # contents: commit the snapshot; pages/id-token: deploy in the same run
@@ -42,7 +49,7 @@ jobs:
           NOW_MIN=$(( 10#$(date -u +%H) * 60 + 10#$(date -u +%M) ))
           IST_DATE=$(TZ=Asia/Kolkata date +%Y-%m-%d)
           echo "key=refresh-done-$IST_DATE" >> "$GITHUB_OUTPUT"
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "$NOW_MIN" -lt 180 ]; then
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "$NOW_MIN" -lt 180 ]; then
             echo "too early (${NOW_MIN}min UTC < 03:00 UTC): upstream tables not loaded yet"
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
@@ -52,7 +59,7 @@ jobs:
 
       - name: Already refreshed today?
         id: guard
-        if: steps.plan.outputs.run == 'true' && github.event_name == 'schedule'
+        if: steps.plan.outputs.run == 'true' && github.event_name != 'workflow_dispatch'
         uses: actions/cache/restore@v4
         with:
           path: .refresh-done
@@ -69,6 +76,8 @@ jobs:
 
       - uses: actions/checkout@v4
         if: steps.go.outputs.go == 'true'
+        with:
+          ref: main          # a trigger pushed to another branch must still refresh main
 
       - uses: actions/setup-python@v5
         if: steps.go.outputs.go == 'true'
@@ -98,7 +107,7 @@ jobs:
           else
             git commit -m "Auto-refresh retention snapshot"
             git pull --rebase -q origin main
-            git push
+            git push origin HEAD:main
           fi
 
       # Publish the freshly-generated working tree straight to Pages.
