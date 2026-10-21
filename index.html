@@ -427,7 +427,7 @@
     </div>
     <div class="gcgm-panel" style="margin-bottom:16px">
       <div class="gcgm-head"><span>By CL of the go-live GC — low retention first</span><span class="gcgm-ctl"><select id="clSel"></select></span></div>
-      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="all calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
+      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
       <div class="gcgm-detail" id="clDetail"></div>
       <div style="margin-top:8px">
         <button type="button" class="gcexp" id="clShowAll" style="display:none">Show every GC and GM &#9662;</button>
@@ -437,13 +437,13 @@
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GC — low retention first</span><span class="gcgm-ctl"><select id="gcSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div id="gcClBanner" class="clbanner" style="display:none"></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="all calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
         <div class="gcgm-detail" id="gcDetail"></div>
       </div>
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GM — low retention first</span><span class="gcgm-ctl"><select id="gmSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div id="gmClBanner" class="clbanner" style="display:none"></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="all calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
         <div class="gcgm-detail" id="gmDetail"></div>
       </div>
     </div>
@@ -453,7 +453,7 @@
       <div class="dist" id="spDist"></div>
       <div class="tablewrap" style="max-height:420px">
         <table class="sellers" id="spTable">
-          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th>Last spend</th><th class="num" title="calls to the seller after their last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="calls in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num">Lifetime spend</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
+          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th>Last spend</th><th class="num" title="GC calls to the seller after their last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num">Lifetime spend</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
           <tbody id="spRows"></tbody>
         </table>
       </div>
@@ -2287,7 +2287,7 @@ document.getElementById('clShowAll').addEventListener('click',()=>{
 document.getElementById('spCsv').addEventListener('click',()=>{
   if(!SPROWS.length) return; const B=window.BUCKETS||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const csv=['seller_name,seller_id,golive_week,reason_bucket,golive_gc,golive_gm,last_spend_date,days_since_last_spend,calls_after_last_spend,connected_after_last_spend,calls_last_7d,connected_last_7d,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
+  const csv=['seller_name,seller_id,golive_week,reason_bucket,golive_gc,golive_gm,last_spend_date,days_since_last_spend,gc_calls_after_last_spend,gc_connected_after_last_spend,gc_calls_last_7d,gc_connected_last_7d,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
     .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.lastSp||'',gcgmDaysSince(x)??'',x.attA,x.connA,x.att7,x.conn7,x.spend||0,
       x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
   saveCsv('not_retained_sellers.csv', csv);

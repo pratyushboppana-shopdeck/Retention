@@ -378,12 +378,12 @@ tx AS (
     COUNT(*) n_all
   FROM open_t GROUP BY seller_id
 ),
--- Calls TO the seller from go-live onward (card 10084's dump, reduced to the two branches that
+-- GC calls TO the seller from go-live onward (card 10084's dump, reduced to the two branches that
 -- carry the volume: the callee's phone resolved through userprofiles, and an entity_id that is
 -- itself a seller id). 180 days of exotel keeps this at ~3s; older cohorts under-count and the
 -- tab says so.
 craw AS (
-  SELECT ec.entity_id, ecd.call_to, ecd.created_at, ecd.duration, ecd.sid
+  SELECT ec.entity_id, ecd.call_to, ecd.call_from, ecd.created_at, ecd.duration, ecd.sid
   FROM nushop.exotel_calls ec
   JOIN nushop.exotel_call_details ecd ON ec.exotel_call_sid = ecd.sid
   WHERE ec.created_at  >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 180 DAY))
@@ -391,12 +391,19 @@ craw AS (
 -- A call can match its seller BOTH ways (callee phone and entity_id); 13% of rows did on
 -- 2026-10-21, so every count below is DISTINCT on the Exotel call sid.
 cbysel AS (
-  SELECT up2.user_id seller_id, r.sid, r.created_at, r.duration
+  SELECT up2.user_id seller_id, r.sid, r.call_from, r.created_at, r.duration
   FROM craw r JOIN nushop.userprofiles up2
     ON ABS(SAFE_CAST(up2.contact_number AS FLOAT64)) = SAFE_CAST(r.call_to AS FLOAT64)
   UNION ALL
-  SELECT r.entity_id, r.sid, r.created_at, r.duration FROM craw r
+  SELECT r.entity_id, r.sid, r.call_from, r.created_at, r.duration FROM craw r
   WHERE REGEXP_CONTAINS(r.entity_id, r'^[a-f0-9]{24}$')),
+-- GC calls only (owner, 2026-10-21): the caller is resolved from the call_from phone through
+-- userprofiles -> users.role, as card 11230 does. Of calls to these sellers, GCs placed 60%,
+-- KAMs 23%, admins/growth leads 7%, and 8.5% came from seller/other numbers.
+gc_phones AS (
+  SELECT DISTINCT ABS(SAFE_CAST(up.contact_number AS FLOAT64)) ph
+  FROM nushop.userprofiles up JOIN nushop.users u ON u._id = up.user_id
+  WHERE LOWER(u.role) LIKE '%growth-consultant%' AND SAFE_CAST(up.contact_number AS FLOAT64) IS NOT NULL),
 -- Last spend date: the last day with Rs 100+ marketing spend (same floor as go_live above, so a
 -- few rupees of trailing spend cannot move it). Owner, 2026-10-21: calls are now judged AFTER this
 -- date -- did we chase the seller once they stopped -- plus the last 7 full days.
@@ -413,6 +420,7 @@ calls AS (
     COUNT(DISTINCT IF(DATE(b.created_at,'Asia/Kolkata') BETWEEN DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 7 DAY)
                                                   AND DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 1 DAY) AND b.duration>0, b.sid, NULL)) n_conn_7d
   FROM mygl m JOIN cbysel b ON b.seller_id = m.seller_id
+  JOIN gc_phones g ON g.ph = SAFE_CAST(b.call_from AS FLOAT64)
   LEFT JOIN lastsp ls ON ls.seller_id = m.seller_id
   WHERE DATE(b.created_at,'Asia/Kolkata') >= m.gd
   GROUP BY 1),
