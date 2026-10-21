@@ -145,7 +145,22 @@
   .wkchip{font-size:11.5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:#fff;cursor:pointer;user-select:none;}
   .wkchip.on{background:var(--accent-soft);border-color:var(--accent);font-weight:600;}
   .wkwrap{display:flex;flex-wrap:wrap;gap:4px;max-height:96px;overflow:auto;}
-  .gcgm-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .gcgm-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;}
+  table.rank thead tr.g1 th{top:0;} table.rank thead tr.g2 th{top:29px;font-size:11px;color:var(--muted);font-weight:600;}
+  table.rank th.grp{text-align:center;border-left:1px solid var(--line);border-bottom:0;}
+  table.rank th.grp .sub{font-size:10.5px;font-weight:500;color:var(--muted);margin-left:4px;}
+  #gcgmCard .gcgm-panel table.rank{width:auto;min-width:min(100%,900px);}
+  #gcgmCard .gcgm-panel .tablewrap{width:fit-content;max-width:100%;}
+  #gcgmCard .gcgm-panel .gcgm-head{max-width:1100px;}
+  #gcgmCard .gcgm-panel table.rank th,#gcgmCard .gcgm-panel table.rank td{padding:5px 12px;}
+  table.rank thead tr.g1 th[rowspan]{vertical-align:bottom;}
+  table.rank th.gl,table.rank td.gl{border-left:1px solid var(--line);}
+  table.rank td.rk{color:var(--muted);width:28px;} table.rank td.nm{max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+  table.rank .retc{min-width:150px;} table.rank td.retc .rw{display:flex;align-items:center;gap:8px;}
+  table.rank .retv{font-weight:700;min-width:34px;text-align:right;}
+  table.rank .rtrack{flex:1;max-width:110px;height:8px;background:#ecebe3;border-radius:4px;overflow:hidden;display:inline-flex;}
+  table.rank .rtrack .rbar{height:100%;border-radius:4px;}
+  table.rank td.num{font-variant-numeric:tabular-nums;}
   @media(max-width:720px){.gcgm-cols{grid-template-columns:1fr;}}
   .gcgm-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;font-weight:650;font-size:13px;}
   .gcgm-head select{font:inherit;font-size:12px;max-width:150px;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:#fff;}
@@ -427,7 +442,7 @@
     </div>
     <div class="gcgm-panel" style="margin-bottom:16px">
       <div class="gcgm-head"><span>By CL of the go-live GC — low retention first</span><span class="gcgm-ctl"><select id="clSel"></select></span></div>
-      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
+      <div class="tablewrap"><table class="rank"><thead><tr class="g1"><th rowspan="2">#</th><th rowspan="2">CL</th><th class="num" rowspan="2">Go-lives</th><th rowspan="2" class="retc">Retention</th><th class="num grp" colspan="2" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls after that seller&rsquo;s last spend date">GC calls after last spend <span class="sub">per stopped seller</span></th><th class="num grp" colspan="2" title="All GC calls to these sellers in the last 7 full days">GC calls, last 7 days <span class="sub">total</span></th><th class="num" rowspan="2" title="median lifetime marketing spend">Med spend</th></tr><tr class="g2"><th class="num gl">Attempts</th><th class="num">Connects</th><th class="num gl">Attempts</th><th class="num">Connects</th></tr></thead><tbody id="clRows"></tbody></table></div>
       <div class="gcgm-detail" id="clDetail"></div>
       <div style="margin-top:8px">
         <button type="button" class="gcexp" id="clShowAll" style="display:none">Show every GC and GM &#9662;</button>
@@ -437,13 +452,13 @@
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GC — low retention first</span><span class="gcgm-ctl"><select id="gcSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div id="gcClBanner" class="clbanner" style="display:none"></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
+        <div class="tablewrap"><table class="rank"><thead><tr class="g1"><th rowspan="2">#</th><th rowspan="2">GC</th><th class="num" rowspan="2">Go-lives</th><th rowspan="2" class="retc">Retention</th><th class="num grp" colspan="2" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls after that seller&rsquo;s last spend date">GC calls after last spend <span class="sub">per stopped seller</span></th><th class="num grp" colspan="2" title="All GC calls to these sellers in the last 7 full days">GC calls, last 7 days <span class="sub">total</span></th><th class="num" rowspan="2" title="median lifetime marketing spend">Med spend</th></tr><tr class="g2"><th class="num gl">Attempts</th><th class="num">Connects</th><th class="num gl">Attempts</th><th class="num">Connects</th></tr></thead><tbody id="gcRows"></tbody></table></div>
         <div class="gcgm-detail" id="gcDetail"></div>
       </div>
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GM — low retention first</span><span class="gcgm-ctl"><select id="gmSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div id="gmClBanner" class="clbanner" style="display:none"></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
+        <div class="tablewrap"><table class="rank"><thead><tr class="g1"><th rowspan="2">#</th><th rowspan="2">GM</th><th rowspan="2">CL</th><th class="num" rowspan="2">Go-lives</th><th rowspan="2" class="retc">Retention</th><th class="num grp" colspan="2" title="GC calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls after that seller&rsquo;s last spend date">GC calls after last spend <span class="sub">per stopped seller</span></th><th class="num grp" colspan="2" title="All GC calls to these sellers in the last 7 full days">GC calls, last 7 days <span class="sub">total</span></th><th class="num" rowspan="2" title="median lifetime marketing spend">Med spend</th></tr><tr class="g2"><th class="num gl">Attempts</th><th class="num">Connects</th><th class="num gl">Attempts</th><th class="num">Connects</th></tr></thead><tbody id="gmRows"></tbody></table></div>
         <div class="gcgm-detail" id="gmDetail"></div>
       </div>
     </div>
@@ -2134,6 +2149,9 @@ function gcgmStats(){
   }
   return (GCGMSTATS=out);
 }
+// ALL-CAPS roster names read as shouting next to everyone else; display them in title case.
+// Matching and selection still use the raw name.
+const niceName=n=>(n&&n===n.toUpperCase()&&/[A-Z]{3}/.test(n))?n.toLowerCase().replace(/(^|[\s.'-])\p{L}/gu,c=>c.toUpperCase()):n;
 const fmtMoney=v=>v==null?'—':'\u20B9'+(v>=100000?(v/100000).toFixed(1)+'L':v>=1000?Math.round(v/1000)+'k':Math.round(v));
 function renderRank(rows, tbodyId, detailId, sel, selEl, opt){
   opt=opt||{};
@@ -2156,11 +2174,15 @@ function renderRank(rows, tbodyId, detailId, sel, selEl, opt){
     const clCell = opt.clCol ? `<td class="clcell" title="${esc(clOf('',x.name)||'outside every CL')}">${esc(clOf('',x.name)||'—')}</td>` : '';
     const st=(gcgmStats()[sel]||{})[x.name];
     const one=v=>v==null?'—':v.toFixed(1);
-    const extra = `<td class="num" title="${st?(st.stop+' of '+st.n+' sellers have stopped (no spend in 7 days); per stopped seller, after their last spend date: '+one(st.attAPer)+' attempts, '+one(st.connAPer)+' connects'):''}">${st&&st.stop?one(st.attAPer)+' &middot; '+one(st.connAPer):'—'}</td>`+
-      `<td class="num" title="${st?('last 7 full days, all '+st.n+' sellers: '+st.att7+' attempts, '+st.conn7+' connected'):''}">${st?st.att7+' &middot; '+st.conn7:'—'}</td>`+
+    const stopT=st?(st.stop+' of '+st.n+' sellers have stopped spending (no spend in 7 days)'):'';
+    const extra = `<td class="num gl" title="${stopT}">${st&&st.stop?one(st.attAPer):'—'}</td>`+
+      `<td class="num" title="${stopT}${st&&st.stop&&st.attA?' · '+Math.round(100*st.connA/st.attA)+'% connected':''}">${st&&st.stop?one(st.connAPer):'—'}</td>`+
+      `<td class="num gl">${st?st.att7.toLocaleString():'—'}</td>`+
+      `<td class="num" title="${st&&st.att7?Math.round(100*st.conn7/st.att7)+'% connected':''}">${st?st.conn7.toLocaleString():'—'}</td>`+
       `<td class="num" title="${st?('median '+fmtMoney(st.spMed)+' · average '+fmtMoney(st.spAvg)):''}">${st?fmtMoney(st.spMed):'—'}</td>`;
-    tr.innerHTML=`<td>${i+1}</td><td>${esc(x.name)}</td>${clCell}<td class="num">${x.n}</td><td class="num">${(100*x.p).toFixed(0)}%</td>`+
-      extra+`<td><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></td>`;
+    tr.innerHTML=`<td class="rk">${i+1}</td><td class="nm" title="${esc(x.name)}">${esc(niceName(x.name))}</td>${clCell}<td class="num">${x.n}</td>`+
+      `<td class="retc"><span class="rw"><span class="retv" style="color:${retColor(x.p)}">${(100*x.p).toFixed(0)}%</span><span class="rtrack"><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></span></span></td>`+
+      extra;
     // click a row = select that person (shows their not-retained sellers below)
     // clicking a row selects that person; GC and GM are alternate views, so pick one at a time
     tr.addEventListener('click',()=>{gcgmPick(sel,(gcgmSel[sel]===x.name)?'All':x.name);});
