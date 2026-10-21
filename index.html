@@ -427,7 +427,7 @@
     </div>
     <div class="gcgm-panel" style="margin-bottom:16px">
       <div class="gcgm-head"><span>By CL of the go-live GC — low retention first</span><span class="gcgm-ctl"><select id="clSel"></select></span></div>
-      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
+      <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="all calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="clRows"></tbody></table></div>
       <div class="gcgm-detail" id="clDetail"></div>
       <div style="margin-top:8px">
         <button type="button" class="gcexp" id="clShowAll" style="display:none">Show every GC and GM &#9662;</button>
@@ -437,13 +437,13 @@
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GC — low retention first</span><span class="gcgm-ctl"><select id="gcSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div id="gcClBanner" class="clbanner" style="display:none"></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GC</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="all calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gcRows"></tbody></table></div>
         <div class="gcgm-detail" id="gcDetail"></div>
       </div>
       <div class="gcgm-panel">
         <div class="gcgm-head"><span>By go-live GM — low retention first</span><span class="gcgm-ctl"><select id="gmSel"></select><button type="button" class="gcexp gcgm-exp">Expand &#8599;</button></span></div>
         <div id="gmClBanner" class="clbanner" style="display:none"></div>
-        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls to their sellers since go-live, per seller">Calls/sel</th><th class="num" title="same, over sellers NOT retained">Calls/NR</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
+        <div class="tablewrap"><table class="rank"><thead><tr><th>#</th><th>GM</th><th>CL</th><th class="num">Go-lives</th><th class="num">Ret</th><th class="num" title="calls per STOPPED seller (no &#8377;100+ spend day in the last 7 days), counting only calls made after that seller&rsquo;s last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="all calls to these sellers in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num" title="median lifetime marketing spend">Med spend</th><th>&nbsp;</th></tr></thead><tbody id="gmRows"></tbody></table></div>
         <div class="gcgm-detail" id="gmDetail"></div>
       </div>
     </div>
@@ -453,7 +453,7 @@
       <div class="dist" id="spDist"></div>
       <div class="tablewrap" style="max-height:420px">
         <table class="sellers" id="spTable">
-          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th class="num">Calls</th><th class="num">Lifetime spend</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
+          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th>Last spend</th><th class="num" title="calls to the seller after their last spend date &mdash; attempts &middot; connects">After last spend</th><th class="num" title="calls in the last 7 full days &mdash; attempts &middot; connects">Last 7 days</th><th class="num">Lifetime spend</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
           <tbody id="spRows"></tbody>
         </table>
       </div>
@@ -1213,7 +1213,8 @@ async function load(){
       const nm=snap.gcgmSellers.names||[], by={};
       snap.gcgmSellers.rows.forEach(r=>{by[r[0]]={gc:r[1]>=0?nm[r[1]]:null,gm:r[2]>=0?nm[r[2]]:null,
         nOpen:r[3],nPend:r[4],ops:r[5]||'',nSos:r[6],sos:r[7]||'',nAll:r[8]||0,sname:r[9]||'',
-        calls:r[10]||0,conn:r[11]||0,spend:r[12]||0};});
+        calls:r[10]||0,conn:r[11]||0,spend:r[12]||0,
+        lastSp:r[13]||'',attA:r[14]||0,connA:r[15]||0,att7:r[16]||0,conn7:r[17]||0};});
       GCGMS=by;
     }
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
@@ -2089,6 +2090,12 @@ function aggRole(rows){ // rows: [gw,name,n,r1..r7]; returns map name->{n,ret} o
 // go-live weeks. They cannot come from GCGM.gc/gm, which are week-level aggregates with no
 // seller identity -- these are computed from gcgmSellers joined to the diagnosis rows.
 let GCGMSTATS={gc:{},gm:{},cl:{},_key:''};
+// "Stopped" = no Rs 100+ spend day in the 7 days before the snapshot was built. For a seller still
+// spending, "calls after last spend" is ~0 by construction, so per-seller rates use stopped sellers.
+function gcgmSnapDay(){ const t=new Date((window.SNAP_AT?new Date(window.SNAP_AT).getTime():Date.now())+5.5*3600e3);
+  return Date.UTC(t.getUTCFullYear(),t.getUTCMonth(),t.getUTCDate()); }
+function gcgmDaysSince(g){ if(!g.lastSp) return null; return Math.round((gcgmSnapDay()-Date.parse(g.lastSp+'T00:00:00Z'))/864e5); }
+const gcgmStopped=g=>{ const d=gcgmDaysSince(g); return d!=null&&d>7; };
 function gcgmStats(){
   const key=[...gcgmSel.weeks].sort().join(',')+'|'+gcgmSel.metric;
   if(GCGMSTATS._key===key) return GCGMSTATS;
@@ -2101,9 +2108,11 @@ function gcgmStats(){
   const m=gcgmSel.metric;
   const bump=(bag,name,g,notRet)=>{
     if(!name) return;
-    const a=bag[name]||(bag[name]={n:0,nr:0,calls:0,callsNR:0,sp:[]});
+    const a=bag[name]||(bag[name]={n:0,nr:0,calls:0,callsNR:0,sp:[],stop:0,attA:0,connA:0,att7:0,conn7:0});
     a.n++; a.calls+=g.calls; a.sp.push(g.spend);
     if(notRet){ a.nr++; a.callsNR+=g.calls; }
+    a.att7+=g.att7; a.conn7+=g.conn7;
+    if(gcgmStopped(g)){ a.stop++; a.attA+=g.attA; a.connA+=g.connA; }
   };
   for(const sid in GCGMS){
     const g=GCGMS[sid], d=DIAGBY[sid]; if(!d) continue;
@@ -2117,6 +2126,8 @@ function gcgmStats(){
     const a=out[k][nm];
     a.callsPer   = a.n ? a.calls/a.n : null;
     a.callsPerNR = a.nr ? a.callsNR/a.nr : null;
+    a.attAPer  = a.stop ? a.attA/a.stop : null;
+    a.connAPer = a.stop ? a.connA/a.stop : null;
     const v=a.sp.slice().sort((x,y)=>x-y);
     a.spMed = v.length ? v[Math.floor(v.length/2)] : null;
     a.spAvg = v.length ? v.reduce((p,q)=>p+q,0)/v.length : null;
@@ -2145,8 +2156,8 @@ function renderRank(rows, tbodyId, detailId, sel, selEl, opt){
     const clCell = opt.clCol ? `<td class="clcell" title="${esc(clOf('',x.name)||'outside every CL')}">${esc(clOf('',x.name)||'—')}</td>` : '';
     const st=(gcgmStats()[sel]||{})[x.name];
     const one=v=>v==null?'—':v.toFixed(1);
-    const extra = `<td class="num" title="calls to their sellers since go-live ÷ sellers">${st?one(st.callsPer):'—'}</td>`+
-      `<td class="num" title="${st?('same, over the '+st.nr+' not retained at W'+gcgmSel.metric):''}">${st?one(st.callsPerNR):'—'}</td>`+
+    const extra = `<td class="num" title="${st?(st.stop+' of '+st.n+' sellers have stopped (no spend in 7 days); per stopped seller, after their last spend date: '+one(st.attAPer)+' attempts, '+one(st.connAPer)+' connects'):''}">${st&&st.stop?one(st.attAPer)+' &middot; '+one(st.connAPer):'—'}</td>`+
+      `<td class="num" title="${st?('last 7 full days, all '+st.n+' sellers: '+st.att7+' attempts, '+st.conn7+' connected'):''}">${st?st.att7+' &middot; '+st.conn7:'—'}</td>`+
       `<td class="num" title="${st?('median '+fmtMoney(st.spMed)+' · average '+fmtMoney(st.spAvg)):''}">${st?fmtMoney(st.spMed):'—'}</td>`;
     tr.innerHTML=`<td>${i+1}</td><td>${esc(x.name)}</td>${clCell}<td class="num">${x.n}</td><td class="num">${(100*x.p).toFixed(0)}%</td>`+
       extra+`<td><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></td>`;
@@ -2224,6 +2235,9 @@ function fmtOps(ops){
   }).join('');
 }
 let SPROWS=[];
+const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtLastSp(x){ const d=gcgmDaysSince(x), [y,m,dd]=x.lastSp.split('-');
+  return (+dd)+' '+MON3[+m-1]+(d==null?'':d<=1?' (active)':' ('+d+'d ago)'); }
 function renderSellerPanel(){
   const panel=document.getElementById('sellerPanel');
   const gcName=gcgmSel.gc||'All', gmName=gcgmSel.gm||'All', clName=gcgmSel.cl||'All';
@@ -2257,7 +2271,9 @@ function renderSellerPanel(){
     `<tr><td>${i+1}</td><td class="snm" title="${esc(x.sname||'')}">${esc(x.sname||'—')}</td>`+
     `<td><code style="font-size:11px">${esc(x.sid)}</code></td>`+
     `<td>${esc(x.gc||'—')}</td><td>${esc(x.w)}</td>`+
-    `<td class="num" title="${x.conn} connected of ${x.calls} placed since go-live">${x.calls||0}</td>`+
+    `<td title="${esc(x.lastSp||'')}">${x.lastSp?esc(fmtLastSp(x)):'—'}</td>`+
+    `<td class="num" title="after ${esc(x.lastSp||'—')}: ${x.attA} attempted, ${x.connA} connected">${x.attA} &middot; ${x.connA}</td>`+
+    `<td class="num" title="last 7 days: ${x.att7} attempted, ${x.conn7} connected">${x.att7} &middot; ${x.conn7}</td>`+
     `<td class="num">${fmtMoney(x.spend)}</td><td>${esc(B[x.b]||'—')}</td>`+
     `<td class="ops">${x.nOpen?`<b>${x.nPend}</b> pending / ${x.nOpen} blocking${x.nAll>x.nOpen?` <span style="color:var(--faint)">(+${x.nAll-x.nOpen} internal)</span>`:''}<br>`:''}${fmtOps(x.ops)}</td>`+
     `<td>${x.nSos?`<span class="sostag" title="${esc(x.sos)}">SOS ×${x.nSos}</span>`:'—'}</td></tr>`).join('');
@@ -2271,8 +2287,8 @@ document.getElementById('clShowAll').addEventListener('click',()=>{
 document.getElementById('spCsv').addEventListener('click',()=>{
   if(!SPROWS.length) return; const B=window.BUCKETS||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const csv=['seller_name,seller_id,golive_week,reason_bucket,golive_gc,golive_gm,calls_since_golive,calls_connected,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
-    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.calls||0,x.conn||0,x.spend||0,
+  const csv=['seller_name,seller_id,golive_week,reason_bucket,golive_gc,golive_gm,last_spend_date,days_since_last_spend,calls_after_last_spend,connected_after_last_spend,calls_last_7d,connected_last_7d,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
+    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,B[x.b]||'',x.gc||'',x.gm||'',x.lastSp||'',gcgmDaysSince(x)??'',x.attA,x.connA,x.att7,x.conn7,x.spend||0,
       x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
   saveCsv('not_retained_sellers.csv', csv);
 });

@@ -383,21 +383,37 @@ tx AS (
 -- itself a seller id). 180 days of exotel keeps this at ~3s; older cohorts under-count and the
 -- tab says so.
 craw AS (
-  SELECT ec.entity_id, ecd.call_to, ecd.created_at, ecd.duration
+  SELECT ec.entity_id, ecd.call_to, ecd.created_at, ecd.duration, ecd.sid
   FROM nushop.exotel_calls ec
   JOIN nushop.exotel_call_details ecd ON ec.exotel_call_sid = ecd.sid
   WHERE ec.created_at  >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 180 DAY))
     AND ecd.created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 180 DAY))),
+-- A call can match its seller BOTH ways (callee phone and entity_id); 13% of rows did on
+-- 2026-10-21, so every count below is DISTINCT on the Exotel call sid.
 cbysel AS (
-  SELECT up2.user_id seller_id, r.created_at, r.duration
+  SELECT up2.user_id seller_id, r.sid, r.created_at, r.duration
   FROM craw r JOIN nushop.userprofiles up2
     ON ABS(SAFE_CAST(up2.contact_number AS FLOAT64)) = SAFE_CAST(r.call_to AS FLOAT64)
   UNION ALL
-  SELECT r.entity_id, r.created_at, r.duration FROM craw r
+  SELECT r.entity_id, r.sid, r.created_at, r.duration FROM craw r
   WHERE REGEXP_CONTAINS(r.entity_id, r'^[a-f0-9]{24}$')),
+-- Last spend date: the last day with Rs 100+ marketing spend (same floor as go_live above, so a
+-- few rupees of trailing spend cannot move it). Owner, 2026-10-21: calls are now judged AFTER this
+-- date -- did we chase the seller once they stopped -- plus the last 7 full days.
+lastsp AS (
+  SELECT m.seller_id, MAX(d.spend_date) last_spend
+  FROM mygl m JOIN daily_spend d ON d.seller_id = m.seller_id
+  WHERE d.marketing_spend >= 100 GROUP BY 1),
 calls AS (
-  SELECT m.seller_id, COUNT(*) n_calls, COUNTIF(b.duration>0) n_conn
+  SELECT m.seller_id, COUNT(DISTINCT b.sid) n_calls, COUNT(DISTINCT IF(b.duration>0, b.sid, NULL)) n_conn,
+    COUNT(DISTINCT IF(DATE(b.created_at,'Asia/Kolkata') > ls.last_spend, b.sid, NULL)) n_att_after,
+    COUNT(DISTINCT IF(DATE(b.created_at,'Asia/Kolkata') > ls.last_spend AND b.duration>0, b.sid, NULL)) n_conn_after,
+    COUNT(DISTINCT IF(DATE(b.created_at,'Asia/Kolkata') BETWEEN DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 7 DAY)
+                                                  AND DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 1 DAY), b.sid, NULL)) n_att_7d,
+    COUNT(DISTINCT IF(DATE(b.created_at,'Asia/Kolkata') BETWEEN DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 7 DAY)
+                                                  AND DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 1 DAY) AND b.duration>0, b.sid, NULL)) n_conn_7d
   FROM mygl m JOIN cbysel b ON b.seller_id = m.seller_id
+  LEFT JOIN lastsp ls ON ls.seller_id = m.seller_id
   WHERE DATE(b.created_at,'Asia/Kolkata') >= m.gd
   GROUP BY 1),
 spend AS (
@@ -419,7 +435,10 @@ SELECT m.seller_id,
   COALESCE(tx.n_all,0) n_all,
   COALESCE(sos.n_sos,0) n_sos, COALESCE(sos.sos_text,'') sos_text,
   COALESCE(calls.n_calls,0) n_calls, COALESCE(calls.n_conn,0) n_conn,
-  CAST(ROUND(COALESCE(spend.lifetime_spend,0)) AS INT64) lifetime_spend
+  CAST(ROUND(COALESCE(spend.lifetime_spend,0)) AS INT64) lifetime_spend,
+  FORMAT_DATE('%Y-%m-%d', lastsp.last_spend) last_spend,
+  COALESCE(calls.n_att_after,0) n_att_after, COALESCE(calls.n_conn_after,0) n_conn_after,
+  COALESCE(calls.n_att_7d,0) n_att_7d, COALESCE(calls.n_conn_7d,0) n_conn_7d
 FROM mygl m
 LEFT JOIN gl ON gl.seller_id=m.seller_id
 LEFT JOIN nushop.sellers sel ON sel._id=m.seller_id
@@ -429,6 +448,7 @@ LEFT JOIN tx ON tx.seller_id=m.seller_id
 LEFT JOIN sos ON sos.seller_id=m.seller_id
 LEFT JOIN calls ON calls.seller_id=m.seller_id
 LEFT JOIN spend ON spend.seller_id=m.seller_id
+LEFT JOIN lastsp ON lastsp.seller_id=m.seller_id
 ORDER BY m.seller_id
 """
 
@@ -436,7 +456,8 @@ ORDER BY m.seller_id
 def parse_gcgms(csv_text):
     """names[] + compact rows:
     [seller, gcIdx, gmIdx, nBlock, nBlockPending, ops, nSos, sosText, nAll, sellerName,
-     nCalls, nConnected, lifetimeSpend]"""
+     nCalls, nConnected, lifetimeSpend, lastSpend 'YYYY-MM-DD' or '',
+     attAfterLastSpend, connAfterLastSpend, att7d, conn7d]"""
     rows = list(csvmod.DictReader(io.StringIO(csv_text)))
     names, nidx, out = [], {}, []
 
@@ -460,7 +481,9 @@ def parse_gcgms(csv_text):
         out.append([r["seller_id"], gc, gm, gi("n_open"), gi("n_pending"),
                     (r.get("ops") or "")[:400], gi("n_sos"), (r.get("sos_text") or "")[:110], gi("n_all"),
                     (r.get("seller_name") or "")[:60],
-                    gi("n_calls"), gi("n_conn"), gi("lifetime_spend")])
+                    gi("n_calls"), gi("n_conn"), gi("lifetime_spend"),
+                    (r.get("last_spend") or "").strip(),
+                    gi("n_att_after"), gi("n_conn_after"), gi("n_att_7d"), gi("n_conn_7d")])
     return {"names": names, "rows": out}
 
 
