@@ -58,6 +58,7 @@
   #chartCard{display:none;}
   #reasonCard{display:none;}
   #mixCard{display:none;}
+  #tsArmCard{display:none;}
   .mixfg{display:inline-flex;gap:7px;align-items:center;}
   .mixfl{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
   #mixAnswer{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0 14px;}
@@ -80,6 +81,7 @@
   table.mixtab td{padding:5px 8px;border-bottom:1px solid #efeee7;white-space:nowrap;}
   table.mixtab .num{text-align:right;} table.mixtab td.seg small{display:block;font-size:10px;color:var(--muted);}
   table.mixtab tr.imm td{opacity:.6;}
+  table.mixtab tr.tadiff td{background:#f7f6f0;font-size:11.5px;border-bottom:2px solid var(--line);}
   .gbhead{font-size:13.5px;margin:4px 0 8px;line-height:1.5;}
   .gbdef{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 4px;max-width:1100px;}
   .gbdef b{color:#3d4036;} .gbdef p{margin:4px 0;} .gbdef ul{margin:4px 0;padding-left:18px;} .gbdef li{margin:3px 0;}
@@ -628,6 +630,33 @@
       <button type="button" id="mixCsv" class="mbtn" style="margin-left:8px">Download CSV</button></div>
     <div class="tablewrap" style="max-height:520px;overflow:auto"><table class="mixtab" id="mixTable"></table></div>
     <footer id="mixFoot"></footer>
+  </div>
+
+  <div class="card" id="tsArmCard">
+    <div class="reason-head">
+      <div><b>Retention by Auto TS vs Manual TS</b> <span class="hint">&mdash; the A/B arm each seller was assigned at go-live, Apr 2026 onward</span></div>
+    </div>
+    <div class="controls" style="gap:14px">
+      <span class="mixfg"><span class="mixfl">Period</span>
+        <span class="slaseg" id="taGrain"><button type="button" data-v="month" class="on">Month</button><button type="button" data-v="week">Year-week</button></span></span>
+      <span class="mixfg"><span class="mixfl">Curves</span>
+        <span class="slaseg" id="taPool"><button type="button" data-v="pool" class="on">Selected periods combined</button><button type="button" data-v="each">One pair per period</button></span></span>
+      <span class="mixfg"><span class="mixfl">Trend at</span>
+        <span class="slaseg" id="taWk"></span></span>
+    </div>
+    <div class="controls" style="gap:6px;flex-wrap:wrap"><span class="mixfl">Cohorts</span><span id="taChips" class="slaChips" style="margin:0"></span>
+      <button type="button" class="mbtn" id="taAll">All</button><button type="button" class="mbtn" id="taMature">Mature for W3</button></div>
+    <div class="mixans" id="taHead" style="margin:8px 0 12px"></div>
+    <div class="mixgrid">
+      <div><div class="drill-h3" id="taC1T">Retention curve, W1&ndash;W7</div>
+        <div class="chart-box" style="height:320px"><canvas id="taChart1" role="img" aria-label="Retention by weeks since go-live for Auto TS and Manual TS sellers."></canvas></div></div>
+      <div><div class="drill-h3" id="taC2T">Retention over time</div>
+        <div class="chart-box" style="height:320px"><canvas id="taChart2" role="img" aria-label="Retention at the selected week for Auto TS and Manual TS by go-live period."></canvas></div></div>
+    </div>
+    <div class="drill-h3" style="margin-top:16px">Every period &mdash; W1&ndash;W7 retention by arm
+      <button type="button" id="taCsv" class="mbtn" style="margin-left:8px">Download CSV</button></div>
+    <div class="tablewrap" style="max-height:520px;overflow:auto"><table class="mixtab" id="taTable"></table></div>
+    <footer class="gbdef" id="taFoot"></footer>
   </div>
 
   <div class="card" id="drillCard">
@@ -1246,7 +1275,7 @@ async function load(){
     if(!groups.length) throw new Error('Nothing to plot after grouping.');
     render(groups,snap);
     buildReasonTrend(rows,window.DIAG);
-    buildMix();
+    buildMix(); buildTsArm();
   }catch(e){
     fail('Could not load the retention snapshot ('+e.message+'). It refreshes automatically every 3 hours; try reloading shortly.');
   }
@@ -1647,6 +1676,138 @@ function buildMix(){
   card.style.display=(document.querySelector('#tabs .tab.active')||{}).dataset?.view==='curve'?'block':'none';
   mixPaint();
 }
+// ===== Retention by Auto TS vs Manual TS (A/B arm) =====
+// Arm = the seller's latest auto_ts_sellers record (refresh.py tsarm): auto = active / paused /
+// graduated or moved-to-control, manual = control. Intention to treat: a seller moved from
+// auto to manual stays in Auto. Only Apr-2026+ go-lives are a usable A/B -- earlier records are
+// sparse and were attached weeks late -- so nothing before TA_FROM is shown.
+// A period's Wk counts only once every seller in it has finished week k (same rule as the
+// offer/source card), so a half-finished cohort never reads as final.
+const TA_FROM='2026-04';
+const taSt={grain:'month', pool:'pool', wk:3, sel:null};
+let taC1=null, taC2=null, taInit=false;
+const TA_COL=['#2a78d6','#eb6834'], TA_LAB=['Auto TS','Manual TS'];
+const TA_PER=['#185FA5','#1D9E75','#B8651A','#7A4E9E','#C0392B','#BA7517','#5f8a3a','#6f7268'];
+function taData(){
+  const D=(window.DIAG||[]).filter(d=>d.mo>=TA_FROM&&(d.ta===0||d.ta===1)), now=mixNowMon();
+  const key=taSt.grain==='week'?(d=>d.w):(d=>d.mo), P={};
+  D.forEach(d=>{ const k=key(d);
+    const o=P[k]||(P[k]={k,n:[0,0],r:[[0,0,0,0,0,0,0],[0,0,0,0,0,0,0]],mat:[true,true,true,true,true,true,true]});
+    o.n[d.ta]++;
+    for(let w=1;w<=7;w++) if((d.sp[w-1]||0)>=3000) o.r[d.ta][w-1]++;
+    const el=mixWeeksElapsed(d.w,now);
+    for(let w=1;w<=7;w++) if(el<=w) o.mat[w-1]=false; });
+  return Object.values(P).sort((a,b)=>a.k<b.k?-1:1);
+}
+const taRate=(o,a,w)=>o.mat[w-1]&&o.n[a]>=MIX_MIN_N?100*o.r[a][w-1]/o.n[a]:null;
+// Combined across cohorts WITHOUT letting the arm split skew it: the split is not 50/50 and moves
+// by month (Apr ~85% Auto, and Apr also retained worst), so a plain pool mixes "which arm" with
+// "which month". Each arm's rate is instead the average of its per-cohort rates, weighted by the
+// cohort's total size -- the same weights for both arms -- so the gap is a within-cohort gap.
+function taPool(per,w){
+  const n=[0,0]; let W=0, pa=0, pm=0, v=0;
+  per.forEach(o=>{ if(!o.mat[w-1]||!o.n[0]||!o.n[1]) return;
+    const c=o.n[0]+o.n[1], a=o.r[0][w-1]/o.n[0], m=o.r[1][w-1]/o.n[1];
+    W+=c; pa+=c*a; pm+=c*m; v+=c*c*(a*(1-a)/o.n[0]+m*(1-m)/o.n[1]); n[0]+=o.n[0]; n[1]+=o.n[1]; });
+  return W?{n, p:[pa/W, pm/W], se:Math.sqrt(v)/W}:{n, p:[null,null], se:null};
+}
+function taPaint(){
+  const all=taData(), k=taSt.wk;
+  if(!taSt.sel) taSt.sel=new Set(all.filter(o=>o.mat[2]).map(o=>o.k));
+  // chips
+  const lab=o=>taSt.grain==='week'?o.k.replace('2026-',"'26-"):mixLabel(o.k,'month');
+  const chips=document.getElementById('taChips');
+  chips.innerHTML=all.map(o=>`<span class="item${taSt.sel.has(o.k)?'':' off'}" data-k="${o.k}" title="Auto ${o.n[0]} · Manual ${o.n[1]}${o.mat[2]?'':' · W3 not complete yet'}">${esc(lab(o))}${o.mat[2]?'':' *'}</span>`).join('');
+  chips.querySelectorAll('.item').forEach(c=>c.addEventListener('click',()=>{
+    taSt.sel.has(c.dataset.k)?taSt.sel.delete(c.dataset.k):taSt.sel.add(c.dataset.k); taPaint(); }));
+  const per=all.filter(o=>taSt.sel.has(o.k));
+  // headline: pooled selected cohorts at the trend week
+  const P=taPool(per,k), h=document.getElementById('taHead');
+  if(P.n[0]>=MIX_MIN_N&&P.n[1]>=MIX_MIN_N){
+    const g=P.p[0]-P.p[1], se=1.96*P.se;
+    const v=Math.abs(g)<=se?'<span class="mixpill flat">No real difference</span>':g>0?'<span class="mixpill up">Auto TS retains better</span>':'<span class="mixpill down">Manual TS retains better</span>';
+    h.innerHTML='<div class="mixans-h">'+v+'<span>W'+k+' 3K retention across the selected cohorts that have finished week '+k+': '+
+      '<b style="color:'+TA_COL[0]+'">Auto TS '+(100*P.p[0]).toFixed(1)+'%</b> (n='+P.n[0].toLocaleString()+') vs '+
+      '<b style="color:'+TA_COL[1]+'">Manual TS '+(100*P.p[1]).toFixed(1)+'%</b> (n='+P.n[1].toLocaleString()+') &mdash; '+
+      (g<0?'−':'+')+Math.abs(100*g).toFixed(1)+' pp for Auto, noise band ±'+(100*se).toFixed(1)+' pp. '+
+      '<span class="hint">Compared within each cohort, then averaged by cohort size, so a month that was mostly Auto does not tilt it.</span></span></div>';
+  } else h.innerHTML='<div class="drill-sub">Select cohorts that have finished week '+k+' to compare the arms.</div>';
+  // chart 1: W1-W7 curves
+  const wl=['W1','W2','W3','W4','W5','W6','W7'];
+  let ds=[];
+  if(taSt.pool==='pool'){
+    ds=[0,1].map(a=>({label:TA_LAB[a],data:wl.map((_,i)=>{ const q=taPool(per,i+1); return q.n[a]>=MIX_MIN_N?+(100*q.p[a]).toFixed(1):null; }),
+      borderColor:TA_COL[a],backgroundColor:TA_COL[a],borderWidth:2.5,borderDash:a?[6,4]:undefined,pointRadius:3,tension:.25}));
+  } else {
+    per.slice(-8).forEach((o,i)=>[0,1].forEach(a=>ds.push({label:lab(o)+' · '+TA_LAB[a],
+      data:wl.map((_,w)=>{ const v=taRate(o,a,w+1); return v==null?null:+v.toFixed(1); }),
+      borderColor:TA_PER[i%TA_PER.length],backgroundColor:TA_PER[i%TA_PER.length],borderWidth:2,borderDash:a?[6,4]:undefined,pointRadius:2,tension:.25})));
+  }
+  if(taC1) taC1.destroy();
+  taC1=new Chart(document.getElementById('taChart1'),{type:'line',data:{labels:wl,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')}}},
+      scales:{x:{grid:{display:false},ticks:{color:AXIS}},y:{beginAtZero:true,suggestedMax:80,ticks:{callback:v=>v+'%',color:AXIS},
+        title:{display:true,text:'retained (₹3K+ that week)',color:AXIS_TITLE}}}}});
+  document.getElementById('taC1T').innerHTML='Retention curve, W1&ndash;W7 '+(taSt.pool==='pool'?'<span class="hint">&mdash; selected cohorts combined; solid = Auto, dashed = Manual</span>':'<span class="hint">&mdash; one colour per cohort (latest 8); solid = Auto, dashed = Manual</span>');
+  // chart 2: Wk over time
+  const L=all.map(o=>lab(o)+(o.mat[k-1]?'':' *'));
+  if(taC2) taC2.destroy();
+  taC2=new Chart(document.getElementById('taChart2'),{type:'line',data:{labels:L,datasets:[0,1].map(a=>({label:TA_LAB[a],
+      data:all.map(o=>{ const v=taRate(o,a,k); return v==null?null:+v.toFixed(1); }),borderColor:TA_COL[a],backgroundColor:TA_COL[a],
+      borderWidth:2.5,borderDash:a?[6,4]:undefined,pointRadius:2.5,tension:.25,spanGaps:true}))},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},tooltip:{callbacks:{
+        label:c=>{ const o=all[c.dataIndex]; return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')+' (n'+o.n[c.datasetIndex]+')'; },
+        footer:it=>{ const o=all[it[0].dataIndex], a=taRate(o,0,k), m=taRate(o,1,k); return a!=null&&m!=null?'Auto − Manual: '+(a-m>=0?'+':'')+(a-m).toFixed(1)+' pp':''; }}}},
+      scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:taSt.grain==='week'?90:0}},
+        y:{beginAtZero:true,suggestedMax:70,ticks:{callback:v=>v+'%',color:AXIS},title:{display:true,text:'W'+k+' retention',color:AXIS_TITLE}}}}});
+  document.getElementById('taC2T').innerHTML='W'+k+' retention by go-live '+(taSt.grain==='week'?'week':'month')+' <span class="hint">(all cohorts; * = week '+k+' not finished)</span>';
+  // table
+  const cell=v=>v==null?'<td class="num"><span class="hint">·</span></td>':'<td class="num">'+v.toFixed(1)+'%</td>';
+  let t='<thead><tr><th>Cohort</th><th>Arm</th><th class="num">Sellers</th>'+wl.map(w=>'<th class="num">'+w+'</th>').join('')+'</tr></thead><tbody>';
+  [...all].reverse().forEach(o=>{
+    [0,1].forEach(a=>{ t+='<tr'+(o.mat[2]?'':' class="imm"')+'>'+(a===0?'<td rowspan="3"><b>'+esc(lab(o))+'</b></td>':'')+
+      '<td style="color:'+TA_COL[a]+';font-weight:650">'+TA_LAB[a]+'</td><td class="num">'+o.n[a]+'</td>'+
+      wl.map((_,w)=>cell(taRate(o,a,w+1))).join('')+'</tr>'; });
+    t+='<tr class="tadiff"><td>Auto − Manual</td><td></td>'+wl.map((_,w)=>{ const x=taRate(o,0,w+1), y=taRate(o,1,w+1);
+      if(x==null||y==null) return '<td class="num"></td>'; const g=x-y;
+      return '<td class="num" style="color:'+(g<0?'#b5372a':'#2f6d4f')+';font-weight:650">'+(g>=0?'+':'−')+Math.abs(g).toFixed(1)+'</td>'; }).join('')+'</tr>';
+  });
+  document.getElementById('taTable').innerHTML=t+'</tbody>';
+  document.getElementById('taFoot').innerHTML=
+    '<b>Arm</b> = the Auto TS / Manual TS A/B group each seller was put in at go-live (<code>auto_ts_sellers</code>, latest record): '+
+    '<b>Auto TS</b> = active, paused or graduated, or moved to manual later (they stay in Auto &mdash; the comparison is by assignment, not by what happened afterwards); '+
+    '<b>Manual TS</b> = control. Sellers with no record (a handful a month) are left out. Only go-lives from <b>Apr 2026</b> are shown: before that the records are sparse and were attached weeks late, so it was not a clean split. '+
+    'The split is not 50/50 (Apr was ~85% Auto), so compare the arms within the same cohort. '+
+    '<b>Retained</b> = &#8377;3,000+ marketing spend in that week after go-live. A cohort&rsquo;s week counts only once every seller in it has finished that week; '+
+    'In &ldquo;combined&rdquo; mode (and the headline) each arm&rsquo;s rate is the average of its per-cohort rates, weighted by cohort size with the same weights for both arms &mdash; '+
+    'a plain pool would tilt against Auto because the busiest Auto month (April, ~85% Auto) also retained worst. Points need '+MIX_MIN_N+'+ sellers per arm. '+
+    '<b>Noise band</b> = 95% range of chance difference for these sample sizes.';
+}
+function taCsv(){
+  const all=taData(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[['cohort','arm','sellers','w1','w2','w3','w4','w5','w6','w7'].join(',')];
+  all.forEach(o=>[0,1].forEach(a=>out.push([o.k,TA_LAB[a],o.n[a]].concat([1,2,3,4,5,6,7].map(w=>{ const v=taRate(o,a,w); return v==null?'':v.toFixed(1); })).map(q).join(','))));
+  saveCsv('retention_auto_vs_manual_ts_'+taSt.grain+'.csv', out.join('\n'));
+}
+function buildTsArm(){
+  const card=document.getElementById('tsArmCard');
+  if(!window.DIAG||!window.DIAG.some(d=>d.ta!=null)){ card.style.display='none'; return; }
+  if(!taInit){
+    taInit=true;
+    document.getElementById('taWk').innerHTML=[1,2,3,4,5,6,7].map(w=>'<button type="button" data-v="'+w+'"'+(w===taSt.wk?' class="on"':'')+'>W'+w+'</button>').join('');
+    [['taGrain','grain',v=>v],['taPool','pool',v=>v],['taWk','wk',v=>+v]].forEach(([id,key,f])=>
+      document.querySelectorAll('#'+id+' button').forEach(b=>b.addEventListener('click',()=>{
+        taSt[key]=f(b.dataset.v); if(key==='grain') taSt.sel=null;
+        document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x===b)); taPaint(); })));
+    document.getElementById('taAll').addEventListener('click',()=>{ taSt.sel=new Set(taData().map(o=>o.k)); taPaint(); });
+    document.getElementById('taMature').addEventListener('click',()=>{ taSt.sel=null; taPaint(); });
+    document.getElementById('taCsv').addEventListener('click',taCsv);
+  }
+  card.style.display=(document.querySelector('#tabs .tab.active')||{}).dataset?.view==='curve'?'block':'none';
+  taPaint();
+}
 function buildReasonTrend(rows,diag){
   const card=document.getElementById('reasonCard');
   if(!diag||!diag.length){ card.style.display='none'; return; }
@@ -1824,7 +1985,7 @@ function retColor(p){return p<0.35?'#C0392B':(p<0.50?'#BA7517':'#2f6d4f');}
 function setView(v){
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
   const curve=v==='curve';
-  ['chartCard','reasonCard','mixCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
+  ['chartCard','reasonCard','mixCard','tsArmCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
   document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
   document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
   document.getElementById('clCard').style.display=v==='clsc'?'block':'none';

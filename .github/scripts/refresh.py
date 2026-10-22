@@ -127,6 +127,17 @@ mgr AS (SELECT seller_id, MAX(gc_name) gc, MAX(gm_name) gm, MAX(kam_name) kam FR
 -- lead. Offer (owner, 2026-10-16): the latest lead carrying a REAL offer; else the latest lead
 -- with any value at all ('NA' = an explicit no-offer); else 'No offer recorded' -- which is
 -- almost always a lead whose offer field nobody filled, not a missing lead.
+-- Auto-TS vs Manual-TS A/B arm (owner, 2026-10-22), from the seller's latest auto_ts_sellers record:
+-- auto = active / paused / graduated, or flagged manually_moved_to_control (kept in the arm it was
+-- assigned -- intention to treat); manual = control; none = no record. Only Apr-2026+ go-lives are
+-- a usable A/B: earlier records are sparse and were attached weeks late.
+tsarm AS (
+  SELECT seller_id, CASE
+    WHEN a.status IN ('active','paused','graduated') OR IFNULL(a.flags,'') LIKE '%manually_moved_to_control%' THEN 'auto'
+    WHEN a.status = 'control' THEN 'manual' ELSE 'none' END ts_arm
+  FROM (SELECT seller_id, ARRAY_AGG(STRUCT(status, flags) ORDER BY updated_at DESC LIMIT 1)[OFFSET(0)] a
+        FROM `blitzscale-prod-project.nushop.auto_ts_sellers` GROUP BY 1)
+),
 sfl AS (
   SELECT REGEXP_REPLACE(TRIM(Seller_ID__c),r'^"|"$','') seller_id, TRIM(Source__c) src, TRIM(Offers__c) o,
     COALESCE(DATE(TIMESTAMP(Website_Form_Filled_D_T__c),'Asia/Kolkata'),DATE(TIMESTAMP(CreatedDate),'Asia/Kolkata')) d,
@@ -165,7 +176,7 @@ lead AS (
 base AS (
   SELECT g.seller_id, g.gw, FORMAT_DATE('%Y-%m', g.golive_date) gmo,
     COALESCE(ld.offer,'No offer recorded') offer, COALESCE(ld.source,'No lead') source,
-    COALESCE(c30.cum_spend,0) cum_spend, c30.wk_to_30k,
+    COALESCE(c30.cum_spend,0) cum_spend, c30.wk_to_30k, COALESCE(tsa.ts_arm,'none') ts_arm,
     ROUND(sw.sp1) sp1,ROUND(sw.sp2) sp2,ROUND(sw.sp3) sp3,ROUND(sw.sp4) sp4,ROUND(sw.sp5) sp5,ROUND(sw.sp6) sp6,ROUND(sw.sp7) sp7,
     IF(g.golive_date<=DATE_SUB(CURRENT_DATE(),INTERVAL 28 DAY),1,0) w3_mature,
     IF(sw.sp3>=3000,1,0) retained_w3,
@@ -175,10 +186,10 @@ base AS (
     COALESCE(NULLIF(m.gc,''),'-') gc, COALESCE(NULLIF(m.gm,''),'-') gm, COALESCE(NULLIF(m.kam,''),'-') kam
   FROM golive g LEFT JOIN sw USING(seller_id) LEFT JOIN ord o USING(seller_id) LEFT JOIN fb USING(seller_id)
   LEFT JOIN adtix a USING(seller_id) LEFT JOIN paytix p USING(seller_id) LEFT JOIN mgr m USING(seller_id)
-  LEFT JOIN lead ld USING(seller_id) LEFT JOIN c30 USING(seller_id)
+  LEFT JOIN lead ld USING(seller_id) LEFT JOIN c30 USING(seller_id) LEFT JOIN tsarm tsa USING(seller_id)
 ),
 med AS (SELECT APPROX_QUANTILES(sgmv,2)[OFFSET(1)] m_sgmv, APPROX_QUANTILES(rto_rate,2)[OFFSET(1)] m_rto FROM base WHERE w3_mature=1 AND retained_w3=0)
-SELECT b.seller_id, b.gw AS golive_iso_week, b.gmo AS golive_month, b.offer, b.source, b.cum_spend, b.wk_to_30k, b.sp1,b.sp2,b.sp3,b.sp4,b.sp5,b.sp6,b.sp7,
+SELECT b.seller_id, b.gw AS golive_iso_week, b.gmo AS golive_month, b.offer, b.source, b.cum_spend, b.wk_to_30k, b.ts_arm, b.sp1,b.sp2,b.sp3,b.sp4,b.sp5,b.sp6,b.sp7,
   CASE
     WHEN b.ad_impact=1 THEN 'Ad-account / platform block'
     WHEN b.pay_impact=1 THEN 'Payment / funding block'
@@ -246,6 +257,7 @@ def parse_diag(csv_text):
             "so": ix((r.get("source") or "No lead").strip(), SOURCES),
             "cs": gi("cum_spend"),
             "w30": gi("wk_to_30k") if (r.get("wk_to_30k") or "").strip() else -1,
+            "ta": {"auto": 0, "manual": 1}.get((r.get("ts_arm") or "").strip(), 2),
         })
     return out
 
