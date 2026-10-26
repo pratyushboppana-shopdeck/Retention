@@ -124,10 +124,20 @@
   table.sellers tbody tr:hover{background:#f7f6f0;}
   .drill-actions{display:flex;gap:12px;margin-top:10px;align-items:center;flex-wrap:wrap;}
   .drill-h3{font-size:13px;font-weight:650;margin:20px 0 8px;letter-spacing:-0.01em;}
-  .tabs{display:inline-flex;gap:3px;margin:4px 0 18px;padding:3px;background:#ecebe3;border-radius:11px;}
-  .tab{font:inherit;font-size:12.5px;font-weight:600;padding:6px 15px;border-radius:9px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:background .18s,color .18s,box-shadow .18s;}
-  .tab:hover{color:var(--ink);}
-  .tab.active{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(18,19,15,.10),0 0 0 1px rgba(18,19,15,.05);}
+  /* each tab has its own pastel: a soft wash at rest, the fuller shade with a darker label when active */
+  .tabs{display:inline-flex;flex-wrap:wrap;gap:6px;margin:4px 0 18px;padding:5px;background:#fbfaf6;border:1px solid var(--line);border-radius:13px;}
+  .tab{--t:#eef0f3;--tA:#dfe4ea;--tI:#33415a;font:inherit;font-size:12.5px;font-weight:600;padding:6px 15px;border-radius:9px;
+    border:1px solid transparent;background:var(--t);color:var(--muted);cursor:pointer;transition:background .18s,color .18s,box-shadow .18s,border-color .18s;}
+  .tab:hover{color:var(--tI);border-color:var(--tA);}
+  .tab.active{background:var(--tA);color:var(--tI);border-color:rgba(18,19,15,.08);box-shadow:0 1px 2px rgba(18,19,15,.08);}
+  .tab[data-view="curve"]   {--t:#eef4fc;--tA:#d6e6f8;--tI:#1d4f86;}
+  .tab[data-view="offers"]  {--t:#fdf1ea;--tA:#f9dccb;--tI:#94451c;}
+  .tab[data-view="clsc"]    {--t:#edf6ef;--tA:#d3ebda;--tI:#24613d;}
+  .tab[data-view="gcgm"]    {--t:#f4effb;--tA:#e3d8f4;--tI:#5b3a8c;}
+  .tab[data-view="unassign"]{--t:#fdf8e6;--tA:#f6e9b8;--tI:#7a5b0c;}
+  .tab[data-view="slaGC"]   {--t:#ebf6f6;--tA:#cfeaea;--tI:#1d6363;}
+  .tab[data-view="slaKAM"]  {--t:#fcf0f3;--tA:#f5d8e0;--tI:#8c3550;}
+  .tab[data-view="blocks"]  {--t:#f3f2ee;--tA:#e2e0d7;--tI:#4a4840;}
   #gcgmCard{display:none;}
   #unCard{display:none;}
   .gcgm-filters select{font:inherit;font-size:12.5px;padding:3px 7px;border-radius:7px;border:1px solid var(--line);background:#fff;}
@@ -223,7 +233,18 @@
   table.hm td.c-g{background:#f1f0eb;color:#8a8d80;}
   table.hm sup{font-size:8px;margin-left:1px;} table.hm sup.up{color:#1d8a4f;} table.hm sup.dn{color:#c0392b;}
   table.hm .dot{font-size:9px;margin-left:2px;}
-  table.convtab td.cv small{display:block;color:var(--muted);font-size:10.5px;}
+  .convwrap{max-height:430px;overflow:auto;border:1px solid var(--line);border-radius:10px;}
+  table.convtab{border-collapse:collapse;width:100%;font-size:12.5px;}
+  table.convtab th{position:sticky;background:#f4f2ea;color:var(--muted);font-weight:650;font-size:11.5px;padding:5px 10px;text-align:right;white-space:nowrap;z-index:1;}
+  table.convtab thead tr:first-child th{top:0;} table.convtab thead tr:nth-child(2) th{top:27px;}
+  table.convtab th.gh{text-align:center;font-size:12px;border-bottom:1px solid var(--line);}
+  table.convtab td{padding:4px 10px;text-align:right;border-top:1px solid #f0efe9;white-space:nowrap;}
+  table.convtab td:first-child,table.convtab th:first-child{text-align:left;font-weight:650;color:var(--ink);}
+  table.convtab td.gl{color:var(--muted);font-size:11.5px;border-left:2px solid #fff;}
+  table.convtab .g{background:#f3f8fe;} table.convtab .b{background:#fef5ef;}
+  table.convtab td.cv b{font-weight:650;} table.convtab td.cv small{color:var(--faint);font-size:10.5px;margin-left:5px;}
+  table.convtab tr:hover td{filter:brightness(.97);}
+  table.convtab th.sel{color:var(--ink);box-shadow:inset 0 -2px 0 #23251f;}
   #sellerPanel{margin-top:22px;border-top:1px solid var(--line);padding-top:6px;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
   details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
@@ -439,24 +460,26 @@
     <div class="fl-row" style="margin:0 0 10px">
       <div class="drill-h3" style="margin:0 auto 0 0">CL scorecard
         <span class="hint">&mdash; retention, servicing and pre-live adoption for each CL on one page</span></div>
-      <span class="slaseg" id="clWin">
-        <button type="button" data-n="4" class="on">Last 4 weeks</button>
-        <button type="button" data-n="8">Last 8 weeks</button>
-        <button type="button" data-n="12">Last 12 weeks</button>
+      <span class="slaseg" id="clLvl">
+        <button type="button" data-v="week" class="on">Year-week</button>
+        <button type="button" data-v="month">Month</button>
       </span>
-      <span style="display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)">
+      <span style="display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)">Custom
         <input type="date" id="clFrom"> to <input type="date" id="clTo"></span>
       <button class="gcexp" id="clCsvBtn">Download CSV &#8595;</button>
     </div>
+    <div class="fl-row" style="margin:0 0 12px;align-items:center"><div class="wkwrap" id="clPer"></div>
+      <span id="clPerHint" style="font-size:11.5px;color:var(--faint)"></span></div>
     <div class="tablewrap" style="max-height:none"><table class="sla cltab" id="clTable"></table></div>
     <div class="drill-sub" id="clFoot" style="margin-top:8px"></div>
     <div class="fl-row" style="margin:22px 0 8px">
       <div class="drill-h3" style="margin:0 auto 0 0">Month-wise W1&ndash;W7 retention by CL
         <span class="hint">&mdash; go-live month &times; week since go-live, by the CL of the go-live GC</span></div>
+      <span class="slaseg" id="clHmSel"></span>
       <span class="hmleg"><span class="hm-s">&bull; Strong</span><span class="hm-o">&bull; On track</span><span class="hm-w">&bull; Warning</span><span class="hm-x">&bull; Off track</span></span>
       <button class="gcexp" id="clHmCsv" type="button">Download CSV &#8595;</button>
     </div>
-    <div class="hmgrid" id="clHeat"></div>
+    <div id="clHeat"></div>
     <div class="drill-sub" id="clHeatFoot" style="margin-top:8px"></div>
   </div>
 
@@ -595,15 +618,15 @@
       <div><b>W1&ndash;W7 retention &mdash; good vs bad offers</b> <span class="hint">&mdash; go-live cohort &times; week since go-live, % of the cohort spending &#8377;3,000+ that week</span></div>
     </div>
     <div class="controls" style="gap:14px">
+      <span class="mixfg"><span class="mixfl">Sellers</span>
+        <span class="slaseg" id="offGrp"><button type="button" data-v="all" class="on">Overall</button><button type="button" data-v="good">Good offers</button><button type="button" data-v="bad">Bad offers</button></span></span>
       <span class="mixfg"><span class="mixfl">Period</span>
         <span class="slaseg" id="offGrain"><button type="button" data-v="week" class="on">Year-week</button><button type="button" data-v="month">Month</button></span></span>
       <span class="hmleg"><span class="hm-s">&bull; Strong</span><span class="hm-o">&bull; On track</span><span class="hm-w">&bull; Warning</span><span class="hm-x">&bull; Off track</span></span>
       <button type="button" class="mbtn" id="offCsv">Download CSV</button>
     </div>
-    <div class="hmgrid">
-      <div><div class="drill-h3" id="offGoodT">Good offers</div><div class="tablewrap hmwrap"><table class="hm" id="offGood"></table></div></div>
-      <div><div class="drill-h3" id="offBadT">Bad offers</div><div class="tablewrap hmwrap"><table class="hm" id="offBad"></table></div></div>
-    </div>
+    <div class="drill-sub" id="offGrpT" style="margin:0 0 8px"></div>
+    <div class="tablewrap hmwrap"><table class="hm" id="offHm"></table></div>
     <footer id="offFoot"></footer>
   </div>
 
@@ -614,12 +637,13 @@
     <div class="controls" style="gap:14px">
       <span class="mixfg"><span class="mixfl">Period</span>
         <span class="slaseg" id="convGrain"><button type="button" data-v="week" class="on">Year-week</button><button type="button" data-v="month">Month</button></span></span>
-      <span class="mixfg"><span class="mixfl">Chart: retained at</span>
+      <span class="mixfg"><span class="mixfl">Retained at</span>
         <span class="slaseg" id="convBase"><button type="button" data-v="0">W0</button><button type="button" data-v="1">W1</button><button type="button" data-v="2" class="on">W2</button></span></span>
       <button type="button" class="mbtn" id="convCsv">Download CSV</button>
     </div>
-    <div class="chart-box" style="height:300px"><canvas id="convChart" role="img" aria-label="Share of sellers retained at the chosen base week who are still retained at W3, good vs bad offers, by go-live period."></canvas></div>
-    <div class="tablewrap" style="max-height:520px;overflow:auto;margin-top:12px"><table class="mixtab convtab" id="convTable"></table></div>
+    <div class="tablewrap convwrap"><table class="convtab" id="convTable"></table></div>
+    <div class="drill-h3" id="convChartT" style="margin-top:18px"></div>
+    <div class="chart-box" style="height:280px"><canvas id="convChart" role="img" aria-label="Share of sellers retained at the chosen base week who are still retained at W3, good vs bad offers, by go-live period."></canvas></div>
     <footer id="convFoot"></footer>
   </div>
 
@@ -1705,9 +1729,9 @@ function buildMix(){
 // Two groups only (owner, 2026-10-26): BAD = the offers gbClassify() grades bad; GOOD = everything
 // else -- good offers clubbed with NA / No offer recorded / Other and any offer not yet clear.
 // A period counts for Wk only once every seller in it has finished week k (same rule as mixData).
-const offSt={grain:'week'}, convSt={grain:'week', base:2};
+const offSt={grain:'week', grp:'all'}, convSt={grain:'week', base:2};
 let offInit=false, convC=null;
-const OFF_LAB={good:'Good offers',bad:'Bad offers'}, OFF_COL={good:'#2a78d6',bad:'#eb6834'};
+const OFF_LAB={good:'Good offers',bad:'Bad offers',all:'All sellers'}, OFF_COL={good:'#2a78d6',bad:'#eb6834'};
 function offData(grain){
   const D=window.DIAG||[], C=gbClassify(), now=mixNowMon(), key=grain==='week'?(d=>d.w):(d=>d.mo), P={};
   const blank=()=>({n:0,r:[0,0,0,0,0,0,0,0],n0:0,base:[0,0,0],conv:[0,0,0]});
@@ -1732,13 +1756,13 @@ function offPaint(){
   // complete months (the same window gbClassify grades offers on)
   const from=C.win[0]||'', moOf={}; (window.DIAG||[]).forEach(d=>{ moOf[d.w]=d.mo; });
   const bench={};
-  ['good','bad'].forEach(gr=>{ bench[gr]=W.map(w=>{ let n=0,r=0;
+  ['all','good','bad'].forEach(gr=>{ bench[gr]=W.map(w=>{ let n=0,r=0;
     per.forEach(o=>{ const mo=g==='week'?moOf[o.k]:o.k;
       if(mo<from||!offMature(o,w)) return; n+=den(o[gr],w); r+=o[gr].r[w]; });
     return n?r/n:null; }); });
   const cls=(v,b,n)=>n<MIX_MIN_N||b==null?'c-g':v-b>=0.05?'c-s':v-b>=-0.03?'c-o':v-b>=-0.08?'c-w':'c-x';
-  ['good','bad'].forEach(gr=>{
-    let h='<thead><tr><th>Cohort</th><th>n</th>'+W.map(w=>'<th>W'+w+'</th>').join('')+'</tr></thead><tbody>';
+  [offSt.grp].forEach(gr=>{
+    let h='<thead><tr><th>Cohort</th><th>Go-lives</th>'+W.map(w=>'<th>W'+w+'</th>').join('')+'</tr></thead><tbody>';
     [...per].reverse().forEach(o=>{ const x=o[gr]; if(!x.n) return;
       h+='<tr><td class="co">'+esc(offLbl(o.k,g))+'</td><td class="n">'+x.n+'</td>';
       let prev=null;
@@ -1753,11 +1777,11 @@ function offPaint(){
           ' · arrow = vs the W'+(w-1)+' cell to its left')+'">'+(100*v).toFixed(0)+'%'+arr+dot+'</td>';
         prev=v; });
       h+='</tr>'; });
-    document.getElementById(gr==='good'?'offGood':'offBad').innerHTML=h+'</tbody>';
+    document.getElementById('offHm').innerHTML=h+'</tbody>';
   });
   const mem=f=>C.rows.filter(r=>r.n&&f(r.grp)).map(r=>esc(r.name)).join(', ')||'none';
-  document.getElementById('offGoodT').innerHTML='Good offers <span class="hint">&mdash; '+mem(x=>x!=='bad')+'</span>';
-  document.getElementById('offBadT').innerHTML='Bad offers <span class="hint">&mdash; '+mem(x=>x==='bad')+'</span>';
+  document.getElementById('offGrpT').innerHTML=offSt.grp==='all'?'<b>All sellers</b> &mdash; every offer':
+    offSt.grp==='good'?'<b>Good offers</b> &mdash; '+mem(x=>x!=='bad'):'<b>Bad offers</b> &mdash; '+mem(x=>x==='bad');
   document.getElementById('offFoot').innerHTML=
     '<b>Retention</b> = marketing spend &ge; &#8377;3,000 in that week after go-live (W0 = the go-live week itself). '+
     '<b>Good / bad</b>: bad = offers whose W3 retention over the last 6 complete months is below the all-seller average beyond chance (see &ldquo;Good vs bad offers&rdquo; below); '+
@@ -1783,16 +1807,21 @@ function convPaint(){
       scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:g==='week'?90:0}},
         y:{beginAtZero:false,suggestedMin:30,suggestedMax:100,ticks:{callback:v=>v+'%',color:AXIS},
           title:{display:true,text:'W'+b+'-retained still retained at W3',color:AXIS_TITLE}}}}});
-  const cell=(x,bb)=>{ if(bb===0&&!x.n0) return '<td class="num cv"><span class="hint">—</span></td>';
-    if(!x.base[bb]) return '<td class="num cv"><span class="hint">·</span></td>';
+  // compact: "52% 43/83" on one line; good columns tinted blue, bad peach; the chart's base week underlined
+  const GC={good:'g',bad:'b'};
+  const cell=(x,bb,gr)=>{ const cl=GC[gr]+' cv'+(bb===b?' sel':'');
+    if(bb===0&&!x.n0) return '<td class="'+cl+'"><span class="hint">—</span></td>';
+    if(!x.base[bb]) return '<td class="'+cl+'"><span class="hint">·</span></td>';
     const v=x.conv[bb]/x.base[bb], small=x.base[bb]<MIX_MIN_N;
-    return '<td class="num cv"><b style="color:'+(small?'#8a8d80':'#23251f')+'">'+(100*v).toFixed(0)+'%</b><small>'+x.conv[bb]+' of '+x.base[bb]+'</small></td>'; };
-  const grpCols=gr=>'<th class="num">Go-lives</th><th class="num">W0 &rarr; W3</th><th class="num">W1 &rarr; W3</th><th class="num">W2 &rarr; W3</th>';
-  let h='<thead><tr><th rowspan="2">Period</th><th colspan="4" style="text-align:center;color:'+OFF_COL.good+'">Good offers</th>'+
-    '<th colspan="4" style="text-align:center;color:'+OFF_COL.bad+'">Bad offers</th></tr><tr>'+grpCols('good')+grpCols('bad')+'</tr></thead><tbody>';
+    return '<td class="'+cl+'" title="'+x.conv[bb]+' of the '+x.base[bb]+' retained at W'+bb+' were retained at W3"><b style="color:'+(small?'#8a8d80':'#23251f')+'">'+
+      (100*v).toFixed(0)+'%</b><small>'+x.conv[bb]+'/'+x.base[bb]+'</small></td>'; };
+  const grpCols=gr=>'<th class="'+GC[gr]+'">Go-lives</th>'+[0,1,2].map(bb=>'<th class="'+GC[gr]+(bb===b?' sel':'')+'">W'+bb+' &rarr; W3</th>').join('');
+  let h='<thead><tr><th></th><th colspan="4" class="gh g" style="color:#185FA5">Good offers</th>'+
+    '<th colspan="4" class="gh b" style="color:#a8501f">Bad offers</th></tr><tr><th>'+(g==='week'?'Go-live week':'Go-live month')+'</th>'+grpCols('good')+grpCols('bad')+'</tr></thead><tbody>';
   [...ready].reverse().forEach(o=>{ h+='<tr><td>'+esc(offLbl(o.k,g))+'</td>'+
-    ['good','bad'].map(gr=>'<td class="num">'+o[gr].n+'</td>'+[0,1,2].map(bb=>cell(o[gr],bb)).join('')).join('')+'</tr>'; });
+    ['good','bad'].map(gr=>'<td class="gl '+GC[gr]+'">'+o[gr].n+'</td>'+[0,1,2].map(bb=>cell(o[gr],bb,gr)).join('')).join('')+'</tr>'; });
   document.getElementById('convTable').innerHTML=h+'</tbody>';
+  document.getElementById('convChartT').innerHTML='Trend &mdash; sellers retained at W'+b+' who are still retained at W3 <span class="hint">(switch the base week with &ldquo;Retained at&rdquo;)</span>';
   document.getElementById('convFoot').innerHTML=
     '<b>W<i>x</i> &rarr; W3</b> = of the sellers in that cohort who spent &#8377;3,000+ in week <i>x</i> after go-live, the share who also spent &#8377;3,000+ in W3. '+
     'W0 is the go-live week itself. Only periods where every seller has finished W3 are shown. Chart points need '+MIX_MIN_N+'+ retained sellers in the base week; grey cells are under '+MIX_MIN_N+'. '+
@@ -1801,7 +1830,7 @@ function convPaint(){
 function offCsv(){
   const {per,has0}=offData(offSt.grain), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const out=[['period','group','go_lives','week','retained','base','retention_pct','mature'].join(',')];
-  per.forEach(o=>['good','bad'].forEach(gr=>{ const x=o[gr]; if(!x.n) return;
+  per.forEach(o=>['all','good','bad'].forEach(gr=>{ const x=o[gr]; if(!x.n) return;
     for(let w=has0?0:1;w<=7;w++){ const nn=w===0?x.n0:x.n;
       out.push([o.k,gr,x.n,'W'+w,x.r[w],nn,nn?(100*x.r[w]/nn).toFixed(1):'',offMature(o,w)?1:0].map(q).join(',')); } }));
   saveCsv('retention_good_vs_bad_offer_'+offSt.grain+'.csv', out.join('\n'));
@@ -1817,7 +1846,7 @@ function buildOffers(){
   if(!window.DIAG||!window.DIAG.length||!window.MIXL||!window.DIAG.some(d=>d.of!=null)) return;
   if(!offInit){
     offInit=true;
-    [['offGrain',offSt,'grain',offPaint],['convGrain',convSt,'grain',convPaint],['convBase',convSt,'base',convPaint]].forEach(([id,st,key,fn])=>
+    [['offGrp',offSt,'grp',offPaint],['offGrain',offSt,'grain',offPaint],['convGrain',convSt,'grain',convPaint],['convBase',convSt,'base',convPaint]].forEach(([id,st,key,fn])=>
       document.querySelectorAll('#'+id+' button').forEach(b=>b.addEventListener('click',()=>{
         st[key]=key==='base'?+b.dataset.v:b.dataset.v;
         document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x===b)); fn(); })));
@@ -2874,7 +2903,30 @@ function slaDownload(){
 //    (GM rows: the go-live GM, placed under the CL most of that GM's GCs sit under)
 //  - task SLA / connect / call quality: the last N*7 days ending yesterday, CL of the GC today
 //  - pre-live adoption: go-lives in the last N*7 days ending D-2 (the newest days read low)
-const clSt={n:4, open:null, from:'', to:''};   // from/to set = custom range, else last n weeks
+// lvl = week | month; sel = [first, last] period index into clPeriods(lvl); from/to = custom range
+const clSt={lvl:'week', sel:null, anchor:null, open:null, from:'', to:'', hm:'All CLs'};
+// Only the three CLs are shown (owner, 2026-10-26); these buckets stay out of the rows and the total.
+const CL_HIDE=new Set(['(no CL)','Unmapped','Pratyush B']);
+const clShown=k=>!!k&&!CL_HIDE.has(k);
+const clPick=o=>Object.fromEntries(Object.entries(o).filter(([k])=>clShown(k)));
+function clWkOf(day){ const d=new Date(day+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+3-((d.getUTCDay()+6)%7));
+  const y=d.getUTCFullYear(); return y+'-W'+String(1+Math.floor((d-Date.UTC(y,0,1))/864e5/7)).padStart(2,'0'); }
+function clMonthStart(day,n){ const d=new Date(day.slice(0,7)+'-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth()+n); return d.toISOString().slice(0,10); }
+// every week (last 26) or month (Dec 2025 on) through the current one, oldest first
+function clPeriods(lvl){
+  const t=istToday(), out=[];
+  if(lvl==='week'){
+    const mon=dayShift(t,-((new Date(t+'T00:00:00Z').getUTCDay()+6)%7));
+    for(let i=25;i>=0;i--){ const a=dayShift(mon,-7*i), w=clWkOf(a);
+      out.push({k:w,a,b:dayShift(a,6),lab:w.replace(/^20/,'\u2019')}); }
+  } else {
+    for(let a='2025-12-01'; a<=t; a=clMonthStart(a,1)){
+      const x=new Date(a+'T00:00:00Z');
+      out.push({k:a.slice(0,7),a,b:dayShift(clMonthStart(a,1),-1),lab:MONTH2[x.getUTCMonth()]+' '+String(x.getUTCFullYear()).slice(2)}); }
+  }
+  return out;
+}
+function clDefaultSel(P){ const t=istToday(), i=P.findIndex(p=>p.a<=t&&t<=p.b); const j=i>0?i-1:P.length-1; return [j,j]; }
 const CLGM={};   // normalised GM key -> display name (first mixed-case spelling seen)
 function clGmKey(g){ const n0=nrm(g), k=(TEAMMAP&&TEAMMAP.alias[n0])||n0||'(no gm)';
   if(!CLGM[k]||(CLGM[k]===CLGM[k].toUpperCase()&&g!==g.toUpperCase())) CLGM[k]=g||'(no GM)';
@@ -2886,29 +2938,33 @@ function isoMonday(w){ const [y,k]=w.split('-W').map(Number), j4=new Date(Date.U
 // The selected window and the equal-length window just before it, for the change arrows.
 function clWindow(){
   const y=dayShift(istToday(),-1);
-  let a,b;
-  if(clSt.from&&clSt.to){ a=clSt.from; b=clSt.to<y?clSt.to:y; if(a>b) a=b; }
-  else { b=y; a=dayShift(y,-(7*clSt.n-1)); }
-  const len=clDays(a,b), pb=dayShift(a,-1), pa=dayShift(pb,-(len-1));
-  return {a,b,pa,pb,len,custom:!!(clSt.from&&clSt.to)};
+  let a,b,pa,pb,label;
+  if(clSt.from&&clSt.to){ a=clSt.from; b=clSt.to<y?clSt.to:y; if(a>b) a=b;
+    pb=dayShift(a,-1); pa=dayShift(pb,-(clDays(a,b)-1)); label=null; }
+  else {
+    const P=clPeriods(clSt.lvl); if(!clSt.sel) clSt.sel=clDefaultSel(P);
+    const [i,j]=clSt.sel, n=j-i+1; a=P[i].a; b=P[j].b<y?P[j].b:y; if(a>b) b=a;
+    // compare with the same number of whole periods just before
+    pb=dayShift(a,-1); pa=clSt.lvl==='week'?dayShift(a,-7*n):clMonthStart(a,-n);
+    label=P[i].lab+(n>1?' – '+P[j].lab:'');
+  }
+  return {a,b,pa,pb,len:clDays(a,b),custom:true,label,prevLen:clDays(pa,pb)};
 }
 function clRetention(W){
-  if(!GCGM) return {cur:{cl:{},gm:{}},prev:{cl:{},gm:{}},weeks:[]};
+  if(!GCGM) return {cur:{cl:{},gm:{}},prev:{cl:{},gm:{}},weeks:[],pending:[]};
   const mature=Object.keys(GCGM.weeks).filter(w=>GCGM.weeks[w]>3).sort();
-  let cur,prev;
-  if(W.custom){   // go-live weeks starting inside the range, as long as their W3 is complete
-    cur=mature.filter(w=>{const m=isoMonday(w); return m>=W.a&&m<=W.b;});
-    prev=mature.filter(w=>{const m=isoMonday(w); return m>=W.pa&&m<=W.pb;});
-  } else {        // the latest n weeks that have a complete W3, which sit a month behind the range
-    cur=mature.slice(-clSt.n); prev=mature.slice(-2*clSt.n,-clSt.n);
-  }
+  // cohorts whose W3 fell inside the window: go-live week Monday + 21 days lands in it, so the
+  // retention outcome is measured over the same days as the servicing columns. Only once W3 is complete.
+  const inWin=(w,a,b)=>{const m=dayShift(isoMonday(w),21); return m>=a&&m<=b;};
+  const cur=mature.filter(w=>inWin(w,W.a,W.b)), prev=mature.filter(w=>inWin(w,W.pa,W.pb));
+  const pending=Object.keys(GCGM.weeks).filter(w=>GCGM.weeks[w]<=3&&inWin(w,W.a,W.b)).sort();
   const roll=(rows,keyOf,weeks)=>{const s=new Set(weeks),o={};
     rows.forEach(r=>{if(!s.has(r[0])) return; const k=keyOf(r[1]); if(!k) return;
       const a=o[k]||(o[k]={n:0,r:0}); a.n+=r[2]; a.r+=r[5];});   // r[5] = retained at W3
     return o;};
   const byCl=w=>roll(GCGM.gc,g=>clOf(g,''),w);
   const byGm=w=>roll(GCGM.gm,g=>clOf('',g)?clGmKey(g):'',w);
-  return {weeks:cur, cur:{cl:byCl(cur),gm:byGm(cur)}, prev:{cl:byCl(prev),gm:byGm(prev)}};
+  return {weeks:cur, pending, cur:{cl:byCl(cur),gm:byGm(cur)}, prev:{cl:byCl(prev),gm:byGm(prev)}};
 }
 function clSla(W){
   const R=gcR(); if(!R||!TSLA) return {cur:{cl:{},gm:{}},prev:{cl:{},gm:{}}};
@@ -2964,10 +3020,10 @@ function buildClsc(){
   const foot=document.getElementById('clFoot');
   if(!TEAMMAP){ foot.textContent='team_mapping.json did not load, so there is no CL to group by.'; return; }
   const W=clWindow();
-  document.querySelectorAll('#clWin button').forEach(b=>b.classList.toggle('on',!W.custom&&+b.dataset.n===clSt.n));
+  clPaintPeriods();
   document.getElementById('clFrom').value=W.a; document.getElementById('clTo').value=W.b;
   const RET=clRetention(W), SLA=clSla(W), PL=clPrelive(W);
-  const cls=[...new Set([...Object.keys(RET.cur.cl),...Object.keys(SLA.cur.cl),...Object.keys(PL.cur.cl)])].filter(Boolean)
+  const cls=[...new Set([...Object.keys(RET.cur.cl),...Object.keys(SLA.cur.cl),...Object.keys(PL.cur.cl)])].filter(clShown)
     .sort((a,b)=>(CL_ORDER.indexOf(a)+1||99)-(CL_ORDER.indexOf(b)+1||99)||a.localeCompare(b));
   // each GM sits under ONE CL: the sheet's CL for that GM's GCs; a GM the sheet does not know
   // goes where most of its rows' CLs point. Its row still shows all of its own numbers.
@@ -2993,10 +3049,10 @@ function buildClsc(){
   };
   // totals across every CL, from the same rolls so the row is the exact sum
   const sum=(o)=>Object.values(o).reduce((s,a)=>{Object.keys(a).forEach(k=>{if(typeof a[k]==='number') s[k]=(s[k]||0)+a[k];}); return s;},{});
-  const tot={cl:{'All CLs':sum(RET.cur.cl)}}, totP={cl:{'All CLs':sum(RET.prev.cl)}};
-  const sc=sum(SLA.cur.cl), sp=sum(SLA.prev.cl); sc.gcs={size:Object.values(SLA.cur.cl).reduce((s,a)=>s+a.gcs.size,0)};
+  const tot={cl:{'All CLs':sum(clPick(RET.cur.cl))}}, totP={cl:{'All CLs':sum(clPick(RET.prev.cl))}};
+  const sc=sum(clPick(SLA.cur.cl)), sp=sum(clPick(SLA.prev.cl)); sc.gcs={size:Object.values(clPick(SLA.cur.cl)).reduce((s,a)=>s+a.gcs.size,0)};
   const T=clRows('cl',['All CLs'],{cur:tot,prev:totP},{cur:{cl:{'All CLs':sc}},prev:{cl:{'All CLs':sp}}},
-    {cur:{cl:{'All CLs':sum(PL.cur.cl)}},prev:{cl:{'All CLs':sum(PL.prev.cl)}}})[0];
+    {cur:{cl:{'All CLs':sum(clPick(PL.cur.cl))}},prev:{cl:{'All CLs':sum(clPick(PL.prev.cl))}}})[0];
   let h='<thead><tr><th>CL</th><th class="num">W3 retention</th><th class="num">Task SLA</th><th class="num">Stuck</th>'+
     '<th class="num">Connect</th><th class="num">Call quality</th><th class="num">Pre-live video</th></tr></thead><tbody>';
   clRows('cl',cls,RET,SLA,PL).forEach(x=>{
@@ -3012,14 +3068,15 @@ function buildClsc(){
   document.querySelectorAll('#clTable tr.clrow').forEach(tr=>tr.addEventListener('click',()=>{
     clSt.open=clSt.open===tr.dataset.k?null:tr.dataset.k; buildClsc();}));
   const w=RET.weeks, fd=d=>{const x=new Date(d+'T00:00:00Z'); return x.getUTCDate()+' '+MONTH2[x.getUTCMonth()];};
+  const pend=RET.pending||[];
   foot.innerHTML='<b>Windows</b> &mdash; W3 retention: go-live week'+(w.length>1?'s '+esc(w[0])+'&ndash;'+esc(w[w.length-1]):w.length?' '+esc(w[0]):'s: none')+
-    (W.custom?' (weeks starting in the range whose W3 is complete)':' (the latest '+clSt.n+' with a complete W3)')+
+    ' &mdash; the cohorts whose W3 fell in this window, i.e. went live 3 weeks earlier'+(pend.length?'; '+esc(pend.join(', '))+' still in W3 (ends '+fd(dayShift(isoMonday(pend[pend.length-1]),27))+'), not counted yet':'')+
     ', by the CL of the go-live GC; GM rows use the go-live GM. '+
     'Task SLA, stuck, connect and call quality: '+fd(W.a)+'&ndash;'+fd(W.b)+(SLA.short?' (task data starts '+esc(SLA.from)+')':'')+', by each GC&rsquo;s CL today. '+
     'Pre-live video: go-lives '+(PL.a?fd(PL.a)+'&ndash;'+fd(PL.b):'—')+(PL.short?' (pre-live data only starts '+esc(PL.from)+')':'')+', by the seller&rsquo;s current GC. '+
-    '<b>▲▼</b> = percentage-point change against the '+W.len+' days before; blank where either side is too thin or the data does not reach back '+
+    '<b>▲▼</b> = percentage-point change against the '+(W.label?'same number of '+(clSt.lvl==='week'?'weeks':'months')+' just before ('+fd(W.pa)+'&ndash;'+fd(W.pb)+')':W.prevLen+' days before')+'; blank where either side is too thin or the data does not reach back '+
     '(&lt;5 go-lives, &lt;10 tasks or calls). CL comes from card 12101 (HITS Team Mapping Validation, as of '+esc(TEAMMAP.fetched||'—')+'). '+
-    'Aaruni Vaidya and her GCs are outside every CL (they report to Pratyush) and are left out here. '+
+    'Aaruni Vaidya and her GCs are outside every CL (they report to Pratyush) and are left out here, as are GCs with no CL in the mapping; All CLs is the sum of the three CLs. '+
     'Click a CL to see its GMs, worst task SLA first.';
 }
 // ---- month-wise W1-W7 retention heatmap per CL ----
@@ -3030,7 +3087,7 @@ function buildClsc(){
 function clHeatData(){
   if(!GCGM) return null;
   const M={}, mk=w=>wkMonthKey(w);
-  GCGM.gc.forEach(r=>{ const cl=clOf(r[1],''); if(!cl) return; const m=mk(r[0]); if(!m) return;
+  GCGM.gc.forEach(r=>{ const cl=clOf(r[1],''); if(!clShown(cl)) return; const m=mk(r[0]); if(!m) return;
     const o=M[m]||(M[m]={m,lab:wkMonthLabel(r[0]),weeks:new Set(),by:{}});
     o.weeks.add(r[0]);
     [cl,'All CLs'].forEach(k=>{ const a=o.by[k]||(o.by[k]={n:0,r:[0,0,0,0,0,0,0]}); a.n+=r[2]; for(let w=0;w<7;w++) a.r[w]+=r[3+w]; }); });
@@ -3044,12 +3101,16 @@ function buildClHeat(){
   const D=clHeatData(), el=document.getElementById('clHeat');
   if(!D||!D.per.length){ el.innerHTML=''; document.getElementById('clHeatFoot').textContent='No go-live GC data in this snapshot.'; return; }
   const {per,cls}=D, keys=['All CLs'].concat(cls);
+  if(!keys.includes(clSt.hm)) clSt.hm='All CLs';
+  const selEl=document.getElementById('clHmSel');
+  selEl.innerHTML=keys.map(k=>'<button type="button" data-v="'+esc(k)+'"'+(k===clSt.hm?' class="on"':'')+'>'+esc(k)+'</button>').join('');
+  selEl.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{ clSt.hm=b.dataset.v; buildClHeat(); }));
   // All-CLs benchmark per week: pooled over the latest 6 months that are mature for that week
   const bench=[0,1,2,3,4,5,6].map(w=>{ let n=0,r=0;
     per.filter(o=>o.mat[w]).slice(-6).forEach(o=>{ const a=o.by['All CLs']; n+=a.n; r+=a.r[w]; }); return n?r/n:null; });
   const tone=(d,n)=>n<MIX_MIN_N||d==null?'c-g':d>=0.05?'c-s':d>=-0.03?'c-o':d>=-0.08?'c-w':'c-x';
-  el.innerHTML=keys.map(k=>{
-    let h='<div><div class="drill-h3">'+esc(k)+'</div><div class="tablewrap hmwrap"><table class="hm"><thead><tr><th>Go-live month</th><th>n</th>'+
+  el.innerHTML=[clSt.hm].map(k=>{
+    let h='<div><div class="tablewrap hmwrap"><table class="hm"><thead><tr><th>Go-live month</th><th>Go-lives</th>'+
       [1,2,3,4,5,6,7].map(w=>'<th>W'+w+'</th>').join('')+'</tr></thead><tbody>';
     [...per].reverse().forEach(o=>{ const a=o.by[k]; if(!a||!a.n) return;
       h+='<tr><td class="co">'+esc(o.lab)+'</td><td class="n">'+a.n+'</td>';
@@ -3066,7 +3127,7 @@ function buildClHeat(){
     return h+'</tbody></table></div></div>'; }).join('');
   document.getElementById('clHeatFoot').innerHTML=
     '<b>Retention</b> = marketing spend &ge; &#8377;3,000 in that week after go-live (go-live = first ISO week over &#8377;1,000, HIT, Dec 2025 onward), '+
-    'by the CL of the GC the seller had at go-live (go-lives without a go-live GC, or outside every CL, are not counted). '+
+    'by the CL of the GC the seller had at go-live; All CLs is the three CLs together (go-lives without a go-live GC, or outside the three CLs, are not counted). '+
     'Months follow the go-live ISO week. &mdash; = some go-live week in that month has not finished that week yet. '+
     '<b>Colour</b>: a CL against All CLs for the same month and week, and All CLs against its own average for that week over the last 6 months that have it &mdash; '+
     'Strong &ge; +5 pp, On track &minus;3 to +5 pp, Warning &minus;8 to &minus;3 pp, Off track below &minus;8 pp; grey = under '+MIX_MIN_N+' go-lives. '+
@@ -3084,15 +3145,32 @@ function clCsv(){
   const f=v=>v==null?'':(100*v).toFixed(1);
   const out=[['level','name','cl','w3_golives','w3_retention_pct','w3_retention_prev_pct','tasks_due','task_sla_pct','task_sla_prev_pct','stuck',
     'connect_pct','call_quality','scored_calls','prelive_golives','prelive_pct','prelive_prev_pct'].join(',')];
-  const cls=[...new Set(Object.keys(SLA.cur.cl).concat(Object.keys(RET.cur.cl)))].filter(Boolean);
+  const cls=[...new Set(Object.keys(SLA.cur.cl).concat(Object.keys(RET.cur.cl)))].filter(clShown);
   const push=(lv,x,cl)=>out.push([lv,x.k,cl,x.retN,f(x.ret),f(x.retP),x.due,f(x.adh),f(x.adhP),x.stuck,f(x.conn),x.q,x.nq,x.plN,f(x.pl),f(x.plP)].map(q).join(','));
   clRows('cl',cls,RET,SLA,PL).forEach(x=>push('CL',x,x.k));
   const gms=[...new Set(Object.keys(SLA.cur.gm).concat(Object.keys(RET.cur.gm)))];
-  clRows('gm',gms,RET,SLA,PL).forEach(x=>push('GM',{...x,k:CLGM[x.k]||x.k},(SLA.cur.gm[x.k]&&SLA.cur.gm[x.k].cl)||clOf('',CLGM[x.k])));
+  clRows('gm',gms,RET,SLA,PL).forEach(x=>{ const cl=(SLA.cur.gm[x.k]&&SLA.cur.gm[x.k].cl)||clOf('',CLGM[x.k]);
+    if(clShown(cl)) push('GM',{...x,k:CLGM[x.k]||x.k},cl); });
   saveCsv('cl_scorecard_'+W.a+'_to_'+W.b+'.csv',out.join('\n'));
 }
 
-document.querySelectorAll('#clWin button').forEach(b=>b.addEventListener('click',()=>{clSt.n=+b.dataset.n; clSt.from=clSt.to=''; buildClsc();}));
+// period chips: click = that period; shift-click = every period from the last click to this one
+function clPaintPeriods(){
+  document.querySelectorAll('#clLvl button').forEach(b=>b.classList.toggle('on',b.dataset.v===clSt.lvl));
+  const P=clPeriods(clSt.lvl), t=istToday(), custom=!!(clSt.from&&clSt.to), [i,j]=clSt.sel||[-1,-1];
+  const el=document.getElementById('clPer'); el.innerHTML='';
+  P.forEach((p,k)=>{ const c=document.createElement('span'); c.className='wkchip'+(!custom&&k>=i&&k<=j?' on':'');
+    c.textContent=p.lab+(p.a<=t&&t<=p.b?' (so far)':''); c.title=p.a+' to '+p.b+' · shift-click to select a range';
+    c.addEventListener('click',e=>{ clSt.from=clSt.to='';
+      if(e.shiftKey&&clSt.anchor!=null){ clSt.sel=[Math.min(clSt.anchor,k),Math.max(clSt.anchor,k)]; }
+      else { clSt.sel=[k,k]; clSt.anchor=k; }
+      buildClsc(); });
+    el.appendChild(c); });
+  document.getElementById('clPerHint').textContent=custom?'Custom range in use — click a '+(clSt.lvl==='week'?'week':'month')+' to go back':'Shift-click to select a range';
+}
+document.querySelectorAll('#clLvl button').forEach(b=>b.addEventListener('click',()=>{
+  if(clSt.lvl===b.dataset.v&&!(clSt.from&&clSt.to)) return;
+  clSt.lvl=b.dataset.v; clSt.sel=null; clSt.anchor=null; clSt.from=clSt.to=''; buildClsc(); }));
 ['clFrom','clTo'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{
   const f=document.getElementById('clFrom').value, t=document.getElementById('clTo').value;
   if(f&&t){ clSt.from=f<=t?f:t; clSt.to=f<=t?t:f; buildClsc(); }}));
