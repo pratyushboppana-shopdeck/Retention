@@ -2344,19 +2344,21 @@ function setupGcgmFilters(){
     wEl.appendChild(c);});
   // metric selector
   const ms=document.getElementById('gcgmMetric'); ms.innerHTML='';
+  // 0 = "This week": every go-live week read at the relative week it is in right now
+  ms.innerHTML='<option value="0">This week (W1&ndash;W7)</option>';
   for(let k=1;k<=7;k++){const o=document.createElement('option'); o.value=k; o.textContent='W'+k; if(k===3)o.selected=true; ms.appendChild(o);}
   ms.addEventListener('change',()=>{gcgmSel.metric=+ms.value; renderGcgm();});
   document.getElementById('gcgmMinN').addEventListener('change',renderGcgm);
   document.getElementById('gcgmLive').addEventListener('change',renderGcgm);
   document.getElementById('gcgmAll').addEventListener('click',()=>{weeks.forEach(w=>gcgmSel.weeks.add(w)); renderGcgm();});
   document.getElementById('gcgmClear').addEventListener('click',()=>{gcgmSel.weeks.clear(); gcgmSel.allSellers=false; renderGcgm();});
-  // "This week's not-retained": the go-live weeks whose Wm is the current calendar week, every
-  // GC's sellers listed (narrow with a CL/GC/GM pick), then jump to the list.
+  // "This week's not-retained": every go-live week that is in W1-W7 right now (W43 at W1, W42 at
+  // W2 ... W37 at W7), each judged on its own current week, every GC's sellers listed (narrow with a
+  // CL/GC/GM pick), then jump to the list.
   document.getElementById('gcgmNow').addEventListener('click',()=>{
-    const m=gcgmSel.metric, now=weeks.filter(w=>gcgmOngoing(w,m));
+    const now=weeks.filter(w=>GCGM.weeks[w]>=1&&GCGM.weeks[w]<=7);
     if(!now.length) return;
-    gcgmSel.weeks=new Set(now); gcgmSel.allSellers=true;
-    document.getElementById('gcgmLive').checked=true;
+    gcgmSel.weeks=new Set(now); gcgmSel.allSellers=true; gcgmSel.metric=0; ms.value='0';
     renderGcgm();
     document.getElementById('sellerPanel').scrollIntoView({behavior:'smooth',block:'start'});
   });
@@ -2376,16 +2378,18 @@ function gcgmPick(k,val){
 // A go-live week counts for Wm once Wm is complete (weeks elapsed > m) or, with "incl. ongoing
 // week" on, while Wm is the current calendar week (elapsed == m) -- judged on spend so far.
 function gcgmLiveOn(){ const el=document.getElementById('gcgmLive'); return !!(el&&el.checked); }
-function gcgmWkOk(w,m){ const e=GCGM.weeks[w]; return e>m || (e===m && gcgmLiveOn()); }
-const gcgmOngoing=(w,m)=>GCGM.weeks[w]===m;
+// relative week a go-live week is judged at: the picked Wm, or in "This week" mode (metric 0) the
+// week it is in right now (weeks elapsed), when that is W1-W7
+function gcgmM(w){ if(gcgmSel.metric) return gcgmSel.metric; const e=GCGM.weeks[w]; return e>=1&&e<=7?e:0; }
+function gcgmWkOk(w){ const m=gcgmM(w), e=GCGM.weeks[w]; return !!m && (e>m || (e===m && (!gcgmSel.metric || gcgmLiveOn()))); }
+const gcgmOngoing=w=>{ const m=gcgmM(w); return !!m && GCGM.weeks[w]===m; };
 // go-live ISO week + n weeks -> 'YYYY-Www' (the calendar week a seller's Wn falls in)
 function isoWeekAdd(w,n){ const d=new Date(isoMonday(w)+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+7*n+3); // Thursday
   const y=d.getUTCFullYear(), j1=Date.UTC(y,0,1); return y+'-W'+String(1+Math.floor((d-j1)/864e5/7)).padStart(2,'0'); }
 function aggRole(rows){ // rows: [gw,name,n,r1..r7]; returns map name->{n,ret} over mature selected weeks
-  const m=gcgmSel.metric, need=gcgmSel.metric;
   const acc={};
-  rows.forEach(r=>{const gw=r[0]; if(!gcgmSel.weeks.has(gw)) return; if(!gcgmWkOk(gw,need)) return; // W_metric must be mature (or ongoing, if included)
-    const name=r[1]; (acc[name]=acc[name]||{n:0,ret:0,rr:[0,0,0,0,0,0,0],mn:0}); acc[name].n+=r[2]; acc[name].ret+=r[2+m];
+  rows.forEach(r=>{const gw=r[0]; if(!gcgmSel.weeks.has(gw)) return; if(!gcgmWkOk(gw)) return; // W_metric must be mature (or ongoing, if included)
+    const m=gcgmM(gw), name=r[1]; (acc[name]=acc[name]||{n:0,ret:0,rr:[0,0,0,0,0,0,0],mn:0}); acc[name].n+=r[2]; acc[name].ret+=r[2+m];
     for(let k=0;k<7;k++) acc[name].rr[k]+=r[3+k]; acc[name].mn+=r[2];});
   return acc;
 }
@@ -2408,7 +2412,6 @@ function gcgmStats(){
   // DIAGBY is a top-level `let`, not a window property -- `window.DIAGBY` is always undefined
   // and this guard then swallowed every call.
   if(!GCGMS||!DIAGBY||!Object.keys(DIAGBY).length||!GCGM){ out._key=''; return out; }
-  const m=gcgmSel.metric;
   const bump=(bag,name,g,notRet)=>{
     if(!name) return;
     const a=bag[name]||(bag[name]={n:0,nr:0,calls:0,callsNR:0,sp:[],stop:0,attA:0,connA:0,att7:0,conn7:0});
@@ -2420,8 +2423,8 @@ function gcgmStats(){
   for(const sid in GCGMS){
     const g=GCGMS[sid], d=DIAGBY[sid]; if(!d) continue;
     if(!gcgmSel.weeks.has(d.w)) continue;
-    if(!gcgmWkOk(d.w,m)) continue;                     // that week must be mature for Wm (or ongoing)
-    const notRet=(d.sp[m-1]||0)<3000;
+    if(!gcgmWkOk(d.w)) continue;                       // that week must be mature for Wm (or ongoing)
+    const notRet=(d.sp[gcgmM(d.w)-1]||0)<3000;
     bump(out.gc,g.gc,g,notRet); bump(out.gm,g.gm,g,notRet);
     const cl=clOf(g.gc,''); if(cl) bump(out.cl,cl,g,notRet);
   }
@@ -2548,16 +2551,21 @@ function renderGcgm(){
       ? 'Showing every GC and GM &#9652;'
       : 'Show every GC and GM &#9662;';
   }
-  const nWk=[...gcgmSel.weeks].filter(w=>GCGM.weeks[w]>gcgmSel.metric).length;
-  const nLive=[...gcgmSel.weeks].filter(w=>gcgmOngoing(w,gcgmSel.metric)&&gcgmLiveOn()).length;
-  const nowWks=weeks.filter(w=>gcgmOngoing(w,gcgmSel.metric)).sort(), nowBtn=document.getElementById('gcgmNow');
+  const sel=[...gcgmSel.weeks];
+  const nWk=sel.filter(w=>gcgmM(w)&&GCGM.weeks[w]>gcgmM(w)).length;
+  const nLive=sel.filter(w=>gcgmOngoing(w)&&gcgmWkOk(w)).length;
+  const nowWks=weeks.filter(w=>GCGM.weeks[w]>=1&&GCGM.weeks[w]<=7).sort(), nowBtn=document.getElementById('gcgmNow');
   nowBtn.style.display=nowWks.length?'':'none';
-  nowBtn.innerHTML=`This week's not-retained: ${nowWks.map(w=>w.replace(/^20/,'\u2019')).join(', ')} at W${gcgmSel.metric} &#9662;`;
-  nowBtn.classList.toggle('on',gcgmSel.allSellers&&nowWks.length>0&&nowWks.every(w=>gcgmSel.weeks.has(w)));
+  const sw=w=>w.replace(/^20\d\d-/,'');
+  nowBtn.innerHTML=`This week's not-retained: ${sw(nowWks[nowWks.length-1]||'')} at W1 &hellip; ${sw(nowWks[0]||'')} at W7 &#9662;`;
+  nowBtn.title='Every go-live week judged at the week it is in right now: '+nowWks.slice().reverse().map(w=>sw(w)+' at W'+GCGM.weeks[w]).join(', ');
+  nowBtn.classList.toggle('on',!gcgmSel.metric&&gcgmSel.allSellers&&nowWks.length>0&&nowWks.every(w=>gcgmSel.weeks.has(w)));
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
-  const cohort=[...gcgmSel.weeks].filter(w=>gcgmWkOk(w,gcgmSel.metric)).reduce((s,w)=>s+((window.COHORTN||{})[w]||0),0);
+  const cohort=[...gcgmSel.weeks].filter(w=>gcgmWkOk(w)).reduce((s,w)=>s+((window.COHORTN||{})[w]||0),0);
   const cov=cohort?` of ${cohort} in the cohort (${(100*gcAgg.tot/cohort).toFixed(0)}% have a go-live GC)`:'';
-  document.getElementById('gcgmSummary').textContent=`${nWk} mature week(s)${nLive?` + ${nLive} ongoing (W${gcgmSel.metric} spend so far)`:''} selected · ${gcAgg.tot} go-lives (GC-attributed)${cov} · overall W${gcgmSel.metric} retention ${overall}%`;
+  document.getElementById('gcgmSummary').textContent=(gcgmSel.metric
+    ? `${nWk} mature week(s)${nLive?` + ${nLive} ongoing (W${gcgmSel.metric} spend so far)`:''} selected · ${gcAgg.tot} go-lives (GC-attributed)${cov} · overall W${gcgmSel.metric} retention ${overall}%`
+    : `This week: ${nLive} go-live week(s), each at the week it is in now (spend so far) · ${gcAgg.tot} go-lives (GC-attributed)${cov} · retained so far ${overall}%`);
   renderSellerPanel();
 }
 // ---- selected GC/GM -> their not-retained sellers: reason coding + open pointers ----
@@ -2581,7 +2589,6 @@ function renderSellerPanel(){
   if(clName!=='All')picked.push('CL '+clName);
   if(!picked.length&&gcgmSel.allSellers) picked.push('every GC');
   if(!picked.length||!GCGMS){ panel.style.display='none'; SPROWS=[]; return; }
-  const m=gcgmSel.metric;
   const out=[];
   for(const sid in GCGMS){
     const g=GCGMS[sid];
@@ -2590,18 +2597,22 @@ function renderSellerPanel(){
     if(clName!=='All' && clOf(g.gc,'')!==clName) continue;
     const d=DIAGBY[sid]; if(!d) continue;                       // needs spend/bucket detail
     if(!gcgmSel.weeks.has(d.w)) continue;                        // selected go-live weeks only
-    if(!gcgmWkOk(d.w,m)) continue;                               // mature, or ongoing if included
+    if(!gcgmWkOk(d.w)) continue;                                 // mature, or ongoing if included
+    const m=gcgmM(d.w);
     if((d.sp[m-1]||0)>=3000) continue;                           // keep only NOT-retained at Wm (so far)
-    out.push({sid,w:d.w,b:d.b,wsp:d.sp[m-1]||0,live:gcgmOngoing(d.w,m),cw:isoWeekAdd(d.w,m),...g});
+    out.push({sid,w:d.w,b:d.b,m,wsp:d.sp[m-1]||0,live:gcgmOngoing(d.w),cw:isoWeekAdd(d.w,m),...g});
   }
   // sellers still inside an ongoing week come first, closest to Rs 3k first (the easiest push this week)
   out.sort((a,b)=>(b.live-a.live)||(a.live&&b.live?b.wsp-a.wsp:0)||(b.nPend-a.nPend)||(b.nOpen-a.nOpen)||a.w.localeCompare(b.w));
   SPROWS=out;
   const B=window.BUCKETS||[];
   const nLive=out.filter(x=>x.live).length;
-  document.getElementById('spTitle').innerHTML=`Not-retained at W${m} &mdash; ${esc(picked.join(' + '))} <span class="drill-sub">(${out.length} seller${out.length===1?'':'s'}`+
-    (nLive?` &middot; <b>${nLive}</b> still in their W${m} this week &mdash; below \u20B93k so far`:'')+`)</span>`;
-  document.getElementById('spWkTh').textContent='W'+m+' spend';
+  const m=gcgmSel.metric;
+  // in "This week" mode, how many are behind at each relative week (W1 ... W7)
+  const byWk=m?'':[1,2,3,4,5,6,7].map(k=>{const n=out.filter(x=>x.m===k).length; return n?`W${k} <b>${n}</b>`:'';}).filter(Boolean).join(' &middot; ');
+  document.getElementById('spTitle').innerHTML=(m?`Not-retained at W${m}`:'Not retained this week')+` &mdash; ${esc(picked.join(' + '))} <span class="drill-sub">(${out.length} seller${out.length===1?'':'s'}`+
+    (m?(nLive?` &middot; <b>${nLive}</b> still in their W${m} this week &mdash; below \u20B93k so far`:''):` below \u20B93k so far this week &mdash; ${byWk}`)+`)</span>`;
+  document.getElementById('spWkTh').textContent=m?'W'+m+' spend':'Spend this week';
   // reason distribution for this person
   const dist=B.map((n,bi)=>({n,bi,c:out.filter(x=>x.b===bi).length})).filter(x=>x.c>0).sort((a,b)=>b.c-a.c);
   const mx=Math.max(1,...dist.map(x=>x.c));
@@ -2613,7 +2624,7 @@ function renderSellerPanel(){
     `<td><code style="font-size:11px">${esc(x.sid)}</code></td>`+
     `<td>${esc(x.gc||'—')}</td><td>${esc(x.w)}</td>`+
     `<td class="num" title="${esc(x.cw)}${x.live?' (ongoing) · spend so far · \u20B9'+(3000-x.wsp).toLocaleString()+' short of 3k':''}">${fmtMoney(x.wsp)}`+
-    `<br><span style="font-size:10.5px;color:${x.live?'#BA7517':'var(--faint)'}">${esc(x.cw.replace(/^20/,'\u2019'))}${x.live?' · so far, '+fmtMoney(3000-x.wsp)+' to go':''}</span></td>`+
+    `<br><span style="font-size:10.5px;color:${x.live?'#BA7517':'var(--faint)'}">${gcgmSel.metric?'':'W'+x.m+' · '}${esc(x.cw.replace(/^20/,'\u2019'))}${x.live?' · so far, '+fmtMoney(3000-x.wsp)+' to go':''}</span></td>`+
     `<td title="${esc(x.lastSp||'')}">${x.lastSp?esc(fmtLastSp(x)):'—'}</td>`+
     `<td class="num" title="after ${esc(x.lastSp||'—')}: ${x.attA} attempted, ${x.connA} connected">${x.attA} &middot; ${x.connA}</td>`+
     `<td class="num" title="last 7 days: ${x.att7} attempted, ${x.conn7} connected">${x.att7} &middot; ${x.conn7}</td>`+
@@ -2631,7 +2642,7 @@ document.getElementById('spCsv').addEventListener('click',()=>{
   if(!SPROWS.length) return; const B=window.BUCKETS||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const csv=['seller_name,seller_id,golive_week,retention_week,retention_calendar_week,week_spend,week_in_progress,short_of_3k,reason_bucket,golive_gc,golive_gm,last_spend_date,days_since_last_spend,gc_calls_after_last_spend,gc_connected_after_last_spend,gc_calls_last_7d,gc_connected_last_7d,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
-    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,'W'+gcgmSel.metric,x.cw,x.wsp,x.live?'yes':'no',3000-x.wsp,B[x.b]||'',x.gc||'',x.gm||'',x.lastSp||'',gcgmDaysSince(x)??'',x.attA,x.connA,x.att7,x.conn7,x.spend||0,
+    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,'W'+x.m,x.cw,x.wsp,x.live?'yes':'no',3000-x.wsp,B[x.b]||'',x.gc||'',x.gm||'',x.lastSp||'',gcgmDaysSince(x)??'',x.attA,x.connA,x.att7,x.conn7,x.spend||0,
       x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
   saveCsv('not_retained_sellers.csv', csv);
 });
