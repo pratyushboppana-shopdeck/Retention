@@ -450,6 +450,14 @@
     </div>
     <div class="tablewrap" style="max-height:none"><table class="sla cltab" id="clTable"></table></div>
     <div class="drill-sub" id="clFoot" style="margin-top:8px"></div>
+    <div class="fl-row" style="margin:22px 0 8px">
+      <div class="drill-h3" style="margin:0 auto 0 0">Month-wise W1&ndash;W7 retention by CL
+        <span class="hint">&mdash; go-live month &times; week since go-live, by the CL of the go-live GC</span></div>
+      <span class="hmleg"><span class="hm-s">&bull; Strong</span><span class="hm-o">&bull; On track</span><span class="hm-w">&bull; Warning</span><span class="hm-x">&bull; Off track</span></span>
+      <button class="gcexp" id="clHmCsv" type="button">Download CSV &#8595;</button>
+    </div>
+    <div class="hmgrid" id="clHeat"></div>
+    <div class="drill-sub" id="clHeatFoot" style="margin-top:8px"></div>
   </div>
 
   <div class="card" id="gcgmCard">
@@ -2133,7 +2141,7 @@ function setView(v){
   document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
   document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
   document.getElementById('clCard').style.display=v==='clsc'?'block':'none';
-  if(v==='clsc') buildClsc();
+  if(v==='clsc'){ buildClsc(); buildClHeat(); }
   document.getElementById('unCard').style.display=v==='unassign'?'block':'none';
   if(v==='gcgm') buildGcgm();
   // GC gets its own console card; the KAM tab keeps the original tables untouched.
@@ -3014,6 +3022,63 @@ function buildClsc(){
     'Aaruni Vaidya and her GCs are outside every CL (they report to Pratyush) and are left out here. '+
     'Click a CL to see its GMs, worst task SLA first.';
 }
+// ---- month-wise W1-W7 retention heatmap per CL ----
+// From GCGM.gc ([go-live week, go-live GC, n, r1..r7]) rolled up by the GC's CL and the go-live
+// month. A month's Wk shows only once every go-live week in it has finished week k. Each CL cell
+// is coloured against All CLs for the same month and week; the All CLs table against its own
+// average for that week over the last 6 months that have it.
+function clHeatData(){
+  if(!GCGM) return null;
+  const M={}, mk=w=>wkMonthKey(w);
+  GCGM.gc.forEach(r=>{ const cl=clOf(r[1],''); if(!cl) return; const m=mk(r[0]); if(!m) return;
+    const o=M[m]||(M[m]={m,lab:wkMonthLabel(r[0]),weeks:new Set(),by:{}});
+    o.weeks.add(r[0]);
+    [cl,'All CLs'].forEach(k=>{ const a=o.by[k]||(o.by[k]={n:0,r:[0,0,0,0,0,0,0]}); a.n+=r[2]; for(let w=0;w<7;w++) a.r[w]+=r[3+w]; }); });
+  const per=Object.values(M).sort((a,b)=>a.m-b.m);
+  per.forEach(o=>{ o.mat=[1,2,3,4,5,6,7].map(k=>[...o.weeks].every(w=>GCGM.weeks[w]>k)); });
+  const cls=[...new Set(per.flatMap(o=>Object.keys(o.by)))].filter(k=>k!=='All CLs')
+    .sort((a,b)=>(CL_ORDER.indexOf(a)+1||99)-(CL_ORDER.indexOf(b)+1||99)||a.localeCompare(b));
+  return {per,cls};
+}
+function buildClHeat(){
+  const D=clHeatData(), el=document.getElementById('clHeat');
+  if(!D||!D.per.length){ el.innerHTML=''; document.getElementById('clHeatFoot').textContent='No go-live GC data in this snapshot.'; return; }
+  const {per,cls}=D, keys=['All CLs'].concat(cls);
+  // All-CLs benchmark per week: pooled over the latest 6 months that are mature for that week
+  const bench=[0,1,2,3,4,5,6].map(w=>{ let n=0,r=0;
+    per.filter(o=>o.mat[w]).slice(-6).forEach(o=>{ const a=o.by['All CLs']; n+=a.n; r+=a.r[w]; }); return n?r/n:null; });
+  const tone=(d,n)=>n<MIX_MIN_N||d==null?'c-g':d>=0.05?'c-s':d>=-0.03?'c-o':d>=-0.08?'c-w':'c-x';
+  el.innerHTML=keys.map(k=>{
+    let h='<div><div class="drill-h3">'+esc(k)+'</div><div class="tablewrap hmwrap"><table class="hm"><thead><tr><th>Go-live month</th><th>n</th>'+
+      [1,2,3,4,5,6,7].map(w=>'<th>W'+w+'</th>').join('')+'</tr></thead><tbody>';
+    [...per].reverse().forEach(o=>{ const a=o.by[k]; if(!a||!a.n) return;
+      h+='<tr><td class="co">'+esc(o.lab)+'</td><td class="n">'+a.n+'</td>';
+      let prev=null;
+      for(let w=0;w<7;w++){
+        if(!o.mat[w]){ h+='<td class="na">&mdash;</td>'; prev=null; continue; }
+        const v=a.r[w]/a.n, all=o.by['All CLs'], ref=k==='All CLs'?bench[w]:all.r[w]/all.n, c=tone(ref==null?null:v-ref,a.n);
+        const arr=prev==null||Math.abs(v-prev)<0.005?'':v>prev?'<sup class="up">&#9650;</sup>':'<sup class="dn">&#9660;</sup>';
+        h+='<td class="'+c+'" title="'+esc(k+' · '+o.lab+' · W'+(w+1)+': '+a.r[w]+' of '+a.n+' retained'+
+          (ref!=null?' · '+(k==='All CLs'?'6-month average ':'All CLs ')+(100*ref).toFixed(1)+'%':'')+' · arrow = vs W'+w)+'">'+
+          (100*v).toFixed(0)+'%'+arr+(c==='c-w'||c==='c-x'?'<span class="dot">&#9679;</span>':'')+'</td>';
+        prev=v; }
+      h+='</tr>'; });
+    return h+'</tbody></table></div></div>'; }).join('');
+  document.getElementById('clHeatFoot').innerHTML=
+    '<b>Retention</b> = marketing spend &ge; &#8377;3,000 in that week after go-live (go-live = first ISO week over &#8377;1,000, HIT, Dec 2025 onward), '+
+    'by the CL of the GC the seller had at go-live (go-lives without a go-live GC, or outside every CL, are not counted). '+
+    'Months follow the go-live ISO week. &mdash; = some go-live week in that month has not finished that week yet. '+
+    '<b>Colour</b>: a CL against All CLs for the same month and week, and All CLs against its own average for that week over the last 6 months that have it &mdash; '+
+    'Strong &ge; +5 pp, On track &minus;3 to +5 pp, Warning &minus;8 to &minus;3 pp, Off track below &minus;8 pp; grey = under '+MIX_MIN_N+' go-lives. '+
+    '<b>Arrows</b> compare with the previous week in the same row. Unlike the table above, this does not follow the date window.';
+}
+document.getElementById('clHmCsv').addEventListener('click',()=>{
+  const D=clHeatData(); if(!D) return; const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[['cl','golive_month','go_lives','week','retained','retention_pct','mature'].join(',')];
+  D.cls.concat(['All CLs']).forEach(k=>D.per.forEach(o=>{ const a=o.by[k]; if(!a) return;
+    for(let w=0;w<7;w++) out.push([k,o.lab,a.n,'W'+(w+1),a.r[w],(100*a.r[w]/a.n).toFixed(1),o.mat[w]?1:0].map(q).join(',')); }));
+  saveCsv('cl_monthly_w1_w7_retention.csv', out.join('\n'));
+});
 function clCsv(){
   const W=clWindow(), RET=clRetention(W), SLA=clSla(W), PL=clPrelive(W), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const f=v=>v==null?'':(100*v).toFixed(1);
