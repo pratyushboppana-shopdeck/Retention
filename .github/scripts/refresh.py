@@ -509,6 +509,68 @@ def parse_gcgms(csv_text):
     return {"names": names, "rows": out}
 
 
+# Go-lives and unassignments per (ISO week, role, person) — point-in-time GC/GM (card 12438).
+UNASSIGN_SQL = r"""
+WITH
+total_spend AS (
+  SELECT seller_id, DATE(date) spend_date, spend/1.18 spend FROM `nushop.marketing_spends`
+    WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 9000 DAY) AND DATE(date) <= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND marketing_channel!='whatsapp'
+  UNION ALL SELECT seller_id, spend_date, spend FROM `nushop.google_marketing_insights_master` WHERE breakdown_key IS NULL AND spend_date >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+  UNION ALL SELECT seller_id, DATE(spend_date,"Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights` WHERE breakdown_key IS NULL AND DATE(spend_date) >= DATE_SUB(CURRENT_DATE(),INTERVAL 2 DAY) AND DATE(spend_date,"Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+),
+daily_spend AS (SELECT seller_id, spend_date, SUM(spend) marketing_spend FROM total_spend GROUP BY 1,2),
+go_live AS (SELECT seller_id, MIN(spend_date) go_live_date FROM daily_spend WHERE marketing_spend>=100 GROUP BY 1),
+sellers AS (SELECT * FROM go_live WHERE go_live_date >= DATE '2026-01-01'),
+unassign AS (
+  SELECT seller_id, id revival_task_id, DATE(created_at,'Asia/Kolkata') unassignment_date,
+    ROW_NUMBER() OVER (PARTITION BY seller_id ORDER BY created_at) cycle_no
+  FROM nushop.workboard_tasks
+  WHERE type='seller_revival' AND sub_type='seller_revival_primary_task' AND DATE(created_at,'Asia/Kolkata') <= CURRENT_DATE()),
+ev AS (SELECT DISTINCT seller_id, CASE WHEN subcategory LIKE '%growth_consultant%' THEN 'GC' ELSE 'GM' END role,
+   IF(REGEXP_CONTAINS(initial_value,r'^[0-9a-f]{24}$'),initial_value,NULL) prev_id,
+   IF(REGEXP_CONTAINS(final_value,r'^[0-9a-f]{24}$'),final_value,NULL) new_id, createdat
+  FROM nushop.changeslogs WHERE DATE(createdat) >= DATE '2025-07-01' AND createdat >= TIMESTAMP('2025-07-01')
+    AND (subcategory LIKE '%growth_consultant%' OR subcategory LIKE '%growth_manager%') AND seller_id IN (SELECT seller_id FROM sellers)),
+ev2 AS (SELECT * FROM ev WHERE prev_id IS NOT NULL OR new_id IS NOT NULL),
+cutoffs AS (
+  SELECT seller_id, 'GOLIVE' evt, CAST(NULL AS STRING) revival_task_id, go_live_date evt_date,
+    TIMESTAMP(go_live_date,'Asia/Kolkata') cutoff, TIMESTAMP(DATE_ADD(go_live_date,INTERVAL 1 DAY),'Asia/Kolkata') grace_end
+  FROM sellers
+  UNION ALL
+  SELECT u.seller_id,'UNASSIGN',u.revival_task_id,u.unassignment_date,
+    TIMESTAMP(u.unassignment_date,'Asia/Kolkata'), TIMESTAMP(u.unassignment_date,'Asia/Kolkata')
+  FROM unassign u JOIN sellers s USING (seller_id)),
+ce AS (SELECT CONCAT(c.evt,'|',c.seller_id,'|',IFNULL(c.revival_task_id,'')) evt_key, c.cutoff, c.grace_end, e.role, e.prev_id, e.new_id, e.createdat
+  FROM cutoffs c JOIN ev2 e USING (seller_id)),
+b AS (SELECT evt_key, role, new_id person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat DESC, new_id IS NULL) rn FROM ce WHERE createdat<cutoff) WHERE rn=1),
+b_held AS (SELECT evt_key, role, new_id person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat DESC) rn FROM ce WHERE createdat<cutoff AND new_id IS NOT NULL) WHERE rn=1),
+a AS (SELECT evt_key, role, COALESCE(prev_id, IF(createdat<grace_end,new_id,NULL)) person_id FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY evt_key,role ORDER BY createdat ASC, prev_id IS NULL) rn FROM ce WHERE createdat>=cutoff) WHERE rn=1),
+resolved AS (SELECT k.evt_key, k.role, COALESCE(b.person_id, IF(b.evt_key IS NULL, a.person_id, NULL), bh.person_id) person_id
+  FROM (SELECT DISTINCT evt_key, role FROM ce UNION DISTINCT SELECT CONCAT(evt,'|',seller_id,'|',IFNULL(revival_task_id,'')), r FROM cutoffs CROSS JOIN UNNEST(['GC','GM']) r) k
+  LEFT JOIN b USING (evt_key,role) LEFT JOIN b_held bh USING (evt_key,role) LEFT JOIN a USING (evt_key,role)),
+golive_ev AS (
+  SELECT s.seller_id, s.go_live_date evt_date, 'golive' kind, gc.person_id gc_id, gm.person_id gm_id
+  FROM sellers s
+  LEFT JOIN resolved gc ON gc.evt_key=CONCAT('GOLIVE|',s.seller_id,'|') AND gc.role='GC'
+  LEFT JOIN resolved gm ON gm.evt_key=CONCAT('GOLIVE|',s.seller_id,'|') AND gm.role='GM'),
+unassign_ev AS (
+  SELECT u.seller_id, u.unassignment_date evt_date, 'unassign' kind, gc.person_id gc_id, gm.person_id gm_id
+  FROM unassign u JOIN sellers s USING (seller_id)
+  LEFT JOIN resolved gc ON gc.evt_key=CONCAT('UNASSIGN|',u.seller_id,'|',u.revival_task_id) AND gc.role='GC'
+  LEFT JOIN resolved gm ON gm.evt_key=CONCAT('UNASSIGN|',u.seller_id,'|',u.revival_task_id) AND gm.role='GM'),
+allev AS (SELECT * FROM golive_ev UNION ALL SELECT * FROM unassign_ev),
+long AS (
+  SELECT FORMAT_DATE('%G-W%V', evt_date) year_week, kind, 'GC' role, gc_id person_id FROM allev
+  UNION ALL
+  SELECT FORMAT_DATE('%G-W%V', evt_date), kind, 'GM', gm_id FROM allev)
+SELECT l.year_week, l.role, l.kind,
+  COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),''),'(unattributed)') person,
+  COUNT(*) n
+FROM long l LEFT JOIN nushop.users u ON u._id=l.person_id
+GROUP BY 1,2,3,4 ORDER BY 1,2,3,4
+"""
+
+
 def parse_unassign(csv_text):
     rows = list(csvmod.DictReader(io.StringIO(csv_text)))
     names, nidx, out = [], {}, []
