@@ -129,7 +129,7 @@
   .tab:hover{color:var(--ink);}
   .tab.active{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(18,19,15,.10),0 0 0 1px rgba(18,19,15,.05);}
   #gcgmCard{display:none;}
-  #tsCard,#unCard{display:none;}
+  #unCard{display:none;}
   .gcgm-filters select{font:inherit;font-size:12.5px;padding:3px 7px;border-radius:7px;border:1px solid var(--line);background:#fff;}
   table.rank th[data-k]{cursor:pointer;user-select:none;}
   table.rank th[data-k]:hover{color:var(--accent);}
@@ -206,6 +206,24 @@
   .ptag .who{color:var(--muted);}
   #spRows td.snm{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
   .sostag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:5px;background:#f6e3e0;border:1px solid #e0b6b0;}
+  #gcgmCard table.rank tr.ovr td{background:#f4f2ea;font-weight:700;border-bottom:2px solid var(--line);cursor:default;}
+  .hmleg{display:inline-flex;gap:6px;font-size:12px;}
+  .hmleg span{padding:3px 9px;border-radius:7px;}
+  .hm-s{background:#cfe9da;color:#1d6b43;} .hm-o{background:#e6f2ea;color:#2f6d4f;} .hm-w{background:#fbe3d6;color:#b5541c;} .hm-x{background:#f6d4cf;color:#b5372a;}
+  .hmgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:18px;}
+  .hmwrap{max-height:620px;overflow:auto;}
+  table.hm{border-collapse:collapse;width:100%;font-size:12.5px;}
+  table.hm th{position:sticky;top:0;background:#f4f2ea;font-weight:650;color:var(--muted);padding:7px 8px;text-align:center;font-size:11.5px;z-index:1;}
+  table.hm th:first-child,table.hm td:first-child{text-align:left;}
+  table.hm td{padding:7px 8px;text-align:center;border-bottom:1px solid #fff;white-space:nowrap;}
+  table.hm td.co{font-weight:650;background:#fff;} table.hm td.n{color:var(--muted);background:#fff;font-size:11.5px;}
+  table.hm td.na{color:var(--faint);background:#faf9f5;}
+  table.hm td.c-s{background:#cfe9da;color:#1d6b43;font-weight:650;} table.hm td.c-o{background:#e6f2ea;color:#2f6d4f;}
+  table.hm td.c-w{background:#fbe3d6;color:#b5541c;font-weight:650;} table.hm td.c-x{background:#f6d4cf;color:#b5372a;font-weight:650;}
+  table.hm td.c-g{background:#f1f0eb;color:#8a8d80;}
+  table.hm sup{font-size:8px;margin-left:1px;} table.hm sup.up{color:#1d8a4f;} table.hm sup.dn{color:#c0392b;}
+  table.hm .dot{font-size:9px;margin-left:2px;}
+  table.convtab td.cv small{display:block;color:var(--muted);font-size:10.5px;}
   #sellerPanel{margin-top:22px;border-top:1px solid var(--line);padding-top:6px;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
   details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
@@ -408,9 +426,9 @@
 
   <div class="tabs" id="tabs">
     <button class="tab active" type="button" data-view="curve">Retention curve</button>
+    <button class="tab" type="button" data-view="offers">Offers</button>
     <button class="tab" type="button" data-view="clsc">CL scorecard</button>
     <button class="tab" type="button" data-view="gcgm">GC &amp; GM retention</button>
-    <button class="tab" type="button" data-view="tssop">TS SOP metrics</button>
     <button class="tab" type="button" data-view="unassign">Go-lives vs unassignments</button>
     <button class="tab" type="button" data-view="slaGC">GC task SLA</button>
     <button class="tab" type="button" data-view="slaKAM">KAM task SLA</button>
@@ -483,44 +501,6 @@
         <span class="drill-sub" id="spNote"></span>
       </div>
     </div>
-  </div>
-
-  <!-- ============ TS SOP metrics (card 12960) ============ -->
-  <div class="card" id="tsCard">
-    <div class="gcgm-filters">
-      <div class="fl-row"><span class="fl-label">Month</span><span id="tsMonths"></span>
-        <button class="mbtn" id="tsAll" type="button">All weeks</button><button class="mbtn" id="tsClear" type="button">Clear</button></div>
-      <div class="fl-row"><span class="fl-label">Completion week</span><div class="wkwrap" id="tsWeeks"></div></div>
-      <div class="fl-row"><span class="fl-label">View by</span>
-        <button class="mbtn on" id="tsByGc" type="button">GC (assignee)</button>
-        <button class="mbtn" id="tsByGm" type="button">GM (rollup)</button>
-        <button class="mbtn" id="tsByCl" type="button">CL (rollup)</button>
-        <span class="fl-label" style="min-width:44px;margin-left:10px">Role</span>
-        <select id="tsBucket"></select>
-        <label style="font-size:12.5px;color:var(--muted)"><input type="checkbox" id="tsMinN" checked> hide &lt;5 tasks</label>
-      </div>
-      <div class="fl-row"><span class="hint" id="tsSummary"></span></div>
-    </div>
-    <div class="tablewrap" style="max-height:560px"><table class="rank" id="tsTable">
-      <thead><tr>
-        <th data-k="name">Name</th>
-        <th class="num" data-k="tasks">Tasks</th>
-        <th class="num" data-k="completed">Done</th>
-        <th class="num" data-k="adh">Task adh.</th>
-        <th class="num" data-k="sla">SLA adh.</th>
-        <th class="num" data-k="attempted">Calls</th>
-        <th class="num" data-k="conn">Conn.</th>
-        <th class="num" data-k="connpct">Conn.&nbsp;%</th>
-        <th class="num" data-k="scored">Scored</th>
-        <th class="num" data-k="quality">Quality</th>
-        <th class="num" data-k="acc">Accuracy</th>
-        <th class="num" data-k="sat">Satisf.</th>
-        <th class="num" data-k="ton">Tonality</th>
-        <th class="num" data-k="dur">Avg dur.</th>
-      </tr></thead><tbody id="tsRows"></tbody><tfoot id="tsFoot"></tfoot>
-    </table></div>
-    <div class="drill-actions"><button id="tsCsv" type="button">Download CSV</button>
-      <span class="drill-sub">Click a column header to sort. TS SOP = <code>troubleshoot_action / troubleshoot_sop</code> tasks; week = task completion week. Quality scores are 0&ndash;100 (&minus;1 &ldquo;not evaluated&rdquo; excluded).</span></div>
   </div>
 
   <!-- ============ Go-lives vs unassignments (card 12438) ============ -->
@@ -599,6 +579,40 @@
     </details>
     <div class="drill-h3">Matrix &mdash; reason (rows) &times; ISO year-week (columns), % of go-lives</div>
     <div class="tablewrap" style="max-height:none"><table class="matrix" id="reasonMatrix"></table></div>
+  </div>
+
+  <!-- ============ Offers tab: good vs bad offer retention ============ -->
+  <div class="card" id="offCard" style="display:none">
+    <div class="reason-head">
+      <div><b>W1&ndash;W7 retention &mdash; good vs bad offers</b> <span class="hint">&mdash; go-live cohort &times; week since go-live, % of the cohort spending &#8377;3,000+ that week</span></div>
+    </div>
+    <div class="controls" style="gap:14px">
+      <span class="mixfg"><span class="mixfl">Period</span>
+        <span class="slaseg" id="offGrain"><button type="button" data-v="week" class="on">Year-week</button><button type="button" data-v="month">Month</button></span></span>
+      <span class="hmleg"><span class="hm-s">&bull; Strong</span><span class="hm-o">&bull; On track</span><span class="hm-w">&bull; Warning</span><span class="hm-x">&bull; Off track</span></span>
+      <button type="button" class="mbtn" id="offCsv">Download CSV</button>
+    </div>
+    <div class="hmgrid">
+      <div><div class="drill-h3" id="offGoodT">Good offers</div><div class="tablewrap hmwrap"><table class="hm" id="offGood"></table></div></div>
+      <div><div class="drill-h3" id="offBadT">Bad offers</div><div class="tablewrap hmwrap"><table class="hm" id="offBad"></table></div></div>
+    </div>
+    <footer id="offFoot"></footer>
+  </div>
+
+  <div class="card" id="convCard" style="display:none">
+    <div class="reason-head">
+      <div><b>Of the sellers retained at W0 / W1 / W2, how many are still retained at W3?</b> <span class="hint">&mdash; good vs bad offers</span></div>
+    </div>
+    <div class="controls" style="gap:14px">
+      <span class="mixfg"><span class="mixfl">Period</span>
+        <span class="slaseg" id="convGrain"><button type="button" data-v="week" class="on">Year-week</button><button type="button" data-v="month">Month</button></span></span>
+      <span class="mixfg"><span class="mixfl">Chart: retained at</span>
+        <span class="slaseg" id="convBase"><button type="button" data-v="0">W0</button><button type="button" data-v="1">W1</button><button type="button" data-v="2" class="on">W2</button></span></span>
+      <button type="button" class="mbtn" id="convCsv">Download CSV</button>
+    </div>
+    <div class="chart-box" style="height:300px"><canvas id="convChart" role="img" aria-label="Share of sellers retained at the chosen base week who are still retained at W3, good vs bad offers, by go-live period."></canvas></div>
+    <div class="tablewrap" style="max-height:520px;overflow:auto;margin-top:12px"><table class="mixtab convtab" id="convTable"></table></div>
+    <footer id="convFoot"></footer>
   </div>
 
   <div class="card" id="mixCard">
@@ -1266,7 +1280,6 @@ async function load(){
       GCGMS=by;
     }
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
-    TSSOP=snap.tsSop||null; tsInit=false;
     UNAS=snap.unassign||null; unInit=false;
     BLK=snap.blocks||null; BLKPLAT=snap.blockPlatform||null; blkInit=false;
     window.SNAP_AT=snap.generated_at||null;
@@ -1677,8 +1690,133 @@ function buildMix(){
     document.querySelectorAll('#c30By button').forEach(b=>b.addEventListener('click',()=>{
       c30St.by=b.dataset.v; document.querySelectorAll('#c30By button').forEach(x=>x.classList.toggle('on',x===b)); c30Paint(); }));
   }
-  card.style.display=(document.querySelector('#tabs .tab.active')||{}).dataset?.view==='curve'?'block':'none';
+  card.style.display=(document.querySelector('#tabs .tab.active')||{}).dataset?.view==='offers'?'block':'none';
   mixPaint();
+}
+// ===== Offers tab: good vs bad offer W0-W7 heatmap, and W0/W1/W2 -> W3 carry-through =====
+// Two groups only (owner, 2026-10-26): BAD = the offers gbClassify() grades bad; GOOD = everything
+// else -- good offers clubbed with NA / No offer recorded / Other and any offer not yet clear.
+// A period counts for Wk only once every seller in it has finished week k (same rule as mixData).
+const offSt={grain:'week'}, convSt={grain:'week', base:2};
+let offInit=false, convC=null;
+const OFF_LAB={good:'Good offers',bad:'Bad offers'}, OFF_COL={good:'#2a78d6',bad:'#eb6834'};
+function offData(grain){
+  const D=window.DIAG||[], C=gbClassify(), now=mixNowMon(), key=grain==='week'?(d=>d.w):(d=>d.mo), P={};
+  const blank=()=>({n:0,r:[0,0,0,0,0,0,0,0],n0:0,base:[0,0,0],conv:[0,0,0]});
+  D.forEach(d=>{ const k=key(d); if(!k) return;
+    const o=P[k]||(P[k]={k,el:1e9,good:blank(),bad:blank(),all:blank()});
+    o.el=Math.min(o.el,mixWeeksElapsed(d.w,now));          // the youngest go-live week sets maturity
+    const has0=d.s0!=null, sp=w=>w===0?(d.s0||0):(d.sp[w-1]||0), r3=sp(3)>=3000;
+    [o[C.grpOf[d.of]==='bad'?'bad':'good'],o.all].forEach(g=>{
+      g.n++; if(has0) g.n0++;
+      for(let w=0;w<=7;w++) if((w>0||has0)&&sp(w)>=3000) g.r[w]++;
+      for(let b=0;b<3;b++) if((b>0||has0)&&sp(b)>=3000){ g.base[b]++; if(r3) g.conv[b]++; } });
+  });
+  const per=Object.values(P).sort((a,b)=>a.k<b.k?-1:1);
+  return {per,C,has0:D.some(d=>d.s0!=null)};
+}
+const offMature=(o,w)=>o.el>w;
+const offLbl=(k,g)=>g==='week'?k:mixLabel(k,'month');
+function offPaint(){
+  const {per,C,has0}=offData(offSt.grain), g=offSt.grain, W=has0?[0,1,2,3,4,5,6,7]:[1,2,3,4,5,6,7];
+  const den=(o,w)=>w===0?o.n0:o.n;
+  // benchmark per group and week: pooled over the mature periods that went live in the last 6
+  // complete months (the same window gbClassify grades offers on)
+  const from=C.win[0]||'', moOf={}; (window.DIAG||[]).forEach(d=>{ moOf[d.w]=d.mo; });
+  const bench={};
+  ['good','bad'].forEach(gr=>{ bench[gr]=W.map(w=>{ let n=0,r=0;
+    per.forEach(o=>{ const mo=g==='week'?moOf[o.k]:o.k;
+      if(mo<from||!offMature(o,w)) return; n+=den(o[gr],w); r+=o[gr].r[w]; });
+    return n?r/n:null; }); });
+  const cls=(v,b,n)=>n<MIX_MIN_N||b==null?'c-g':v-b>=0.05?'c-s':v-b>=-0.03?'c-o':v-b>=-0.08?'c-w':'c-x';
+  ['good','bad'].forEach(gr=>{
+    let h='<thead><tr><th>Cohort</th><th>n</th>'+W.map(w=>'<th>W'+w+'</th>').join('')+'</tr></thead><tbody>';
+    [...per].reverse().forEach(o=>{ const x=o[gr]; if(!x.n) return;
+      h+='<tr><td class="co">'+esc(offLbl(o.k,g))+'</td><td class="n">'+x.n+'</td>';
+      let prev=null;
+      W.forEach((w,i)=>{
+        const nn=den(x,w);
+        if(!offMature(o,w)||!nn){ h+='<td class="na">&mdash;</td>'; prev=null; return; }
+        const v=x.r[w]/nn, b=bench[gr][i], c=cls(v,b,nn);
+        const arr=prev==null||Math.abs(v-prev)<0.005?'':v>prev?'<sup class="up">&#9650;</sup>':'<sup class="dn">&#9660;</sup>';
+        const dot=c==='c-w'||c==='c-x'?'<span class="dot">&#9679;</span>':'';
+        h+='<td class="'+c+'" title="'+esc(OFF_LAB[gr]+' · '+offLbl(o.k,g)+' · W'+w+': '+x.r[w]+' of '+nn+' retained'+
+          (b!=null?' · benchmark '+(100*b).toFixed(1)+'%':'')+(nn<MIX_MIN_N?' · under '+MIX_MIN_N+' sellers, not coloured':'')+
+          ' · arrow = vs the W'+(w-1)+' cell to its left')+'">'+(100*v).toFixed(0)+'%'+arr+dot+'</td>';
+        prev=v; });
+      h+='</tr>'; });
+    document.getElementById(gr==='good'?'offGood':'offBad').innerHTML=h+'</tbody>';
+  });
+  const mem=f=>C.rows.filter(r=>r.n&&f(r.grp)).map(r=>esc(r.name)).join(', ')||'none';
+  document.getElementById('offGoodT').innerHTML='Good offers <span class="hint">&mdash; '+mem(x=>x!=='bad')+'</span>';
+  document.getElementById('offBadT').innerHTML='Bad offers <span class="hint">&mdash; '+mem(x=>x==='bad')+'</span>';
+  document.getElementById('offFoot').innerHTML=
+    '<b>Retention</b> = marketing spend &ge; &#8377;3,000 in that week after go-live (W0 = the go-live week itself). '+
+    '<b>Good / bad</b>: bad = offers whose W3 retention over the last 6 complete months is below the all-seller average beyond chance (see &ldquo;Good vs bad offers&rdquo; below); '+
+    'every other seller &mdash; good offers, NA, no offer recorded, other, and offers not yet clear &mdash; counts as good. '+
+    '<b>Colour</b>: each cell against the same group&rsquo;s pooled rate for that week over '+(from?esc(mixLabel(from,'month'))+' onward':'recent months')+
+    ' &mdash; Strong &ge; +5 pp, On track &minus;3 to +5 pp, Warning &minus;8 to &minus;3 pp, Off track below &minus;8 pp; grey = under '+MIX_MIN_N+' sellers. '+
+    '<b>Arrows</b> compare with the previous week in the same row. &mdash; = that week has not finished for every seller in the cohort yet.'+
+    (has0?'':' W0 appears after the next data refresh.');
+}
+function convPaint(){
+  const {per,has0}=offData(convSt.grain), g=convSt.grain, b=convSt.base;
+  const ready=per.filter(o=>offMature(o,3));
+  const pt=x=>x.base[b]>=MIX_MIN_N?+(100*x.conv[b]/x.base[b]).toFixed(1):null;
+  if(convC) convC.destroy();
+  convC=new Chart(document.getElementById('convChart'),{type:'line',data:{labels:ready.map(o=>offLbl(o.k,g)),datasets:
+      ['good','bad'].map(gr=>({label:OFF_LAB[gr],data:ready.map(o=>pt(o[gr])),borderColor:OFF_COL[gr],backgroundColor:OFF_COL[gr],
+        borderWidth:2.5,pointRadius:2.5,tension:.25,spanGaps:true}))
+      .concat([{label:'All sellers',data:ready.map(o=>pt(o.all)),borderColor:'#23251f',borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:.25,spanGaps:true}])},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},tooltip:{callbacks:{label:c=>{
+        const o=ready[c.dataIndex], x=o[['good','bad','all'][c.datasetIndex]];
+        return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')+' ('+x.conv[b]+' of '+x.base[b]+')'; }}}},
+      scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:g==='week'?90:0}},
+        y:{beginAtZero:false,suggestedMin:30,suggestedMax:100,ticks:{callback:v=>v+'%',color:AXIS},
+          title:{display:true,text:'W'+b+'-retained still retained at W3',color:AXIS_TITLE}}}}});
+  const cell=(x,bb)=>{ if(bb===0&&!x.n0) return '<td class="num cv"><span class="hint">—</span></td>';
+    if(!x.base[bb]) return '<td class="num cv"><span class="hint">·</span></td>';
+    const v=x.conv[bb]/x.base[bb], small=x.base[bb]<MIX_MIN_N;
+    return '<td class="num cv"><b style="color:'+(small?'#8a8d80':'#23251f')+'">'+(100*v).toFixed(0)+'%</b><small>'+x.conv[bb]+' of '+x.base[bb]+'</small></td>'; };
+  const grpCols=gr=>'<th class="num">Go-lives</th><th class="num">W0 &rarr; W3</th><th class="num">W1 &rarr; W3</th><th class="num">W2 &rarr; W3</th>';
+  let h='<thead><tr><th rowspan="2">Period</th><th colspan="4" style="text-align:center;color:'+OFF_COL.good+'">Good offers</th>'+
+    '<th colspan="4" style="text-align:center;color:'+OFF_COL.bad+'">Bad offers</th></tr><tr>'+grpCols('good')+grpCols('bad')+'</tr></thead><tbody>';
+  [...ready].reverse().forEach(o=>{ h+='<tr><td>'+esc(offLbl(o.k,g))+'</td>'+
+    ['good','bad'].map(gr=>'<td class="num">'+o[gr].n+'</td>'+[0,1,2].map(bb=>cell(o[gr],bb)).join('')).join('')+'</tr>'; });
+  document.getElementById('convTable').innerHTML=h+'</tbody>';
+  document.getElementById('convFoot').innerHTML=
+    '<b>W<i>x</i> &rarr; W3</b> = of the sellers in that cohort who spent &#8377;3,000+ in week <i>x</i> after go-live, the share who also spent &#8377;3,000+ in W3. '+
+    'W0 is the go-live week itself. Only periods where every seller has finished W3 are shown. Chart points need '+MIX_MIN_N+'+ retained sellers in the base week; grey cells are under '+MIX_MIN_N+'. '+
+    'Good / bad offers as in the table above.'+(has0?'':' <b>W0 &rarr; W3 appears after the next data refresh</b> (the snapshot does not carry go-live-week spend yet).');
+}
+function offCsv(){
+  const {per,has0}=offData(offSt.grain), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[['period','group','go_lives','week','retained','base','retention_pct','mature'].join(',')];
+  per.forEach(o=>['good','bad'].forEach(gr=>{ const x=o[gr]; if(!x.n) return;
+    for(let w=has0?0:1;w<=7;w++){ const nn=w===0?x.n0:x.n;
+      out.push([o.k,gr,x.n,'W'+w,x.r[w],nn,nn?(100*x.r[w]/nn).toFixed(1):'',offMature(o,w)?1:0].map(q).join(',')); } }));
+  saveCsv('retention_good_vs_bad_offer_'+offSt.grain+'.csv', out.join('\n'));
+}
+function convCsv(){
+  const {per}=offData(convSt.grain), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const out=[['period','group','go_lives','base_week','retained_at_base','also_retained_w3','pct'].join(',')];
+  per.filter(o=>offMature(o,3)).forEach(o=>['good','bad'].forEach(gr=>{ const x=o[gr];
+    [0,1,2].forEach(b=>out.push([o.k,gr,x.n,'W'+b,x.base[b],x.conv[b],x.base[b]?(100*x.conv[b]/x.base[b]).toFixed(1):''].map(q).join(','))); }));
+  saveCsv('w3_carry_through_good_vs_bad_offer_'+convSt.grain+'.csv', out.join('\n'));
+}
+function buildOffers(){
+  if(!window.DIAG||!window.DIAG.length||!window.MIXL||!window.DIAG.some(d=>d.of!=null)) return;
+  if(!offInit){
+    offInit=true;
+    [['offGrain',offSt,'grain',offPaint],['convGrain',convSt,'grain',convPaint],['convBase',convSt,'base',convPaint]].forEach(([id,st,key,fn])=>
+      document.querySelectorAll('#'+id+' button').forEach(b=>b.addEventListener('click',()=>{
+        st[key]=key==='base'?+b.dataset.v:b.dataset.v;
+        document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x===b)); fn(); })));
+    document.getElementById('offCsv').addEventListener('click',offCsv);
+    document.getElementById('convCsv').addEventListener('click',convCsv);
+  }
+  offPaint(); convPaint(); mixPaint();
 }
 // ===== Retention by Auto TS vs Manual TS (A/B arm) =====
 // Arm = the seller's latest auto_ts_sellers record (refresh.py tsarm): auto = active / paused /
@@ -1989,15 +2127,15 @@ function retColor(p){return p<0.35?'#C0392B':(p<0.50?'#BA7517':'#2f6d4f');}
 function setView(v){
   document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
   const curve=v==='curve';
-  ['chartCard','reasonCard','mixCard','tsArmCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
+  ['chartCard','reasonCard','tsArmCard'].forEach(id=>document.getElementById(id).style.display=curve?'block':'none');
+  ['offCard','convCard','mixCard'].forEach(id=>document.getElementById(id).style.display=v==='offers'?'block':'none');
+  if(v==='offers') buildOffers();
   document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
   document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
   document.getElementById('clCard').style.display=v==='clsc'?'block':'none';
   if(v==='clsc') buildClsc();
-  document.getElementById('tsCard').style.display=v==='tssop'?'block':'none';
   document.getElementById('unCard').style.display=v==='unassign'?'block':'none';
   if(v==='gcgm') buildGcgm();
-  if(v==='tssop') buildTs();
   // GC gets its own console card; the KAM tab keeps the original tables untouched.
   document.getElementById('gcCard').style.display  = v==='slaGC'  ? 'block':'none';
   document.getElementById('slaCard').style.display = v==='slaKAM' ? 'block':'none';
@@ -2039,104 +2177,7 @@ function makeWeekFilter(o){
   return {sel, weeks, monthOf:mk, monthLabel:lbl, paint};
 }
 function fmtPct(x){return x==null?'—':(100*x).toFixed(0)+'%';}
-function fmtNum(x){return x==null?'—':(Math.round(x*10)/10).toLocaleString();}
 function scoreColor(v){return v==null?'':(v>=75?'#dff0e5':(v>=60?'#fdf3e0':'#f8dfdb'));}
-
-// ================= TAB: TS SOP metrics (card 12960) =================
-let TSSOP=null, tsInit=false, tsF=null;
-const tsSt={by:'gc', bucket:'gc', sort:'adh', asc:true};
-function buildTs(){
-  if(!TSSOP){document.getElementById('tsSummary').textContent='No TS SOP data in snapshot.';return;}
-  if(!tsInit){
-    tsF=makeWeekFilter({weeks:[...new Set(TSSOP.rows.map(r=>r[3]))],monthsId:'tsMonths',weeksId:'tsWeeks',
-      allId:'tsAll',clearId:'tsClear',onChange:renderTs});
-    const buckets=[...new Set(TSSOP.rows.map(r=>r[2]))].sort();
-    const bs=document.getElementById('tsBucket');
-    bs.innerHTML='<option value="all">All roles</option>'+buckets.map(b=>`<option value="${b}"${b==='gc'?' selected':''}>${b}</option>`).join('');
-    bs.addEventListener('change',e=>{tsSt.bucket=e.target.value;renderTs();});
-    document.getElementById('tsByGc').addEventListener('click',()=>{tsSt.by='gc';renderTs();});
-    document.getElementById('tsByGm').addEventListener('click',()=>{tsSt.by='gm';renderTs();});
-    document.getElementById('tsByCl').addEventListener('click',()=>{tsSt.by='cl';renderTs();});
-    document.getElementById('tsMinN').addEventListener('change',renderTs);
-    document.querySelectorAll('#tsTable th[data-k]').forEach(th=>th.addEventListener('click',()=>{
-      const k=th.dataset.k; if(tsSt.sort===k) tsSt.asc=!tsSt.asc; else {tsSt.sort=k;tsSt.asc=(k==='name');}
-      renderTs();}));
-    tsInit=true;
-  }
-  renderTs();
-}
-function tsAgg(){
-  const N=TSSOP.names, acc={};
-  TSSOP.rows.forEach(r=>{
-    if(!tsF.sel.has(r[3])) return;
-    if(tsSt.bucket!=='all' && r[2]!==tsSt.bucket) return;
-    const key=tsSt.by==='cl'?clOf(N[r[0]],N[r[1]]):N[tsSt.by==='gc'?r[0]:r[1]];
-    if(!key) return;
-    const a=acc[key]||(acc[key]={name:key,tasks:0,completed:0,sla:0,attempted:0,conn:0,scored:0,dur:0,
-      accS:0,accN:0,satS:0,satN:0,tonS:0,tonN:0,people:new Set()});
-    a.tasks+=r[4];a.completed+=r[5];a.sla+=r[6];a.attempted+=r[7];a.conn+=r[8];a.scored+=r[9];a.dur+=r[10];
-    a.accS+=r[11];a.accN+=r[12];a.satS+=r[13];a.satN+=r[14];a.tonS+=r[15];a.tonN+=r[16];
-    a.people.add(N[r[0]]);
-  });
-  return Object.values(acc).map(a=>({...a,
-    adh:a.tasks?a.completed/a.tasks:null, slaPct:a.tasks?a.sla/a.tasks:null,
-    connpct:a.attempted?a.conn/a.attempted:null,
-    quality:(a.accN+a.satN+a.tonN)?(a.accS+a.satS+a.tonS)/(a.accN+a.satN+a.tonN):null,
-    accAvg:a.accN?a.accS/a.accN:null, satAvg:a.satN?a.satS/a.satN:null, tonAvg:a.tonN?a.tonS/a.tonN:null,
-    durAvg:a.conn?a.dur/a.conn:null, nPeople:a.people.size}));
-}
-let TSVIEW=[];
-function renderTs(){
-  let list=tsAgg();
-  if(document.getElementById('tsMinN').checked) list=list.filter(x=>x.tasks>=5);
-  const K={name:x=>x.name.toLowerCase(),tasks:x=>x.tasks,completed:x=>x.completed,adh:x=>x.adh,sla:x=>x.slaPct,
-    attempted:x=>x.attempted,conn:x=>x.conn,connpct:x=>x.connpct,scored:x=>x.scored,quality:x=>x.quality,
-    acc:x=>x.accAvg,sat:x=>x.satAvg,ton:x=>x.tonAvg,dur:x=>x.durAvg}[tsSt.sort]||(x=>x.adh);
-  list.sort((a,b)=>{const av=K(a),bv=K(b);
-    if(av==null&&bv==null)return 0; if(av==null)return 1; if(bv==null)return -1;
-    return tsSt.asc?(av>bv?1:av<bv?-1:0):(av<bv?1:av>bv?-1:0);});
-  TSVIEW=list;
-  document.querySelectorAll('#tsTable th[data-k]').forEach(th=>{
-    th.classList.toggle('sorted',th.dataset.k===tsSt.sort); th.classList.toggle('asc',th.dataset.k===tsSt.sort&&tsSt.asc);});
-  document.getElementById('tsByGc').classList.toggle('on',tsSt.by==='gc');
-  document.getElementById('tsByGm').classList.toggle('on',tsSt.by==='gm');
-  document.getElementById('tsByCl').classList.toggle('on',tsSt.by==='cl');
-  document.getElementById('tsRows').innerHTML=list.map((x,i)=>{
-    const dm=x.durAvg==null?'—':Math.floor(x.durAvg/60)+'m '+String(Math.round(x.durAvg%60)).padStart(2,'0')+'s';
-    return `<tr><td>${esc(x.name)}${tsSt.by!=='gc'?` <span style="color:var(--faint)">(${x.nPeople})</span>`:''}</td>`+
-      `<td class="num">${x.tasks}</td><td class="num">${x.completed}</td>`+
-      `<td class="num"><span class="pill" style="background:${scoreColor(x.adh==null?null:100*x.adh)}">${fmtPct(x.adh)}</span></td>`+
-      `<td class="num"><span class="pill" style="background:${scoreColor(x.slaPct==null?null:100*x.slaPct)}">${fmtPct(x.slaPct)}</span></td>`+
-      `<td class="num">${x.attempted}</td><td class="num">${x.conn}</td><td class="num">${fmtPct(x.connpct)}</td>`+
-      `<td class="num">${x.scored}</td>`+
-      `<td class="num"><span class="pill" style="background:${scoreColor(x.quality)}">${fmtNum(x.quality)}</span></td>`+
-      `<td class="num">${fmtNum(x.accAvg)}</td><td class="num">${fmtNum(x.satAvg)}</td><td class="num">${fmtNum(x.tonAvg)}</td>`+
-      `<td class="num">${dm}</td></tr>`;}).join('');
-  // totals
-  const T=list.reduce((s,x)=>{['tasks','completed','sla','attempted','conn','scored','dur','accS','accN','satS','satN','tonS','tonN']
-    .forEach(k=>s[k]=(s[k]||0)+x[k]);return s;},{});
-  const q=(T.accN+T.satN+T.tonN)?(T.accS+T.satS+T.tonS)/(T.accN+T.satN+T.tonN):null;
-  const dur=T.conn?T.dur/T.conn:null;
-  document.getElementById('tsFoot').innerHTML=`<tr><td>TOTAL — ${list.length} ${tsSt.by==='gc'?'people':tsSt.by==='cl'?'CLs':'GMs'}</td>`+
-    `<td class="num">${T.tasks||0}</td><td class="num">${T.completed||0}</td>`+
-    `<td class="num">${fmtPct(T.tasks?T.completed/T.tasks:null)}</td><td class="num">${fmtPct(T.tasks?T.sla/T.tasks:null)}</td>`+
-    `<td class="num">${T.attempted||0}</td><td class="num">${T.conn||0}</td><td class="num">${fmtPct(T.attempted?T.conn/T.attempted:null)}</td>`+
-    `<td class="num">${T.scored||0}</td><td class="num">${fmtNum(q)}</td>`+
-    `<td class="num">${fmtNum(T.accN?T.accS/T.accN:null)}</td><td class="num">${fmtNum(T.satN?T.satS/T.satN:null)}</td>`+
-    `<td class="num">${fmtNum(T.tonN?T.tonS/T.tonN:null)}</td>`+
-    `<td class="num">${dur==null?'—':Math.floor(dur/60)+'m '+String(Math.round(dur%60)).padStart(2,'0')+'s'}</td></tr>`;
-  document.getElementById('tsSummary').textContent=`${tsF.sel.size} week(s) selected · role ${tsSt.bucket} · ${list.length} ${tsSt.by==='gc'?'assignees':tsSt.by==='cl'?'CLs':'GMs'} · ${T.tasks||0} TS SOP tasks`;
-}
-document.getElementById('tsCsv').addEventListener('click',()=>{
-  if(!TSVIEW.length) return; const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const csv=[`${tsSt.by==='gc'?'assignee':tsSt.by},tasks,completed,task_adherence_pct,sla_adherence_pct,calls_attempted,calls_connected,connect_pct,calls_scored,avg_quality,avg_accuracy,avg_satisfaction,avg_tonality,avg_duration_sec`]
-    .concat(TSVIEW.map(x=>[x.name,x.tasks,x.completed,x.adh==null?'':(100*x.adh).toFixed(1),x.slaPct==null?'':(100*x.slaPct).toFixed(1),
-      x.attempted,x.conn,x.connpct==null?'':(100*x.connpct).toFixed(1),x.scored,
-      x.quality==null?'':x.quality.toFixed(1),x.accAvg==null?'':x.accAvg.toFixed(1),
-      x.satAvg==null?'':x.satAvg.toFixed(1),x.tonAvg==null?'':x.tonAvg.toFixed(1),
-      x.durAvg==null?'':x.durAvg.toFixed(0)].map(q).join(','))).join('\n');
-  saveCsv('ts_sop_metrics.csv', csv);
-});
 
 // ================= TAB: Go-lives vs unassignments (card 12438) =================
 let UNAS=null, unInit=false, unF=null;
@@ -2353,11 +2394,9 @@ function renderRank(rows, tbodyId, detailId, sel, selEl, opt){
   let shown=list.filter(x=>x.n>=(minN?5:1) || x.name===selName);
   shown.sort((a,b)=>a.p-b.p || b.n-a.n);
   const tb=document.getElementById(tbodyId); tb.innerHTML='';
-  shown.forEach((x,i)=>{const tr=document.createElement('tr');
-    tr.className=(x.name===selName?'sel ':'')+(opt.clCol?'clrow':'');
-    const clCell = opt.clCol ? `<td class="clcell" title="${esc(clOf('',x.name)||'outside every CL')}">${esc(clOf('',x.name)||'—')}</td>` : '';
-    const st=(gcgmStats()[sel]||{})[x.name];
-    const one=v=>v==null?'—':v.toFixed(1);
+  const bag=gcgmStats()[sel]||{};
+  const one=v=>v==null?'—':v.toFixed(1);
+  const statCells=st=>{
     const stopT=st?(st.stop+' of '+st.n+' sellers have stopped spending (no spend in 7 days)'):'';
     const extra = `<td class="num gl" title="${stopT}">${st&&st.stop?one(st.attAPer):'—'}</td>`+
       `<td class="num" title="${stopT}${st&&st.stop&&st.attA?' · '+Math.round(100*st.connA/st.attA)+'% connected':''}">${st&&st.stop?one(st.connAPer):'—'}</td>`+
@@ -2366,16 +2405,37 @@ function renderRank(rows, tbodyId, detailId, sel, selEl, opt){
       `<td class="num gl2" title="${st?st.att7+' attempts ÷ '+st.n+' sellers':''}">${st&&st.n?(st.att7/st.n).toFixed(1):'—'}</td>`+
       `<td class="num" title="${st?st.conn7+' connects ÷ '+st.n+' sellers':''}">${st&&st.n?(st.conn7/st.n).toFixed(1):'—'}</td>`+
       `<td class="num" title="${st?('median '+fmtMoney(st.spMed)+' · average '+fmtMoney(st.spAvg)):''}">${st?fmtMoney(st.spMed):'—'}</td>`;
+    return extra; };
+  const retCell=p=>`<td class="retc"><span class="rw"><span class="retv" style="color:${retColor(p)}">${(100*p).toFixed(0)}%</span><span class="rtrack"><span class="rbar" style="width:${Math.max(2,100*p)}%;background:${retColor(p)}"></span></span></span></td>`;
+  // Overall row: every go-live in this table's source (people under the <5 cut included), with
+  // the per-seller stats summed across the same people so the ratios stay seller-weighted.
+  if(list.length){
+    const N=list.reduce((s,x)=>s+x.n,0), R=list.reduce((s,x)=>s+x.p*x.n,0);
+    const T={n:0,stop:0,attA:0,connA:0,att7:0,conn7:0,sp:[]}; let any=false;
+    list.forEach(x=>{const a=bag[x.name]; if(!a) return; any=true;
+      ['n','stop','attA','connA','att7','conn7'].forEach(k=>T[k]+=a[k]); T.sp.push(...a.sp);});
+    const v=T.sp.sort((a,b)=>a-b);
+    T.attAPer=T.stop?T.attA/T.stop:null; T.connAPer=T.stop?T.connA/T.stop:null;
+    T.spMed=v.length?v[Math.floor(v.length/2)]:null; T.spAvg=v.length?v.reduce((p,q)=>p+q,0)/v.length:null;
+    const tr=document.createElement('tr'); tr.className='ovr';
+    tr.innerHTML=`<td class="rk"></td><td class="nm">Overall</td>${opt.clCol?'<td class="clcell"></td>':''}<td class="num">${N}</td>`+
+      retCell(N?R/N:0)+statCells(any?T:null);
+    tb.appendChild(tr);
+  }
+  shown.forEach((x,i)=>{const tr=document.createElement('tr');
+    tr.className=(x.name===selName?'sel ':'')+(opt.clCol?'clrow':'');
+    const clCell = opt.clCol ? `<td class="clcell" title="${esc(clOf('',x.name)||'outside every CL')}">${esc(clOf('',x.name)||'—')}</td>` : '';
+    const st=bag[x.name];
     tr.innerHTML=`<td class="rk">${i+1}</td><td class="nm" title="${esc(x.name)}">${esc(niceName(x.name))}</td>${clCell}<td class="num">${x.n}</td>`+
-      `<td class="retc"><span class="rw"><span class="retv" style="color:${retColor(x.p)}">${(100*x.p).toFixed(0)}%</span><span class="rtrack"><span class="rbar" style="width:${Math.max(2,100*x.p)}%;background:${retColor(x.p)}"></span></span></span></td>`+
-      extra;
+      retCell(x.p)+statCells(st);
     // click a row = select that person (shows their not-retained sellers below)
     // clicking a row selects that person; GC and GM are alternate views, so pick one at a time
     tr.addEventListener('click',()=>{gcgmPick(sel,(gcgmSel[sel]===x.name)?'All':x.name);});
     tb.appendChild(tr);});
   // detail: W1-W7 for the selected one
   const det=document.getElementById(detailId);
-  if(selName!=='All' && shown[0]){const x=shown[0];
+  const selRow=shown.find(x=>x.name===selName);
+  if(selName!=='All' && selRow){const x=selRow;
     det.innerHTML='W1&ndash;W7 retention: '+x.rr.map((c,k)=>'W'+(k+1)+' '+(x.mn?(100*c/x.mn).toFixed(0):'0')+'%').join(' &middot; ')+' &nbsp;(n='+x.mn+')';
   } else det.textContent='';
   return {n_people:list.length, tot:list.reduce((s,x)=>s+x.n,0), ret:list.reduce((s,x)=>s+x.p*x.n,0)};
@@ -2405,7 +2465,7 @@ function renderGcgm(){
     const ban=document.getElementById(id);
     if(!clPick){ ban.style.display='none'; ban.innerHTML=''; return; }
     const n=new Set(source.map(r=>r[1])).size;
-    const shown=document.querySelectorAll('#'+rowsId+' tr').length;
+    const shown=document.querySelectorAll('#'+rowsId+' tr:not(.ovr)').length;
     const hid=n-shown;
     ban.innerHTML=`Showing <b>${shown}</b> of <b>${n}</b> ${noun}${n===1?'':'s'} under <b>${esc(clPick)}</b>`+
       (hid>0?` <span style="color:var(--muted)">(${hid} below the 5 go-live cut)</span>`:'')+
