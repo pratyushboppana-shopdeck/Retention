@@ -1522,15 +1522,45 @@ def parse_prelive(csv_text):
                         gi("calls"), gi("dur_sec"), gi("q_n"), round(float(r.get("q_sum") or 0), 1)])
     order = sorted(range(len(days)), key=lambda k: days[k])
     remap = {o: n for n, o in enumerate(order)}
-    agg = {}
     for s in sellers:
         s[2] = remap[s[2]]
+    sellers.sort(key=lambda s: (s[2], s[0]))
+    return {"days": [days[k] for k in order], "gcs": gcs, "gms": gms,
+            "rows": _prelive_rows(sellers), "sellers": sellers}
+
+
+def _prelive_rows(sellers):
+    """day x GC x GM rollup of the per-seller pre-live list."""
+    agg = {}
+    for s in sellers:
         a = agg.setdefault((s[2], s[3], s[4]), [0, 0, 0, 0, 0, 0, 0, 0])
         a[0] += 1; a[1] += s[5]; a[2] += s[6]; a[3] += s[7]
         a[4] += s[10]; a[5] += s[11]; a[6] += s[12]; a[7] = round(a[7] + s[13], 1)
-    out = sorted([list(k) + v for k, v in agg.items()])
-    sellers.sort(key=lambda s: (s[2], s[0]))
-    return {"days": [days[k] for k in order], "gcs": gcs, "gms": gms, "rows": out, "sellers": sellers}
+    return sorted([list(k) + v for k, v in agg.items()])
+
+
+NO_GOLIVE_GC = "No go-live GC"
+
+
+def prelive_by_golive(pl, gcgms):
+    """Re-attribute pre-live sellers to the GC/GM they had AT GO-LIVE (owner, 2026-10-26), taken from
+    the GC & GM payload's changelog reconstruction, instead of seller_managers' current assignment:
+    sellers handed on after go-live (e.g. to Aaruni Vaidya's team or Self serve) belong to the GC who
+    took them live. A seller with no go-live GC on record goes under NO_GOLIVE_GC."""
+    nm = gcgms["names"]
+    gl = {r[0]: (nm[r[1]] if r[1] >= 0 else None, nm[r[2]] if r[2] >= 0 else None) for r in gcgms["rows"]}
+    gcs, gms, ci, mi = [], [], {}, {}
+
+    def idx(v, arr, m):
+        if v not in m:
+            m[v] = len(arr); arr.append(v)
+        return m[v]
+
+    for s in pl["sellers"]:
+        gc, gm = gl.get(s[0], (None, None))
+        s[3] = idx(gc or NO_GOLIVE_GC, gcs, ci)
+        s[4] = idx(gm or "(no GM)", gms, mi)
+    return {**pl, "gcs": gcs, "gms": gms, "rows": _prelive_rows(pl["sellers"])}
 
 
 def main():
@@ -1546,7 +1576,7 @@ def main():
     unas = parse_unassign(run_csv(session, UNASSIGN_SQL))
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
     stuck = parse_stuck(run_csv(session, STUCK_SQL))
-    prelive = parse_prelive(run_csv(session, PRELIVE_SQL))
+    prelive = prelive_by_golive(parse_prelive(run_csv(session, PRELIVE_SQL)), gcgms)
     blocks = parse_block(run_csv(session, BLOCK_SQL))
     blockfb = parse_blockfb(run_csv(session, BLOCKFB_SQL))
     tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))

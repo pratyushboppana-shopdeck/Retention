@@ -245,6 +245,13 @@
   table.convtab td.cv b{font-weight:650;} table.convtab td.cv small{color:var(--faint);font-size:10.5px;margin-left:5px;}
   table.convtab tr:hover td{filter:brightness(.97);}
   table.convtab th.sel{color:var(--ink);box-shadow:inset 0 -2px 0 #23251f;}
+  /* date boxes read dd/mm/yyyy whatever the browser locale: the native field's own text is hidden
+     and a label is drawn over it (dmyDateInputs); the field still owns the value and the picker */
+  .dmy{position:relative;display:inline-block;}
+  .dmy input[type="date"]{color:transparent;font:inherit;font-size:12.5px;padding:3px 6px;border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer;min-width:132px;}
+  .dmy input[type="date"]::-webkit-datetime-edit{opacity:0;}
+  .dmy-l{position:absolute;left:8px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:12.5px;color:var(--ink);font-variant-numeric:tabular-nums;}
+  .dmy-l.ph{color:var(--faint);}
   #sellerPanel{margin-top:22px;border-top:1px solid var(--line);padding-top:6px;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
   details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
@@ -1015,6 +1022,25 @@
 </div>
 
 <script>
+// Native date inputs render in the browser's locale (mm/dd/yyyy in en-US). Each one gets a
+// dd/mm/yyyy label drawn over it; the input underneath keeps its ISO value, events and picker,
+// and code that sets .value refreshes the label through the per-element setter below.
+function dmyDateInputs(){
+  const desc=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+  document.querySelectorAll('input[type="date"]').forEach(inp=>{
+    if(inp.parentNode.classList.contains('dmy')) return;
+    const wrap=document.createElement('span'); wrap.className='dmy';
+    inp.parentNode.insertBefore(wrap,inp); wrap.appendChild(inp);
+    const lab=document.createElement('span'); lab.className='dmy-l'; wrap.appendChild(lab);
+    const sync=()=>{ const v=desc.get.call(inp);
+      lab.textContent=v?v.slice(8,10)+'/'+v.slice(5,7)+'/'+v.slice(0,4):'dd/mm/yyyy'; lab.classList.toggle('ph',!v); };
+    Object.defineProperty(inp,'value',{configurable:true,get(){return desc.get.call(inp);},set(v){desc.set.call(inp,v); sync();}});
+    inp.addEventListener('input',sync); inp.addEventListener('change',sync);
+    inp.addEventListener('click',()=>{ try{ inp.showPicker(); }catch(e){} });
+    sync();
+  });
+}
+dmyDateInputs();
 const MONTH=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WCOLS=['W1','W2','W3','W4','W5','W6','W7'];
 // chart text colours (kept in sync with the CSS tokens --axis / --axis-title)
@@ -3073,10 +3099,10 @@ function buildClsc(){
     ' &mdash; the cohorts whose W3 fell in this window, i.e. went live 3 weeks earlier'+(pend.length?'; '+esc(pend.join(', '))+' still in W3 (ends '+fd(dayShift(isoMonday(pend[pend.length-1]),27))+'), not counted yet':'')+
     ', by the CL of the go-live GC; GM rows use the go-live GM. '+
     'Task SLA, stuck, connect and call quality: '+fd(W.a)+'&ndash;'+fd(W.b)+(SLA.short?' (task data starts '+esc(SLA.from)+')':'')+', by each GC&rsquo;s CL today. '+
-    'Pre-live video: go-lives '+(PL.a?fd(PL.a)+'&ndash;'+fd(PL.b):'—')+(PL.short?' (pre-live data only starts '+esc(PL.from)+')':'')+', by the seller&rsquo;s current GC. '+
+    'Pre-live video: go-lives '+(PL.a?fd(PL.a)+'&ndash;'+fd(PL.b):'—')+(PL.short?' (pre-live data only starts '+esc(PL.from)+')':'')+', by the GC/GM assigned at go-live. '+
     '<b>▲▼</b> = percentage-point change against the '+(W.label?'same number of '+(clSt.lvl==='week'?'weeks':'months')+' just before ('+fd(W.pa)+'&ndash;'+fd(W.pb)+')':W.prevLen+' days before')+'; blank where either side is too thin or the data does not reach back '+
     '(&lt;5 go-lives, &lt;10 tasks or calls). CL comes from card 12101 (HITS Team Mapping Validation, as of '+esc(TEAMMAP.fetched||'—')+'). '+
-    'Aaruni Vaidya and her GCs are outside every CL (they report to Pratyush) and are left out here, as are GCs with no CL in the mapping; All CLs is the sum of the three CLs. '+
+    'Only the three CLs are shown and All CLs is their sum; go-lives whose go-live GC sits outside them (or who had no GC at go-live) are left out. '+
     'Click a CL to see its GMs, worst task SLA first.';
 }
 // ---- month-wise W1-W7 retention heatmap per CL ----
@@ -4319,7 +4345,8 @@ function buildPrelive(){
     'so a call on the 29th for a seller who goes live on the 4th shows up on the 4th. Sellers who had a call but never went live are not in this view. '+
     'The loss is at link creation, not on the call &mdash; once a session exists the seller joins nearly every time. '+
     'The newest day or two read low: the canonical go-live needs the seller&rsquo;s ISO week to clear &#8377;1,000. '+
-    '<b>GC/GM is the seller&rsquo;s current mapping</b>, so a seller later moved to a revival GC counts against that GC even though the pre-live window had passed.';
+    '<b>GC/GM is the one assigned at go-live</b> (rebuilt from the assignment change log, as on the GC &amp; GM retention tab), so a seller later handed to another team still counts against the GC who took them live; '+
+    '&ldquo;No go-live GC&rdquo; = no GC on record at go-live.';
   buildPlSellers();
 }
 // ---- seller-level drilldown ----
