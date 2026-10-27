@@ -8,3 +8,4 @@ print("rows", len(m["rows"]), "sellers", len(m["sellers"]), "days", m["days"][:1
 c = collections.Counter((m["days"][r[0]][:7], m["moves"][r[1]]) for r in m["rows"])
 for mo in sorted({k[0] for k in c}):
     print(mo, {mv: c[(mo, mv)] for mv in m["moves"]})
+# rerun
