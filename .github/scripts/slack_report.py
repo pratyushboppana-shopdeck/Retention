@@ -447,8 +447,13 @@ WITH t AS (
   -- TS SOP runs a fixed 48h SLA, so a task is only judgeable two days after it was
   -- raised. Adherence is the dashboard's rule: finished is completed_at, not the
   -- status label, and a task with no completed_at past due is a breach.
+  -- Working-hours extension, as refresh.py: when the platform's completion_date is 0-48h
+  -- after creation + 48h (Saturday / out-of-hours tasks pushed to the next working day
+  -- 19:00), the platform date is the due.
   SELECT wt.id, DATE(wt.created_at,'Asia/Kolkata') d, wt.completed_at,
-         TIMESTAMP_ADD(wt.created_at, INTERVAL 2880 MINUTE) due_ts
+         IF(wt.completion_date > TIMESTAMP_ADD(wt.created_at, INTERVAL 2880 MINUTE)
+            AND wt.completion_date <= TIMESTAMP_ADD(wt.created_at, INTERVAL 5760 MINUTE),
+            wt.completion_date, TIMESTAMP_ADD(wt.created_at, INTERVAL 2880 MINUTE)) due_ts
   FROM nushop.workboard_tasks wt
   JOIN nushop.users u ON wt.assignee=u._id AND LOWER(u.role) LIKE '%growth-consultant%'
   JOIN nushop.sellers s ON wt.seller_id=s._id AND s.seller_account_status='hit' AND s.user_type='seller'
