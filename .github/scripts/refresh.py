@@ -460,7 +460,8 @@ SELECT m.seller_id,
   CAST(ROUND(COALESCE(spend.lifetime_spend,0)) AS INT64) lifetime_spend,
   FORMAT_DATE('%Y-%m-%d', lastsp.last_spend) last_spend,
   COALESCE(calls.n_att_after,0) n_att_after, COALESCE(calls.n_conn_after,0) n_conn_after,
-  COALESCE(calls.n_att_7d,0) n_att_7d, COALESCE(calls.n_conn_7d,0) n_conn_7d
+  COALESCE(calls.n_att_7d,0) n_att_7d, COALESCE(calls.n_conn_7d,0) n_conn_7d,
+  COALESCE(sel.seller_account_status,'') account_status, COALESCE(sel.seller_internal_status,'') internal_status
 FROM mygl m
 LEFT JOIN gl ON gl.seller_id=m.seller_id
 LEFT JOIN nushop.sellers sel ON sel._id=m.seller_id
@@ -479,7 +480,8 @@ def parse_gcgms(csv_text):
     """names[] + compact rows:
     [seller, gcIdx, gmIdx, nBlock, nBlockPending, ops, nSos, sosText, nAll, sellerName,
      nCalls, nConnected, lifetimeSpend, lastSpend 'YYYY-MM-DD' or '',
-     attAfterLastSpend, connAfterLastSpend, att7d, conn7d]"""
+     attAfterLastSpend, connAfterLastSpend, att7d, conn7d, accountStatus, internalStatus]
+    The two statuses are nushop.sellers' seller_account_status / seller_internal_status today."""
     rows = list(csvmod.DictReader(io.StringIO(csv_text)))
     names, nidx, out = [], {}, []
 
@@ -505,7 +507,8 @@ def parse_gcgms(csv_text):
                     (r.get("seller_name") or "")[:60],
                     gi("n_calls"), gi("n_conn"), gi("lifetime_spend"),
                     (r.get("last_spend") or "").strip(),
-                    gi("n_att_after"), gi("n_conn_after"), gi("n_att_7d"), gi("n_conn_7d")])
+                    gi("n_att_after"), gi("n_conn_after"), gi("n_att_7d"), gi("n_conn_7d"),
+                    (r.get("account_status") or "").strip(), (r.get("internal_status") or "").strip()])
     return {"names": names, "rows": out}
 
 
@@ -1382,6 +1385,53 @@ def _prelive_rows(sellers):
     return sorted([list(k) + v for k, v in agg.items()])
 
 
+# Sellers moved out of the core book, by day (owner, 2026-10-27). nushop.changeslogs logs each move
+# with the DESTINATION as the subcategory (verified 2026-10-27): 'revival' kickstarter->revival,
+# 'self-serve' hit->self-serve, 'hypercare' revival->hypercare, 'revival_churn' / 'tts_churn' /
+# 'prelive_churn', and seller_account_status ->self-serve / ->deactivated. A row whose initial and
+# final value match is a re-save, not a move. HIT go-live sellers only (any go-live date); one row
+# per seller, move and day.
+MOVES_FROM = "2025-12-01"
+MOVES = ["Self serve", "Revival", "Hypercare", "Churn", "Deactivated"]
+MOVES_SQL = r"""
+WITH hit AS (SELECT DISTINCT seller_id FROM nushop.gc_view_3 WHERE marketing_spend > 1000 AND team_mapping='HIT'),
+ev AS (
+  SELECT c.seller_id, DATE(c.createdat,'Asia/Kolkata') d,
+    CASE
+      WHEN c.subcategory IN ('self-serve','seller_account_status') AND c.final_value='self-serve' THEN 'Self serve'
+      WHEN c.subcategory='revival' AND c.final_value='revival' THEN 'Revival'
+      WHEN c.subcategory='hypercare' AND c.final_value='hypercare' THEN 'Hypercare'
+      WHEN c.subcategory IN ('revival_churn','tts_churn','prelive_churn') AND c.final_value=c.subcategory THEN 'Churn'
+      WHEN c.subcategory='seller_account_status' AND c.final_value='deactivated' THEN 'Deactivated'
+    END mv
+  FROM nushop.changeslogs c
+  WHERE DATE(c.createdat) >= DATE '%(from)s' AND c.createdat >= TIMESTAMP('%(from)s')
+    AND c.subcategory IN ('self-serve','seller_account_status','revival','hypercare','revival_churn','tts_churn','prelive_churn')
+    AND IFNULL(c.initial_value,'') != IFNULL(c.final_value,'')
+)
+SELECT DISTINCT e.seller_id, e.mv, FORMAT_DATE('%%Y-%%m-%%d', e.d) d
+FROM ev e JOIN hit h USING(seller_id)
+WHERE e.mv IS NOT NULL
+ORDER BY d, e.mv, e.seller_id
+""" % {"from": MOVES_FROM}
+
+
+def parse_moves(csv_text):
+    """days[] + sellers[] + rows [dayIdx, moveIdx, sellerIdx]; moves are the MOVES labels."""
+    days, sellers, di, si, out = [], [], {}, {}, []
+    for r in csvmod.DictReader(io.StringIO(csv_text)):
+        mv = (r.get("mv") or "").strip()
+        if mv not in MOVES:
+            continue
+        d, sid = r["d"], r["seller_id"]
+        if d not in di:
+            di[d] = len(days); days.append(d)
+        if sid not in si:
+            si[sid] = len(sellers); sellers.append(sid)
+        out.append([di[d], MOVES.index(mv), si[sid]])
+    return {"moves": MOVES, "from": MOVES_FROM, "days": days, "sellers": sellers, "rows": out}
+
+
 NO_GOLIVE_GC = "No go-live GC"
 
 
@@ -1420,6 +1470,12 @@ def main():
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
     stuck = parse_stuck(run_csv(session, STUCK_SQL))
     prelive = prelive_by_golive(parse_prelive(run_csv(session, PRELIVE_SQL)), gcgms)
+    # optional: a failure here must not cost the whole snapshot
+    try:
+        moves = parse_moves(run_csv(session, MOVES_SQL))
+    except Exception as e:                                       # noqa: BLE001
+        print(f"  ! moves query failed ({e}); the moves card will be empty", file=sys.stderr)
+        moves = None
     tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))
     _gc = tasksla["roles"].get("GC", {})
     _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
@@ -1428,7 +1484,7 @@ def main():
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "offers": OFFERS, "sources": SOURCES, "gcgm": gcgm, "gcgmSellers": gcgms, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
                "stuck": stuck,
-               "prelive": prelive}
+               "prelive": prelive, "moves": moves}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -1440,7 +1496,8 @@ def main():
                 and old.get("weekActuals") == payload["weekActuals"]
                 and old.get("taskSla") == payload["taskSla"]
                 and old.get("stuck") == payload["stuck"]
-                and old.get("prelive") == payload["prelive"]):
+                and old.get("prelive") == payload["prelive"]
+                and old.get("moves") == payload["moves"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
