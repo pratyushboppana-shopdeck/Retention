@@ -3680,14 +3680,18 @@ function gcTaskTable(sel){
       '<td class="sid cpy" data-c="'+esc(r[8]||'')+'" title="click to select, or copy">'+esc(r[8]||'—')+'</td>'+
       '<td>'+esc(STUCK.tasks[r[1]])+'</td>'+
       '<td title="'+STUCK.days[r[0]]+'">'+STUCK.days[r[0]].slice(5)+'</td>'+
-      '<td title="'+STUCK.days[r[7]]+'">'+STUCK.days[r[7]].slice(5)+'</td>'+
-      '<td title="'+done+'">'+(done?done.slice(5):'<span style="color:#c9c6b4">open</span>')+'</td>'+
+      '<td title="'+STUCK.days[r[7]]+(r[11]?' '+r[11]+' IST':'')+'">'+STUCK.days[r[7]].slice(5)+(r[11]?' <span style="color:#8a8d80">'+r[11]+'</span>':'')+'</td>'+
+      '<td title="'+done+(r[12]?' '+r[12]+' IST':'')+'">'+(done?done.slice(5)+(r[12]?' <span style="color:#8a8d80">'+r[12]+'</span>':''):'<span style="color:#c9c6b4">open</span>')+'</td>'+
       '<td style="color:'+(late?'#BA7517':'#C0392B')+';font-weight:700">'+gcOver(r[6])+'</td>'+
       '<td>'+pill+'</td></tr>';
   });
   // The tiles come from TASKSLA_SQL and this list from STUCK_SQL; they run seconds apart in
   // the same refresh, so a bulk close in between can leave the two a few tasks adrift.
   const notes=[];
+  if(kind!=='late' && window.SNAP_AT){
+    const t=new Date(window.SNAP_AT).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
+    notes.push('Stuck status and "Over SLA by" are as of the last refresh ('+t+' IST); a task closed after that still shows here until the next refresh. Due is the later of the SLA rule and the platform\'s working-hours due date (Saturday / out-of-hours tasks run to the next working day 19:00).');
+  }
   if(kind!=='late' && nS!==(sel.stuck||0)) notes.push('The Stuck tile says '+sel.stuck+' &mdash; it and this list come from two queries run seconds apart, so a task closed in between shows in one and not the other.');
   if(kind!=='stuck' && !gcSt.off['Callback']) notes.push('Missed callbacks count as late in the tiles but are not listed here: a Callback is scored on whether the GC rang in the window, not on task completion.');
   if(rows.length>CAP) notes.push('Showing the first '+CAP+' of '+rows.length+'; the CSV has all of them.');
@@ -3704,7 +3708,7 @@ function gcStuckCsv(sel){
   const out=[['task_id','gc','gm','seller_name','seller_id','task_type','sub_type','raised','due','completed',
     'sla_status','days_over_sla','task_status'].join(',')];
   rows.forEach(r=>out.push([r[8]||'',STUCK.people[r[2]],gmOf.get(STUCK.people[r[2]])||'',STUCK.names[r[3]],STUCK.sellers[r[3]],
-    STUCK.tasks[r[1]],STUCK.subs[r[4]],STUCK.days[r[0]],STUCK.days[r[7]],r[9]===1&&r[10]>=0?STUCK.days[r[10]]:'',
+    STUCK.tasks[r[1]],STUCK.subs[r[4]],STUCK.days[r[0]],STUCK.days[r[7]]+(r[11]?' '+r[11]:''),r[9]===1&&r[10]>=0?STUCK.days[r[10]]+(r[12]?' '+r[12]:''):'',
     r[9]===1?'completed beyond SLA':'stuck',(r[6]/1440).toFixed(2),STUCK.status[r[5]]].map(q).join(',')));
   saveCsv('stuck_late_tasks_'+String(sel.name).replace(/[^a-z0-9]+/gi,'_').toLowerCase()+'.csv', out.join('\n'));
 }
