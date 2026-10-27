@@ -243,6 +243,7 @@
   table.convtab .g{background:#f3f8fe;} table.convtab .b{background:#fef5ef;}
   table.convtab td.cv b{font-weight:650;} table.convtab td.cv small{color:var(--faint);font-size:10.5px;margin-left:5px;}
   table.convtab tr:hover td{filter:brightness(.97);}
+  table.convtab .defdot{display:inline-block;margin-right:5px;vertical-align:middle;}
   table.convtab th.sel{color:var(--ink);box-shadow:inset 0 -2px 0 #23251f;}
   /* date boxes read dd/mm/yyyy whatever the browser locale: the native field's own text is hidden
      and a label is drawn over it (dmyDateInputs); the field still owns the value and the picker */
@@ -252,6 +253,13 @@
   .dmy-l{position:absolute;left:8px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:12.5px;color:var(--ink);font-variant-numeric:tabular-nums;}
   .dmy-l.ph{color:var(--faint);}
   #sellerPanel{margin-top:22px;border-top:1px solid var(--line);padding-top:6px;}
+  .sp-ctl{gap:14px;margin:6px 0 8px;flex-wrap:wrap;} .sp-ctl select{font:inherit;font-size:12.5px;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:#fff;max-width:330px;}
+  .sp-sum{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 6px;font-size:12px;}
+  .sp-sum span{padding:3px 9px;border-radius:999px;background:#f4f2ea;color:var(--muted);} .sp-sum b{color:var(--ink);}
+  .flag{display:inline-block;font-size:11px;font-weight:650;padding:1px 7px;border-radius:999px;white-space:nowrap;}
+  .flag.ret{background:#dff0e5;color:#1d6b43;} .flag.nr{background:#f8dfdb;color:#b5372a;} .flag.so{background:#fdf0e0;color:#a2611a;}
+  .flag.act{background:#dff0e5;color:#1d6b43;} .flag.slow{background:#fdf3e0;color:#9a6512;} .flag.pau{background:#f8dfdb;color:#b5372a;} .flag.none{background:#efeee8;color:#6f7268;}
+  .flag.st{background:#eef0f6;color:#3b4766;font-weight:600;}
   details.defs{margin:4px 0 6px;font-size:12.5px;}
   details.defs>summary{cursor:pointer;font-weight:600;color:var(--accent);user-select:none;}
   details.defs>summary:hover{text-decoration:underline;}
@@ -444,7 +452,7 @@
     <button class="tab" type="button" data-view="offers">Offers</button>
     <button class="tab" type="button" data-view="clsc">CL scorecard</button>
     <button class="tab" type="button" data-view="gcgm">GC &amp; GM retention</button>
-    <button class="tab" type="button" data-view="unassign">Go-lives vs unassignments</button>
+    <button class="tab" type="button" data-view="unassign">Unassignments &amp; moves</button>
     <button class="tab" type="button" data-view="slaGC">GC task SLA</button>
     <button class="tab" type="button" data-view="slaKAM">KAM task SLA</button>
   </div>
@@ -479,8 +487,7 @@
   <div class="card" id="gcgmCard">
     <div class="gcgm-filters">
       <div class="fl-row"><span class="fl-label">Go-live month</span><span id="gcgmMonths"></span>
-        <button class="mbtn" id="gcgmAll" type="button">All weeks</button><button class="mbtn" id="gcgmClear" type="button">Clear</button>
-        <button class="mbtn" id="gcgmNow" type="button" title="Select the go-live week(s) that are in this retention week right now and list every seller still below Rs 3k this week">This week's not-retained &#9662;</button></div>
+        <button class="mbtn" id="gcgmAll" type="button">All weeks</button><button class="mbtn" id="gcgmClear" type="button">Clear</button></div>
       <div class="fl-row"><span class="fl-label">Go-live weeks</span><div class="wkwrap" id="gcgmWeeks"></div></div>
       <div class="fl-row"><span class="fl-label">Retention week</span>
         <select id="gcgmMetric"></select>
@@ -513,10 +520,20 @@
 
     <div id="sellerPanel" style="display:none">
       <div class="drill-h3" id="spTitle"></div>
+      <div class="controls sp-ctl">
+        <span class="mixfg"><span class="mixfl">Go-live weeks</span><select id="spWeeks"></select></span>
+        <span class="mixfg"><span class="mixfl">Show</span>
+          <span class="slaseg" id="spShow"><button type="button" data-v="all" class="on">All go-lives</button><button type="button" data-v="nr">Not retained</button><button type="button" data-v="ret">Retained</button></span></span>
+        <span class="mixfg"><span class="mixfl">Spend status</span>
+          <span class="slaseg" id="spAct"><button type="button" data-v="" class="on">All</button><button type="button" data-v="Active">Active</button><button type="button" data-v="Slowing">Slowing</button><button type="button" data-v="Paused">Paused</button></span></span>
+        <span class="mixfg" id="spStatWrap" style="display:none"><span class="mixfl">Internal status</span><select id="spStat"></select></span>
+      </div>
+      <div class="sp-sum" id="spSum"></div>
+      <div class="drill-sub" id="spDistT" style="margin:6px 0 2px"></div>
       <div class="dist" id="spDist"></div>
       <div class="tablewrap" style="max-height:420px">
         <table class="sellers" id="spTable">
-          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th class="num" id="spWkTh" title="Marketing spend in the selected retention week (the calendar ISO week shown under it). Ongoing week = spend so far, with the gap to Rs 3,000.">Week spend</th><th>Last spend</th><th class="num" title="GC calls to the seller after their last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num">Lifetime spend</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
+          <thead><tr><th>#</th><th>Seller</th><th>Seller ID</th><th>GC</th><th>Go-live wk</th><th id="spOutTh">Outcome</th><th title="From the last day with Rs 100+ spend: Active = within 2 days, Slowing = 3-7 days ago, Paused = more than 7 days ago">Spend status</th><th class="spst">Account status</th><th class="spst">Internal status</th><th class="num" id="spWkTh" title="Marketing spend in the selected retention week (the calendar ISO week shown under it). Ongoing week = spend so far, with the gap to Rs 3,000.">Week spend</th><th>Last spend</th><th class="num" title="GC calls to the seller after their last spend date &mdash; attempts &middot; connects">GC calls after last spend</th><th class="num" title="GC calls in the last 7 full days &mdash; attempts &middot; connects">GC calls, last 7 days</th><th class="num">Lifetime spend</th><th>Reason bucket</th><th>Open pointers (pending / total)</th><th>SOS</th></tr></thead>
           <tbody id="spRows"></tbody>
         </table>
       </div>
@@ -525,6 +542,22 @@
         <span class="drill-sub" id="spNote"></span>
       </div>
     </div>
+  </div>
+
+  <!-- ============ Sellers moved to self serve / revival / hypercare / churn ============ -->
+  <div class="card" id="mvCard" style="display:none">
+    <div class="reason-head">
+      <div><b>Sellers moved out of the core book</b> <span class="hint">&mdash; self serve, revival, hypercare, churn and deactivation, by the week or month of the move</span></div>
+    </div>
+    <div class="controls" style="gap:14px">
+      <span class="mixfg"><span class="mixfl">Period</span>
+        <span class="slaseg" id="mvGrain"><button type="button" data-v="week" class="on">Year-week</button><button type="button" data-v="month">Month</button></span></span>
+      <span class="mixfg"><span class="mixfl">Sellers</span><span class="slaseg" id="mvCl"></span></span>
+      <button type="button" class="mbtn" id="mvCsv">Download CSV</button>
+    </div>
+    <div class="chart-box" style="height:300px"><canvas id="mvChart" role="img" aria-label="Sellers moved to self serve, revival, hypercare, churn and deactivated, stacked by period."></canvas></div>
+    <div class="tablewrap convwrap" style="margin-top:12px"><table class="convtab" id="mvTable"></table></div>
+    <footer id="mvFoot"></footer>
   </div>
 
   <!-- ============ Go-lives vs unassignments (card 12438) ============ -->
@@ -1236,11 +1269,13 @@ async function load(){
       snap.gcgmSellers.rows.forEach(r=>{by[r[0]]={gc:r[1]>=0?nm[r[1]]:null,gm:r[2]>=0?nm[r[2]]:null,
         nOpen:r[3],nPend:r[4],ops:r[5]||'',nSos:r[6],sos:r[7]||'',nAll:r[8]||0,sname:r[9]||'',
         calls:r[10]||0,conn:r[11]||0,spend:r[12]||0,
-        lastSp:r[13]||'',attA:r[14]||0,connA:r[15]||0,att7:r[16]||0,conn7:r[17]||0};});
+        lastSp:r[13]||'',attA:r[14]||0,connA:r[15]||0,att7:r[16]||0,conn7:r[17]||0,
+        astat:r[18]||'',istat:r[19]||''};});
       GCGMS=by;
     }
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
     UNAS=snap.unassign||null; unInit=false;
+    MOVES=snap.moves||null;
     window.SNAP_AT=snap.generated_at||null;
     setStamp(snap.generated_at);
     STUCK=snap.stuck||null;
@@ -2083,7 +2118,7 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
 
 // ===== GC & GM retention view =====
 let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={}, WEEKACT=null;
-const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All', cl:'All', showAllRanks:false, allSellers:false};
+const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All', cl:'All', showAllRanks:false};
 const MONTH2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function wkMonthKey(w){const co=parseCohort(w); return co?co.my*100+co.mm:0;}
 function wkMonthLabel(w){const co=parseCohort(w); return co?MONTH2[co.mm-1]+' '+String(co.my).slice(2):w;}
@@ -2099,6 +2134,8 @@ function setView(v){
   document.getElementById('clCard').style.display=v==='clsc'?'block':'none';
   if(v==='clsc'){ buildClsc(); buildClHeat(); }
   document.getElementById('unCard').style.display=v==='unassign'?'block':'none';
+  document.getElementById('mvCard').style.display=v==='unassign'?'block':'none';
+  if(v==='unassign') buildMoves();
   if(v==='gcgm') buildGcgm();
   // GC gets its own console card; the KAM tab keeps the original tables untouched.
   document.getElementById('gcCard').style.display  = v==='slaGC'  ? 'block':'none';
@@ -2141,6 +2178,64 @@ function makeWeekFilter(o){
 function fmtPct(x){return x==null?'—':(100*x).toFixed(0)+'%';}
 function scoreColor(v){return v==null?'':(v>=75?'#dff0e5':(v>=60?'#fdf3e0':'#f8dfdb'));}
 
+// ================= Sellers moved out of the core book (self serve / revival / hypercare / churn) =================
+// MOVES rows: [dayIdx, moveIdx, sellerIdx], one per seller, move and day (refresh.py MOVES_SQL).
+// A seller counts once per move type per period; "Sellers moved" counts each seller once per period.
+let MOVES=null, mvC=null, mvInit=false;
+const mvSt={grain:'week', cl:'All'};
+const MV_COL={'Self serve':'#7A4E9E','Revival':'#185FA5','Hypercare':'#1D9E75','Churn':'#C0392B','Deactivated':'#6f7268'};
+function mvData(){
+  const M=MOVES, P={}, key=d=>mvSt.grain==='week'?clWkOf(d):d.slice(0,7);
+  M.rows.forEach(r=>{ const sid=M.sellers[r[2]];
+    if(mvSt.cl!=='All'){ const g=GCGMS&&GCGMS[sid]; if(!g||clOf(g.gc||'','')!==mvSt.cl) return; }
+    const k=key(M.days[r[0]]), o=P[k]||(P[k]={k,by:M.moves.map(()=>new Set()),any:new Set()});
+    o.by[r[1]].add(sid); o.any.add(sid); });
+  return Object.values(P).sort((a,b)=>a.k<b.k?-1:1);
+}
+function mvLabel(k){ if(mvSt.grain==='week') return k.replace(/^20/,'’'); const [y,m]=k.split('-'); return MONTH2[+m-1]+' '+y.slice(2); }
+function mvPaint(){
+  const M=MOVES, per=mvData(), t=istToday(), cur=mvSt.grain==='week'?clWkOf(t):t.slice(0,7);
+  const labels=per.map(o=>mvLabel(o.k)+(o.k===cur?' (so far)':''));
+  if(mvC) mvC.destroy();
+  mvC=new Chart(document.getElementById('mvChart'),{type:'bar',data:{labels,datasets:M.moves.map((mv,j)=>({label:mv,
+      data:per.map(o=>o.by[j].size),backgroundColor:MV_COL[mv],stack:'m'}))},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:12,font:{size:11}}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:mvSt.grain==='week'?90:0}},
+        y:{stacked:true,beginAtZero:true,ticks:{color:AXIS},title:{display:true,text:'sellers moved',color:AXIS_TITLE}}}}});
+  let h='<thead><tr><th>'+(mvSt.grain==='week'?'Week of the move':'Month of the move')+'</th>'+
+    M.moves.map(mv=>'<th><span class="defdot" style="background:'+MV_COL[mv]+'"></span>'+esc(mv)+'</th>').join('')+'<th>Sellers moved</th></tr></thead><tbody>';
+  [...per].reverse().forEach(o=>{ h+='<tr><td>'+esc(mvLabel(o.k))+(o.k===cur?' <span class="hint">so far</span>':'')+'</td>'+
+    o.by.map(x=>'<td>'+(x.size||'<span class="hint">·</span>')+'</td>').join('')+'<td><b>'+o.any.size+'</b></td></tr>'; });
+  document.getElementById('mvTable').innerHTML=h+'</tbody>';
+  document.getElementById('mvFoot').innerHTML=
+    '<b>Self serve</b> &mdash; moved into self-serve, where the seller gets KAM help for shipping queries only. '+
+    '<b>Revival</b> &mdash; unassigned from the core team (mostly paused for many days and not taking calls) and handed to the revival team, which works to restart the account on Meta. '+
+    '<b>Hypercare</b> &mdash; revived by the revival team and passed to the hypercare team. '+
+    '<b>Churn</b> &mdash; internal status set to revival_churn, tts_churn or prelive_churn. <b>Deactivated</b> &mdash; account status set to deactivated. '+
+    'Source: <code>nushop.changeslogs</code> (the destination is logged as the subcategory; self serve also from <code>seller_account_status</code>), re-saves of the same value ignored. '+
+    'HIT sellers who ever went live, from '+esc(M.from)+'; a seller counts once per move per '+(mvSt.grain==='week'?'week':'month')+', and once in <b>Sellers moved</b> however many moves they had. '+
+    (mvSt.cl==='All'?'':'<b>'+esc(mvSt.cl)+'</b> = sellers whose GC at go-live sits under that CL (go-lives from 29 Dec 2025 onward; earlier go-lives only count under All). ')+
+    'Moves are dated in IST. <b>Logging starts at different times:</b> revival, hypercare and churn moves only appear in the change log from May 2026 and self serve from Feb 2026, so earlier months read 0 for them because nothing was recorded, not because nobody moved.';
+}
+function buildMoves(){
+  const card=document.getElementById('mvCard');
+  if(!MOVES||!MOVES.rows){ document.getElementById('mvFoot').textContent='No moves data in this snapshot yet — it arrives with the next data refresh.';
+    document.getElementById('mvTable').innerHTML=''; return; }
+  if(!mvInit){
+    mvInit=true;
+    const cls=['All'].concat(CL_ORDER);
+    document.getElementById('mvCl').innerHTML=cls.map(c=>'<button type="button" data-v="'+esc(c)+'"'+(c==='All'?' class="on"':'')+'>'+(c==='All'?'All HIT':esc(c))+'</button>').join('');
+    [['mvGrain','grain'],['mvCl','cl']].forEach(([id,k])=>document.querySelectorAll('#'+id+' button').forEach(b=>b.addEventListener('click',()=>{
+      mvSt[k]=b.dataset.v; document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x===b)); mvPaint(); })));
+    document.getElementById('mvCsv').addEventListener('click',()=>{
+      const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+      const out=[['period','sellers'].concat(MOVES.moves.map(m=>m.toLowerCase().replace(/ /g,'_'))).concat(['sellers_moved']).join(',')];
+      mvData().forEach(o=>out.push([o.k,mvSt.cl].concat(o.by.map(x=>x.size)).concat([o.any.size]).map(q).join(',')));
+      saveCsv('seller_moves_'+mvSt.grain+'.csv',out.join('\n')); });
+  }
+  mvPaint();
+}
 // ================= TAB: Go-lives vs unassignments (card 12438) =================
 let UNAS=null, unInit=false, unF=null;
 const unSt={role:'GC', period:'week', sort:'unassign', asc:false};
@@ -2250,17 +2345,19 @@ function setupGcgmFilters(){
   document.getElementById('gcgmMinN').addEventListener('change',renderGcgm);
   document.getElementById('gcgmLive').addEventListener('change',renderGcgm);
   document.getElementById('gcgmAll').addEventListener('click',()=>{weeks.forEach(w=>gcgmSel.weeks.add(w)); renderGcgm();});
-  document.getElementById('gcgmClear').addEventListener('click',()=>{gcgmSel.weeks.clear(); gcgmSel.allSellers=false; renderGcgm();});
-  // "This week's not-retained": every go-live week that is in W1-W7 right now (W43 at W1, W42 at
-  // W2 ... W37 at W7), each judged on its own current week, every GC's sellers listed (narrow with a
-  // CL/GC/GM pick), then jump to the list.
-  document.getElementById('gcgmNow').addEventListener('click',()=>{
-    const now=weeks.filter(w=>GCGM.weeks[w]>=1&&GCGM.weeks[w]<=7);
-    if(!now.length) return;
-    gcgmSel.weeks=new Set(now); gcgmSel.allSellers=true; gcgmSel.metric=0; ms.value='0';
+  document.getElementById('gcgmClear').addEventListener('click',()=>{gcgmSel.weeks.clear(); renderGcgm();});
+  // the seller list's own controls, next to the table (they drive the same selection as above)
+  document.getElementById('spWeeks').addEventListener('change',e=>{
+    const v=e.target.value, now=weeks.filter(w=>GCGM.weeks[w]>=1&&GCGM.weeks[w]<=7);
+    if(v==='sel') return;
+    gcgmSel.weeks=new Set(v==='now'?now:[v]); gcgmSel.metric=0; ms.value='0';
+    // picking a week here is asking "who is behind this week", so show the not-retained
+    spSt.show='nr'; document.querySelectorAll('#spShow button').forEach(x=>x.classList.toggle('on',x.dataset.v==='nr'));
     renderGcgm();
-    document.getElementById('sellerPanel').scrollIntoView({behavior:'smooth',block:'start'});
   });
+  [['spShow','show'],['spAct','act']].forEach(([id,k])=>document.querySelectorAll('#'+id+' button').forEach(b=>b.addEventListener('click',()=>{
+    spSt[k]=b.dataset.v; document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x===b)); renderSellerPanel(); })));
+  document.getElementById('spStat').addEventListener('change',e=>{ spSt.stat=e.target.value; renderSellerPanel(); });
   ['gc','gm','cl'].forEach(k=>document.getElementById(k+'Sel').addEventListener('change',e=>gcgmPick(k,e.target.value)));
   // default: latest month whose every week is already W3-mature (a complete month)
   const byMonth={}; weeks.forEach(w=>{(byMonth[wkMonthKey(w)]=byMonth[wkMonthKey(w)]||[]).push(w);});
@@ -2453,12 +2550,7 @@ function renderGcgm(){
   const sel=[...gcgmSel.weeks];
   const nWk=sel.filter(w=>gcgmM(w)&&GCGM.weeks[w]>gcgmM(w)).length;
   const nLive=sel.filter(w=>gcgmOngoing(w)&&gcgmWkOk(w)).length;
-  const nowWks=weeks.filter(w=>GCGM.weeks[w]>=1&&GCGM.weeks[w]<=7).sort(), nowBtn=document.getElementById('gcgmNow');
-  nowBtn.style.display=nowWks.length?'':'none';
-  const sw=w=>w.replace(/^20\d\d-/,'');
-  nowBtn.innerHTML=`This week's not-retained: ${sw(nowWks[nowWks.length-1]||'')} at W1 &hellip; ${sw(nowWks[0]||'')} at W7 &#9662;`;
-  nowBtn.title='Every go-live week judged at the week it is in right now: '+nowWks.slice().reverse().map(w=>sw(w)+' at W'+GCGM.weeks[w]).join(', ');
-  nowBtn.classList.toggle('on',!gcgmSel.metric&&gcgmSel.allSellers&&nowWks.length>0&&nowWks.every(w=>gcgmSel.weeks.has(w)));
+
   const overall=gcAgg.tot?(100*gcAgg.ret/gcAgg.tot).toFixed(1):'—';
   const cohort=[...gcgmSel.weeks].filter(w=>gcgmWkOk(w)).reduce((s,w)=>s+((window.COHORTN||{})[w]||0),0);
   const cov=cohort?` of ${cohort} in the cohort (${(100*gcAgg.tot/cohort).toFixed(0)}% have a go-live GC)`:'';
@@ -2481,14 +2573,31 @@ let SPROWS=[];
 const MON3=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function fmtLastSp(x){ const d=gcgmDaysSince(x), [y,m,dd]=x.lastSp.split('-');
   return (+dd)+' '+MON3[+m-1]+(d==null?'':d<=1?' (active)':' ('+d+'d ago)'); }
+// spend status from the last day with Rs 100+ spend, counted from the snapshot day
+function spActivity(x){ const d=gcgmDaysSince(x); return d==null?'No spend yet':d<=2?'Active':d<=7?'Slowing':'Paused'; }
+const SP_ACT_CLS={'Active':'act','Slowing':'slow','Paused':'pau','No spend yet':'none'};
+const spSt={show:'all', act:'', stat:''};
+function spWeeksOptions(){
+  const el=document.getElementById('spWeeks'), weeks=Object.keys(GCGM.weeks);
+  const now=weeks.filter(w=>GCGM.weeks[w]>=1&&GCGM.weeks[w]<=7).sort().reverse();
+  const sel=[...gcgmSel.weeks].sort(), m=gcgmSel.metric;
+  const isNow=!m&&sel.length===now.length&&now.every(w=>gcgmSel.weeks.has(w));
+  const one=!m&&sel.length===1&&now.includes(sel[0])?sel[0]:null;
+  const sw=w=>w.replace(/^20/,'’');
+  el.innerHTML=(!isNow&&!one?'<option value="sel">As selected above ('+sel.length+' week'+(sel.length===1?'':'s')+', '+(m?'W'+m:'each at its current week')+')</option>':'')+
+    '<option value="now">This week — every go-live week at its current week (W1–W7)</option>'+
+    now.map(w=>'<option value="'+w+'">'+sw(w)+' — in W'+GCGM.weeks[w]+' now</option>').join('');
+  el.value=isNow?'now':one||'sel';
+}
 function renderSellerPanel(){
   const panel=document.getElementById('sellerPanel');
   const gcName=gcgmSel.gc||'All', gmName=gcgmSel.gm||'All', clName=gcgmSel.cl||'All';
   const picked=[]; if(gcName&&gcName!=='All')picked.push('GC '+gcName); if(gmName&&gmName!=='All')picked.push('GM '+gmName);
   if(clName!=='All')picked.push('CL '+clName);
-  if(!picked.length&&gcgmSel.allSellers) picked.push('every GC');
-  if(!picked.length||!GCGMS){ panel.style.display='none'; SPROWS=[]; return; }
-  const out=[];
+  if(!GCGMS){ panel.style.display='none'; SPROWS=[]; return; }
+  if(!picked.length) picked.push('every GC');
+  spWeeksOptions();
+  const all=[];
   for(const sid in GCGMS){
     const g=GCGMS[sid];
     if(gcName!=='All' && g.gc!==gcName) continue;
@@ -2497,41 +2606,62 @@ function renderSellerPanel(){
     const d=DIAGBY[sid]; if(!d) continue;                       // needs spend/bucket detail
     if(!gcgmSel.weeks.has(d.w)) continue;                        // selected go-live weeks only
     if(!gcgmWkOk(d.w)) continue;                                 // mature, or ongoing if included
-    const m=gcgmM(d.w);
-    if((d.sp[m-1]||0)>=3000) continue;                           // keep only NOT-retained at Wm (so far)
-    out.push({sid,w:d.w,b:d.b,m,wsp:d.sp[m-1]||0,live:gcgmOngoing(d.w),cw:isoWeekAdd(d.w,m),...g});
+    const m=gcgmM(d.w), wsp=d.sp[m-1]||0, live=gcgmOngoing(d.w), ret=wsp>=3000;
+    all.push({sid,w:d.w,b:d.b,m,wsp,live,ret,cw:isoWeekAdd(d.w,m),act:spActivity(g),...g});
   }
-  // sellers still inside an ongoing week come first, closest to Rs 3k first (the easiest push this week)
-  out.sort((a,b)=>(b.live-a.live)||(a.live&&b.live?b.wsp-a.wsp:0)||(b.nPend-a.nPend)||(b.nOpen-a.nOpen)||a.w.localeCompare(b.w));
+  // internal-status filter options come from the sellers in view
+  const stats=[...new Set(all.map(x=>x.istat).filter(Boolean))].sort();
+  const stEl=document.getElementById('spStat');
+  document.getElementById('spStatWrap').style.display=stats.length?'':'none';
+  if(!stats.includes(spSt.stat)) spSt.stat='';
+  stEl.innerHTML='<option value="">All</option>'+stats.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
+  stEl.value=spSt.stat;
+  const out=all.filter(x=>(spSt.show==='all'||(spSt.show==='nr'?!x.ret:x.ret))&&(!spSt.act||x.act===spSt.act)&&(!spSt.stat||x.istat===spSt.stat));
+  // not retained first; inside that, sellers still in an ongoing week closest to Rs 3k first
+  out.sort((a,b)=>(a.ret-b.ret)||(b.live-a.live)||(a.live&&b.live?b.wsp-a.wsp:0)||(b.nPend-a.nPend)||(b.nOpen-a.nOpen)||a.w.localeCompare(b.w));
   SPROWS=out;
-  const B=window.BUCKETS||[];
-  const nLive=out.filter(x=>x.live).length;
-  const m=gcgmSel.metric;
-  // in "This week" mode, how many are behind at each relative week (W1 ... W7)
-  const byWk=m?'':[1,2,3,4,5,6,7].map(k=>{const n=out.filter(x=>x.m===k).length; return n?`W${k} <b>${n}</b>`:'';}).filter(Boolean).join(' &middot; ');
-  document.getElementById('spTitle').innerHTML=(m?`Not-retained at W${m}`:'Not retained this week')+` &mdash; ${esc(picked.join(' + '))} <span class="drill-sub">(${out.length} seller${out.length===1?'':'s'}`+
-    (m?(nLive?` &middot; <b>${nLive}</b> still in their W${m} this week &mdash; below \u20B93k so far`:''):` below \u20B93k so far this week &mdash; ${byWk}`)+`)</span>`;
+  const B=window.BUCKETS||[], m=gcgmSel.metric;
+  const nRet=all.filter(x=>x.ret).length, nNr=all.length-nRet, nSoFar=all.filter(x=>!x.ret&&x.live).length;
+  document.getElementById('spTitle').innerHTML='Go-lives &mdash; '+esc(picked.join(' + '))+
+    ' <span class="drill-sub">('+(m?'judged at W'+m:'each go-live week at the week it is in now')+')</span>';
+  const cnt=(f)=>all.filter(f).length;
+  document.getElementById('spSum').innerHTML=
+    `<span><b>${all.length}</b> go-lives</span><span style="background:#dff0e5"><b>${nRet}</b> retained</span>`+
+    `<span style="background:#f8dfdb"><b>${nNr}</b> not retained${nSoFar?` (${nSoFar} below ₹3k so far this week)`:''}</span>`+
+    ['Active','Slowing','Paused','No spend yet'].map(a=>{const n=cnt(x=>x.act===a); return n?`<span>${a} <b>${n}</b></span>`:'';}).join('')+
+    (m?'':[1,2,3,4,5,6,7].map(k=>{const n=cnt(x=>x.m===k&&!x.ret); return n?`<span>W${k} behind <b>${n}</b></span>`:'';}).join(''))+
+    (out.length!==all.length?`<span>showing <b>${out.length}</b></span>`:'');
+  document.getElementById('spOutTh').textContent=m?'W'+m+' outcome':'Outcome this week';
   document.getElementById('spWkTh').textContent=m?'W'+m+' spend':'Spend this week';
-  // reason distribution for this person
-  const dist=B.map((n,bi)=>({n,bi,c:out.filter(x=>x.b===bi).length})).filter(x=>x.c>0).sort((a,b)=>b.c-a.c);
+  // reason distribution: only meaningful for the sellers who did not retain
+  const nr=out.filter(x=>!x.ret);
+  const dist=B.map((n,bi)=>({n,bi,c:nr.filter(x=>x.b===bi).length})).filter(x=>x.c>0).sort((a,b)=>b.c-a.c);
   const mx=Math.max(1,...dist.map(x=>x.c));
+  document.getElementById('spDistT').textContent=nr.length?'Why the '+nr.length+' not-retained sellers dropped':'';
   document.getElementById('spDist').innerHTML=dist.map(x=>
     `<div class="brow"><span>${esc(x.n)}</span><span><span class="bar" style="width:${100*x.c/mx}%;background:${BUCKET_COLORS[x.bi%BUCKET_COLORS.length]}"></span></span>`+
-    `<span class="bcount">${x.c} (${(100*x.c/out.length).toFixed(0)}%)</span></div>`).join('');
+    `<span class="bcount">${x.c} (${(100*x.c/nr.length).toFixed(0)}%)</span></div>`).join('');
+  const outcome=x=>x.ret?`<span class="flag ret">${x.live?'Retained so far':'Retained'}</span>`:
+    x.live?'<span class="flag so">Below ₹3k so far</span>':'<span class="flag nr">Not retained</span>';
+  const stCell=v=>v?`<span class="flag st">${esc(v)}</span>`:'<span style="color:var(--faint)">—</span>';
   document.getElementById('spRows').innerHTML=out.map((x,i)=>
     `<tr><td>${i+1}</td><td class="snm" title="${esc(x.sname||'')}">${esc(x.sname||'—')}</td>`+
     `<td><code style="font-size:11px">${esc(x.sid)}</code></td>`+
     `<td>${esc(x.gc||'—')}</td><td>${esc(x.w)}</td>`+
-    `<td class="num" title="${esc(x.cw)}${x.live?' (ongoing) · spend so far · \u20B9'+(3000-x.wsp).toLocaleString()+' short of 3k':''}">${fmtMoney(x.wsp)}`+
-    `<br><span style="font-size:10.5px;color:${x.live?'#BA7517':'var(--faint)'}">${gcgmSel.metric?'':'W'+x.m+' · '}${esc(x.cw.replace(/^20/,'\u2019'))}${x.live?' · so far, '+fmtMoney(3000-x.wsp)+' to go':''}</span></td>`+
+    `<td>${outcome(x)}</td><td><span class="flag ${SP_ACT_CLS[x.act]}">${x.act}</span></td>`+
+    `<td class="spst">${stCell(x.astat)}</td><td class="spst">${stCell(x.istat)}</td>`+
+    `<td class="num" title="${esc(x.cw)}${x.live&&!x.ret?' (ongoing) · spend so far · ₹'+(3000-x.wsp).toLocaleString()+' short of 3k':''}">\u20B9${Math.round(x.wsp).toLocaleString('en-IN')}`+
+    `<br><span style="font-size:10.5px;color:${x.live&&!x.ret?'#BA7517':'var(--faint)'}">${m?'':'W'+x.m+' · '}${esc(x.cw.replace(/^20/,'’'))}${x.live&&!x.ret?' · so far, \u20B9'+Math.round(3000-x.wsp).toLocaleString('en-IN')+' to go':''}</span></td>`+
     `<td title="${esc(x.lastSp||'')}">${x.lastSp?esc(fmtLastSp(x)):'—'}</td>`+
     `<td class="num" title="after ${esc(x.lastSp||'—')}: ${x.attA} attempted, ${x.connA} connected">${x.attA} &middot; ${x.connA}</td>`+
     `<td class="num" title="last 7 days: ${x.att7} attempted, ${x.conn7} connected">${x.att7} &middot; ${x.conn7}</td>`+
-    `<td class="num">${fmtMoney(x.spend)}</td><td>${esc(B[x.b]||'—')}</td>`+
+    `<td class="num">${fmtMoney(x.spend)}</td><td>${x.ret?'<span style="color:var(--faint)">—</span>':esc(B[x.b]||'—')}</td>`+
     `<td class="ops">${x.nOpen?`<b>${x.nPend}</b> pending / ${x.nOpen} blocking${x.nAll>x.nOpen?` <span style="color:var(--faint)">(+${x.nAll-x.nOpen} internal)</span>`:''}<br>`:''}${fmtOps(x.ops)}</td>`+
     `<td>${x.nSos?`<span class="sostag" title="${esc(x.sos)}">SOS ×${x.nSos}</span>`:'—'}</td></tr>`).join('');
+  const hasSt=all.some(x=>x.astat||x.istat);
+  document.querySelectorAll('#spTable .spst').forEach(c=>c.style.display=hasSt?'':'none');
   const withOpen=out.filter(x=>x.nPend>0).length;
-  document.getElementById('spNote').textContent=`${withOpen} of ${out.length} have a PENDING blocker — a dependency on us. Open pointers = unresolved tasks (card 10550; status pending/closed) raised from go-live onward, limited to blocking types (ad-account, BM, page, pixel, access, payment, catalogue, shipping, escalations…); internal cadence/automation tasks are counted but not listed.`;
+  document.getElementById('spNote').textContent=`${withOpen} of ${out.length} have a PENDING blocker — a dependency on us. Spend status is from the last day with ₹100+ marketing spend (Active ≤2 days ago, Slowing 3–7, Paused >7). Reason bucket is shown only for sellers who did not retain. Open pointers = unresolved tasks (card 10550; status pending/closed) raised from go-live onward, limited to blocking types (ad-account, BM, page, pixel, access, payment, catalogue, shipping, escalations…); internal cadence/automation tasks are counted but not listed.`;
   panel.style.display='block';
 }
 document.getElementById('clShowAll').addEventListener('click',()=>{
@@ -2540,10 +2670,10 @@ document.getElementById('clShowAll').addEventListener('click',()=>{
 document.getElementById('spCsv').addEventListener('click',()=>{
   if(!SPROWS.length) return; const B=window.BUCKETS||[];
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const csv=['seller_name,seller_id,golive_week,retention_week,retention_calendar_week,week_spend,week_in_progress,short_of_3k,reason_bucket,golive_gc,golive_gm,last_spend_date,days_since_last_spend,gc_calls_after_last_spend,gc_connected_after_last_spend,gc_calls_last_7d,gc_connected_last_7d,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
-    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,'W'+x.m,x.cw,x.wsp,x.live?'yes':'no',3000-x.wsp,B[x.b]||'',x.gc||'',x.gm||'',x.lastSp||'',gcgmDaysSince(x)??'',x.attA,x.connA,x.att7,x.conn7,x.spend||0,
+  const csv=['seller_name,seller_id,golive_week,retention_week,retention_calendar_week,week_spend,week_in_progress,outcome,spend_status,seller_account_status,seller_internal_status,short_of_3k,reason_bucket,golive_gc,golive_gm,last_spend_date,days_since_last_spend,gc_calls_after_last_spend,gc_connected_after_last_spend,gc_calls_last_7d,gc_connected_last_7d,lifetime_spend,pending_tasks,open_tasks,open_pointers,sos_count,sos_text']
+    .concat(SPROWS.map(x=>[x.sname||'',x.sid,x.w,'W'+x.m,x.cw,x.wsp,x.live?'yes':'no',x.ret?'retained':x.live?'below_3k_so_far':'not_retained',x.act,x.astat||'',x.istat||'',x.ret?0:3000-x.wsp,x.ret?'':B[x.b]||'',x.gc||'',x.gm||'',x.lastSp||'',gcgmDaysSince(x)??'',x.attA,x.connA,x.att7,x.conn7,x.spend||0,
       x.nPend,x.nOpen,x.ops,x.nSos,x.sos].map(q).join(','))).join('\n');
-  saveCsv('not_retained_sellers.csv', csv);
+  saveCsv('golive_sellers.csv', csv);
 });
 
 
