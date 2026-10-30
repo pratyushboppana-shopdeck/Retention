@@ -1258,6 +1258,7 @@ async function load(){
     window.COHORTN={}; csv.split('\n').slice(1).forEach(l=>{const c=l.split(','); if(c[0]) window.COHORTN[c[0]]=+c[1]||0;});
     window.DIAG=Array.isArray(snap.diagnosis)?snap.diagnosis:[];
     window.MIXL={of:snap.offers||null, so:snap.sources||null};
+    window.W3D=snap.w3daily||null;
     window.BUCKETS=Array.isArray(snap.buckets)?snap.buckets:[];
     GCGM=snap.gcgm||null; gcgmInit=false;
     WEEKACT=snap.weekActuals||null;
@@ -1552,6 +1553,53 @@ function gbClassify(){
 }
 const GB_COL={good:'#2a78d6',bad:'#eb6834',unclear:'#b4b2a9',none:'#898781'};
 const GB_LAB={good:'Good offers',bad:'Bad offers',unclear:'Not yet clear',none:'No offer (NA / not recorded / other)'};
+// ---- projected W3 for the cohort part-way through its W3 (owner, 2026-10-30) ----
+// A seller already at Rs 3k+ this week counts as retained. Every other seller gets the share of
+// past sellers in the same spot who finished W3 at Rs 3k+: same offer group, same W2 outcome, same
+// spend so far by the same day of W3 (0 / under 1k / 1-2k / 2-3k). Past = the last 12 cohorts whose
+// W3 is complete; a cell under 30 sellers falls back to every offer group. Day-by-day spend comes from
+// W3D (refresh.py W3DAILY_SQL); the final outcome is the usual W3 >= Rs 3k from gc_view_3.
+// The 80% range is the spread of the seller-level probabilities; the backtest replays the same
+// method on the last 8 complete cohorts at the same day of the week.
+const W3P_TRAIN=12, W3P_TEST=8, W3P_MIN=30;
+function w3Proj(C){
+  const W=window.W3D, D=window.DIAG||[]; if(!W||!W.asof||!W.sellers) return null;
+  const day=s=>Date.parse(s+'T00:00:00Z'), asof=day(W.asof), DAY=864e5;
+  const w3mon=w=>day(isoMonday(w))+21*DAY;
+  const by={}; D.forEach(x=>{ (by[x.w]=by[x.w]||[]).push(x); });
+  // only cohorts the daily query covers (it reaches back ~150 days of go-lives)
+  const covered=new Set(Object.values(W.sellers).map(v=>v[0]));
+  const done=Object.keys(by).filter(w=>w3mon(w)+6*DAY<=asof&&covered.has(w)).sort();
+  const live=Object.keys(by).filter(w=>w3mon(w)<=asof+DAY&&w3mon(w)+6*DAY>asof).sort();
+  if(!live.length||done.length<W3P_TRAIN) return null;
+  const sp=sid=>(W.sellers[sid]||[0,[0,0,0,0,0,0,0]])[1];
+  const bucket=c=>c>=3000?4:c<=0?0:c<1000?1:c<2000?2:3;
+  const feat=(x,K)=>{ let c=0; const a=sp(x.s); for(let i=0;i<K;i++) c+=a[i]; return [(x.sp[1]||0)>=3000?1:0,bucket(c)]; };
+  const grp=x=>C.grpOf[x.of];
+  const run=(target,K,train)=>{
+    const t={};
+    train.forEach(w=>by[w].forEach(x=>{ const f=feat(x,K), fin=(x.sp[2]||0)>=3000?1:0;
+      [grp(x),'*'].forEach(g=>{ const k=g+'|'+f; const a=t[k]||(t[k]=[0,0]); a[0]++; a[1]+=fin; }); }));
+    const out={};
+    by[target].forEach(x=>{ const f=feat(x,K);
+      let p; if(f[1]===4) p=1; else { let a=t[grp(x)+'|'+f]; if(!a||a[0]<W3P_MIN) a=t['*|'+f]; p=a&&a[0]?(a[1]+.5)/(a[0]+1):0; }
+      [grp(x),'all'].forEach(g=>{ const o=out[g]||(out[g]={n:0,p:0,v:0,done:0,act:0}); o.n++; o.p+=p; o.v+=p*(1-p);
+        if(f[1]===4) o.done++; if((x.sp[2]||0)>=3000) o.act++; }); });
+    Object.values(out).forEach(o=>{ o.rate=o.p/o.n; o.half=1.2816*Math.sqrt(o.v)/o.n; });
+    return out;
+  };
+  const res=live.map(w=>{
+    const K=Math.max(0,Math.min(7,Math.round((asof-w3mon(w))/DAY)+1));
+    const pr=run(w,K,done.slice(-W3P_TRAIN));
+    // backtest: the same method, same day of the week, on the last W3P_TEST complete cohorts
+    const err={};
+    done.slice(-W3P_TEST).forEach(t=>{ const i=done.indexOf(t), tr=done.slice(Math.max(0,i-W3P_TRAIN),i); if(tr.length<6) return;
+      const r=run(t,K,tr); Object.entries(r).forEach(([g,o])=>{ if(o.n<MIX_MIN_N) return; (err[g]=err[g]||[]).push(Math.abs(o.rate-o.act/o.n)); }); });
+    Object.keys(err).forEach(g=>{ const e=err[g]; err[g]=e.reduce((a,b)=>a+b,0)/e.length; });
+    return {w,K,pr,err};
+  });
+  return {asof:W.asof,res};
+}
 function gbPaint(){
   const C=gbClassify(), k=mixSt.wk, g=mixSt.grain, now=mixNowMon(), D=window.DIAG||[];
   const key=g==='week'?(d=>d.w):(d=>d.mo), P={};
@@ -1573,13 +1621,28 @@ function gbPaint(){
       borderWidth:gr==='good'||gr==='bad'?2.5:1.5,borderDash:gr==='none'?[2,3]:gr==='unclear'?[4,3]:undefined,
       pointRadius:gr==='good'||gr==='bad'?2.5:0,tension:.25,spanGaps:true}));
   const ref=(v,lab,col)=>({label:lab,data:per.map(()=>v==null?null:+v.toFixed(1)),borderColor:col,borderDash:[7,4],borderWidth:1.5,pointRadius:0});
+  const PJ=(g==='week'&&k===3)?w3Proj(C):null;
+  if(PJ) ['good','bad'].forEach(gr=>{
+    const data=per.map(()=>null); let any=false;
+    PJ.res.forEach(r=>{ const i=per.findIndex(o=>o.k===r.w), o=r.pr[gr]; if(i<0||!o||o.n<MIX_MIN_N) return;
+      data[i]=+(100*o.rate).toFixed(1); any=true;
+      // join the projection to the last actual point, so it reads as a continuation of the line
+      for(let j=i-1;j>=0;j--){ const v=rate(per[j],gr); if(v!=null){ data[j]=v; break; } } });
+    if(any) ds.push({label:GB_LAB[gr]+' — projected',data,proj:gr,borderColor:GB_COL[gr],backgroundColor:'#fff',
+      borderDash:[5,4],borderWidth:2,pointRadius:data.map((v,i)=>v!=null&&PJ.res.some(r=>r.w===per[i].k)?5:0),
+      pointBorderWidth:2,pointBorderColor:GB_COL[gr],tension:0,spanGaps:true});
+  });
   if(nvGood!=null) ds.push(ref(nvGood,'Nov 2025 good offers ('+nvGood.toFixed(1)+'%, n'+NV.good[0]+')','#2a78d6'));
   if(nvAll!=null) ds.push(ref(nvAll,'Nov 2025 overall ('+nvAll.toFixed(1)+'%, n'+NV.all[0]+')','#52514e'));
   if(gbC) gbC.destroy();
   gbC=new Chart(document.getElementById('gbChart'),{type:'line',data:{labels,datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},tooltip:{callbacks:{label:c=>{
-        const o=per[c.dataIndex], gr=groups[c.datasetIndex];
+      plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},tooltip:{filter:c=>!c.dataset.proj||(PJ&&PJ.res.some(r=>r.w===per[c.dataIndex].k)),callbacks:{label:c=>{
+        const o=per[c.dataIndex];
+        if(c.dataset.proj){ const r=PJ.res.find(x=>x.w===o.k), q=r.pr[c.dataset.proj];
+          return c.dataset.label+': '+c.parsed.y+'% (80% range '+(100*(q.rate-q.half)).toFixed(1)+'–'+(100*(q.rate+q.half)).toFixed(1)+'%; '+
+            q.done+' of '+q.n+' already at \u20B93k+, '+r.K+' of 7 days in'+(r.err[c.dataset.proj]!=null?'; backtest error ±'+(100*r.err[c.dataset.proj]).toFixed(1)+' pp':'')+')'; }
+        const gr=groups[c.datasetIndex];
         return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')+(gr&&o?' (n'+o[gr][0]+')':''); }}}},
       scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:90,minRotation:g==='week'?90:0}},
         y:{beginAtZero:false,suggestedMin:15,suggestedMax:70,ticks:{callback:v=>v+'%',color:AXIS},
@@ -1595,6 +1658,13 @@ function gbPaint(){
       (gap<0?'−':'+')+Math.abs(gap).toFixed(1)+' pp, noise band ±'+se.toFixed(1)+' pp'+(NV.good[0]<100?' (wide because Nov had only '+NV.good[0]+' good-offer sellers)':'')+'.'+
       (bv!=null?' Bad offers: <b>'+bv.toFixed(1)+'%</b> (n'+last.bad[0]+'), '+(100*last.bad[0]/last.all[0]).toFixed(0)+'% of that cohort.':'');
   } else h.textContent='';
+  if(PJ){ PJ.res.forEach(r=>{ const f=gr=>{ const q=r.pr[gr]; if(!q||q.n<MIX_MIN_N) return '';
+      return GB_LAB[gr].toLowerCase()+' <b>'+(100*q.rate).toFixed(1)+'%</b> (80% range '+(100*(q.rate-q.half)).toFixed(0)+'–'+(100*(q.rate+q.half)).toFixed(0)+'%'+
+        (r.err[gr]!=null?', backtest ±'+(100*r.err[gr]).toFixed(1)+' pp':'')+')'; };
+      h.innerHTML+='<div style="margin-top:6px"><span class="mixpill flat">Projected</span> <b>'+esc(r.w)+'</b> is in its W3 ('+r.K+' of 7 days of spend in, to '+esc(PJ.asof)+'): '+
+        [f('good'),f('bad')].filter(Boolean).join(' &middot; ')+'. Hollow points on the dashed lines.</div>'; }); }
+  else if(g==='week'&&k!==3) h.innerHTML+='<div class="hint" style="margin-top:6px">The projection is shown for W3 retention only.</div>';
+  else if(g!=='week') h.innerHTML+='<div class="hint" style="margin-top:6px">The projection for the cohort in its W3 shows in the Year-week view.</div>';
   // plain-language explanation under the chart: "out of 100 sellers", one bar per offer
   const fm=m=>mixLabel(m,'month'), avg100=Math.round(100*C.avg);
   const winTxt=C.win.length?fm(C.win[0])+' to '+fm(C.win[C.win.length-1]):'no complete months yet';
