@@ -1402,13 +1402,24 @@ function mixLabel(k,g){
   if((g||mixSt.grain)==='week') return k;
   const [y,m]=k.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+' '+y;
 }
+// Segment labels for the mix card. In the offer split, NA (explicitly no offer) and No offer recorded
+// (offer field blank) are one segment (owner, 2026-10-30); segIdx maps a raw offer index onto it.
+function mixSegs(){
+  const raw=(window.MIXL||{})[mixSt.by]||[];
+  const na=raw.indexOf('NA'), nr=raw.indexOf('No offer recorded');
+  if(mixSt.by!=='of'||na<0||nr<0) return {L:raw, segIdx:i=>i};
+  const L=[], map=raw.map(()=>-1);
+  raw.forEach((x,i)=>{ if(i===nr) return; map[i]=L.length; L.push(i===na?'NA / no offer recorded':x); });
+  map[nr]=map[na];
+  return {L, segIdx:i=>map[i]};
+}
 function mixData(grain){
-  const D=window.DIAG||[], L=(window.MIXL||{})[mixSt.by]||[], k=mixSt.wk, now=mixNowMon();
+  const D=window.DIAG||[], {L,segIdx}=mixSegs(), k=mixSt.wk, now=mixNowMon();
   const key=(grain||mixSt.grain)==='week'?(d=>d.w):(d=>d.mo);
   const P={};
   D.forEach(d=>{
     const p=key(d); if(!p) return;
-    const seg=d[mixSt.by]; if(seg==null) return;
+    if(d[mixSt.by]==null) return; const seg=segIdx(d[mixSt.by]);
     const o=P[p]||(P[p]={k:p,n:0,ret:0,mature:true,seg:L.map(()=>({n:0,ret:0}))});
     o.n++; const r=(d.sp[k-1]||0)>=3000?1:0; o.ret+=r; o.seg[seg].n++; o.seg[seg].ret+=r;
     if(mixWeeksElapsed(d.w,now)<=k) o.mature=false;
@@ -1514,7 +1525,7 @@ function mixPaint(){
     '<b>Noise band</b>: 95% range of chance movement for two cohorts of these sizes &mdash; a change inside it is called flat. '+
     'Per-'+noun+' cells show retention (coloured when 3+ pp off the period overall), then share of go-lives and n; grey = under '+MIX_MIN_N+' sellers. '+
     (mixSt.by==='of'
-      ? '<b>Offer</b> comes from the seller&rsquo;s most recent Salesforce lead that carries a real offer, normalised as card 11931; if none, the latest lead&rsquo;s value. &ldquo;NA&rdquo; is an offer explicitly recorded as none; &ldquo;No offer recorded&rdquo; means the offer field is blank on every lead the seller has (or, rarely, there is no lead) &mdash; most Nov&ndash;Jan go-lives, and rising again from Aug 2026.'
+      ? '<b>Offer</b> comes from the seller&rsquo;s most recent Salesforce lead that carries a real offer, normalised as card 11931; if none, the latest lead&rsquo;s value. &ldquo;NA / no offer recorded&rdquo; combines NA (an offer explicitly recorded as none) and No offer recorded (the offer field blank on every lead the seller has, or, rarely, no lead) &mdash; most Nov&ndash;Jan go-lives, and rising again from Aug 2026.'
       : '<b>Source</b> is the seller&rsquo;s latest Salesforce lead, normalised as card 11931; &ldquo;No lead&rdquo; means no lead record.');
 }
 // ---- good vs bad offers ----
