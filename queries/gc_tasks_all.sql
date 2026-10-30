@@ -43,17 +43,28 @@ labelled AS (
   END AS task_type
   FROM base WHERE owner != ''
 ),
+rule AS (
+  SELECT *,
+    CASE
+      WHEN task_type='TS SOP Call' THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)      -- fixed 48h
+      WHEN sub_type='seller_callback_primary_task' AND completion_date IS NOT NULL THEN completion_date
+      ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE)
+    END AS rule_ts
+  FROM labelled WHERE task_type IS NOT NULL
+),
 scored AS (
   SELECT *,
     -- the day the task counts on: Callback on the seller's requested day, the rest on creation
     IF(task_type='Callback', DATE(completion_date,'Asia/Kolkata'), DATE(created_at,'Asia/Kolkata')) AS sla_day,
     CASE
       WHEN task_type='Callback'    THEN TIMESTAMP_ADD(completion_date, INTERVAL 120 MINUTE)   -- requested time + 2h grace
-      WHEN task_type='TS SOP Call' THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)      -- fixed 48h
-      WHEN sub_type='seller_callback_primary_task' AND completion_date IS NOT NULL THEN completion_date
-      ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE)
+      -- working-hours extension: the platform pushes Saturday / out-of-hours tasks to the next
+      -- working day 19:00 (Sunday skipped). Honour completion_date when it is 0-48h after the
+      -- rule; larger gaps are reschedules and are ignored.
+      WHEN completion_date > rule_ts AND completion_date <= TIMESTAMP_ADD(rule_ts, INTERVAL 48 HOUR) THEN completion_date
+      ELSE rule_ts
     END AS due_ts
-  FROM labelled WHERE task_type IS NOT NULL
+  FROM rule
 ),
 inwin AS (SELECT s.* FROM scored s CROSS JOIN win WHERE s.sla_day BETWEEN win.d0 AND win.d1),
 -- Callback call evidence, card 11230 / 10771: caller by call_from phone, seller four ways

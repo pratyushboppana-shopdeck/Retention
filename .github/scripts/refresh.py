@@ -798,7 +798,14 @@ scored AS (
   --     matches creation + sla_in_min for only 0.1% of rows (median gap 18.8h). Scoring
   --     it off creation measures the schedule, not the GC.
   --   everything else        -> creation + its own sla_in_min
-  -- completion_date is never EARLIER than creation + sla_in_min anywhere in this data,
+  -- Working-hours extension (GC tasks except Callback): the platform pushes completion_date out
+  -- when a task is raised on a Saturday or out of hours -- to the next working day 19:00,
+  -- Sunday skipped. A pure creation + N clock counts Sunday and the night, so a TS SOP
+  -- raised Sat 01:34 was booked "stuck 14.9h" at 16:31 Mon while its platform due was
+  -- Mon 19:00 (task 1239435). So when completion_date sits AFTER the rule's due by at most
+  -- 48h, the platform date wins. Gaps beyond 48h are reschedules (POC Handover reaches
+  -- 96 days), not a working-hours shift, and are ignored so a GC cannot move their own bar.
+  -- completion_date is never earlier than creation + sla_in_min (gaps there are sub-second),
   -- so this can only ever relax a bar, never tighten one.
   SELECT id, seller_id, role, task, nm, em, task_status, created_at, completed_at, assignee,
     -- Callback is keyed on the day the seller asked to be called, not the day the task was
@@ -807,13 +814,21 @@ scored AS (
     CASE
       WHEN task = 'Callback'
         THEN TIMESTAMP_ADD(completion_date, INTERVAL 120 MINUTE)
+      -- GC tasks only for now: KAM task types (First Pickup, Go-live Call, Churn Call...) carry
+      -- their own completion_date semantics and were not reviewed, so the KAM tab is unchanged.
+      WHEN role = 'GC' AND completion_date > rule_ts AND completion_date <= TIMESTAMP_ADD(rule_ts, INTERVAL 48 HOUR)
+        THEN completion_date
+      ELSE rule_ts
+    END AS due_ts
+  FROM (
+    SELECT *, CASE
       WHEN task = 'TS SOP Call'
         THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)
       WHEN sub_type = 'seller_callback_primary_task' AND completion_date IS NOT NULL
         THEN completion_date
       ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE)
-    END AS due_ts
-  FROM labelled WHERE task IS NOT NULL
+    END AS rule_ts
+    FROM labelled WHERE task IS NOT NULL)
 ),
 called AS (
   SELECT s.id, MAX(IF(c.caller_id IS NULL, 0, 1)) AS met,
@@ -1099,7 +1114,8 @@ def parse_tasksla(csv_text, gc_map=None):
 # The scoring must reproduce TASKSLA_SQL's 'stuck' bucket exactly or the list
 # will not tie out to the KPI above it: stuck = NO completed_at AND past its due
 # timestamp, with TS SOP Call at a fixed 48h and seller_callback_primary_task
-# on the seller's booked completion_date. Callback is excluded outright -- it is
+# on the seller's booked completion_date, then the same working-hours extension
+# (platform completion_date when it is 0-48h later). Callback is excluded outright -- it is
 # scored on call evidence, so it has no 'stuck' state at all -- and so is
 # seller_callback_overdue_sub_task, a rolling 4h escalation alarm bolted onto a
 # primary callback rather than a unit of work (one stalled callback spawned a
@@ -1131,12 +1147,18 @@ lab AS (
     WHEN type='other_request' AND title LIKE '[Post-call]%'         THEN 'Commitment Task'
   END AS task FROM base WHERE role='GC' AND nm != ''
 ),
-sc AS (
+sc0 AS (
   SELECT *, CASE
     WHEN task='TS SOP Call' THEN TIMESTAMP_ADD(created_at, INTERVAL 2880 MINUTE)
     WHEN sub_type='seller_callback_primary_task' AND completion_date IS NOT NULL THEN completion_date
-    ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE) END AS due_ts
+    ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE) END AS rule_ts
   FROM lab WHERE task IS NOT NULL
+),
+sc AS (
+  -- working-hours extension, identical to TASKSLA_SQL's scored CTE
+  SELECT *, IF(completion_date > rule_ts AND completion_date <= TIMESTAMP_ADD(rule_ts, INTERVAL 48 HOUR),
+               completion_date, rule_ts) AS due_ts
+  FROM sc0
 )
 -- kind 0 = stuck: NO completed_at and past due (matches TASKSLA_SQL's cls -- a task carrying a
 --          finish timestamp is on_time or late, never stuck, whatever its status label says)
@@ -1144,7 +1166,9 @@ sc AS (
 SELECT id AS task_id, FORMAT_DATE('%Y-%m-%d', cd) AS d, task, nm, seller_id,
   COALESCE(sname,'') AS sname, sub_type, task_status,
   FORMAT_TIMESTAMP('%Y-%m-%d', due_ts, 'Asia/Kolkata') AS due_d,
+  FORMAT_TIMESTAMP('%H:%M', due_ts, 'Asia/Kolkata') AS due_hm,
   FORMAT_TIMESTAMP('%Y-%m-%d', completed_at, 'Asia/Kolkata') AS done_d,
+  FORMAT_TIMESTAMP('%H:%M', completed_at, 'Asia/Kolkata') AS done_hm,
   IF(completed_at IS NULL, 0, 1) AS kind,
   CAST(ROUND(TIMESTAMP_DIFF(COALESCE(completed_at, CURRENT_TIMESTAMP()), due_ts, MINUTE)) AS INT64) AS over_min
 FROM sc
@@ -1165,8 +1189,10 @@ def parse_stuck(csv_text):
     here too so the two views agree on who exists.
 
     Row = [dayIdx, taskIdx, personIdx, sellerIdx, subIdx, statusIdx, overMin, dueDayIdx, taskId,
-           kind, doneDayIdx]
+           kind, doneDayIdx, dueHM, doneHM]
     kind 0 = stuck (still open past SLA), 1 = completed beyond SLA; doneDayIdx is -1 when open.
+    dueHM / doneHM are 'HH:MM' IST ('' when unknown) so the table can show the clock time --
+    a date-only Due hid that a TS SOP raised 01:34 was due 01:34, not end of day.
 
     taskId is the raw workboard_tasks.id, carried inline rather than indexed: it is
     unique per row, so an index table would be the same bytes plus a lookup.
@@ -1199,7 +1225,9 @@ def parse_stuck(csv_text):
                     si[sid], idx((r.get("sub_type") or "").strip(), subs, bi),
                     STUCK_STATUS.index(st), om,
                     idx(r.get("due_d") or r["d"], days, di), r.get("task_id") or "",
-                    kind, idx(r["done_d"], days, di) if kind and r.get("done_d") else -1])
+                    kind, idx(r["done_d"], days, di) if kind and r.get("done_d") else -1,
+                    (r.get("due_hm") or "").strip(),
+                    (r.get("done_hm") or "").strip() if kind else ""])
     out.sort(key=lambda x: (x[9], -x[6]))
     return {"days": days, "people": people, "tasks": tasks, "sellers": sellers,
             "names": snames, "subs": subs, "status": STUCK_STATUS, "rows": out}
