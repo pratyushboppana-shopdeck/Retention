@@ -9,7 +9,7 @@ Reason buckets follow the agreed framework (cards 11435/11610/12049/12206), prec
 1->7, median cutoffs for performance & RTO. Only rewrites data.json when the data changes.
 """
 import json, os, re, sys, urllib.request, urllib.error, urllib.parse, csv as csvmod, io
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 MB_URL = os.environ.get("METABASE_URL", "https://metabase.kaip.in").rstrip("/")
 EMAIL = os.environ["METABASE_USER_EMAIL"]
@@ -1462,8 +1462,10 @@ def parse_moves(csv_text):
 
 # Day-by-day W3 spend for recent go-live cohorts, for the projected-W3 point on the Offers tab
 # (owner, 2026-10-30): a seller part-way through W3 is projected from how sellers in the same spot
-# (W2 outcome, spend so far by the same day) finished in past cohorts. Same go-live definition and
-# spend source as DIAG_SQL (gc_view_3, first ISO week over Rs 1,000, HIT). dd = day of W3, 0 = Monday.
+# (W2 outcome, spend so far by the same day) finished in past cohorts. Cohorts use DIAG_SQL's go-live
+# (first ISO week over Rs 1,000 in gc_view_3, HIT), but gc_view_3 is one row per seller per WEEK, so the
+# days come from the same daily source the GC & GM queries use: marketing_spends (net of GST) through
+# D-2, live Google / Meta insights for D-1. Today's partial day is left out. dd = day of W3, 0 = Monday.
 W3DAILY_SQL = r"""
 WITH golive AS (
   SELECT seller_id, MIN(start_date) golive_date, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
@@ -1472,23 +1474,29 @@ WITH golive AS (
   HAVING MIN(start_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 150 DAY)
      AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)
 ),
-c AS (SELECT seller_id, gw, DATE_ADD(DATE_TRUNC(golive_date, ISOWEEK), INTERVAL 21 DAY) w3mon FROM golive)
-SELECT c.seller_id, c.gw, DATE_DIFF(v.start_date, c.w3mon, DAY) dd, ROUND(SUM(v.marketing_spend)) sp
-FROM c JOIN nushop.gc_view_3 v ON v.seller_id = c.seller_id
-WHERE v.start_date BETWEEN c.w3mon AND DATE_ADD(c.w3mon, INTERVAL 6 DAY)
+c AS (SELECT seller_id, gw, DATE_ADD(DATE_TRUNC(golive_date, ISOWEEK), INTERVAL 21 DAY) w3mon FROM golive),
+ts AS (
+  SELECT seller_id, DATE(date) d, spend/1.18 sp FROM `nushop.marketing_spends`
+    WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 140 DAY) AND DATE(date) <= DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)
+      AND marketing_channel != 'whatsapp'
+  UNION ALL SELECT seller_id, spend_date, spend FROM `nushop.google_marketing_insights_master`
+    WHERE breakdown_key IS NULL AND spend_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+  UNION ALL SELECT seller_id, DATE(spend_date, "Asia/Kolkata"), spend FROM `fb_marketings.fb_marketing_insights`
+    WHERE breakdown_key IS NULL AND DATE(spend_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 2 DAY)
+      AND DATE(spend_date, "Asia/Kolkata") >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+)
+SELECT c.seller_id, c.gw, DATE_DIFF(t.d, c.w3mon, DAY) dd, ROUND(SUM(t.sp)) sp
+FROM c JOIN ts t ON t.seller_id = c.seller_id
+WHERE t.d BETWEEN c.w3mon AND LEAST(DATE_ADD(c.w3mon, INTERVAL 6 DAY), DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 1 DAY))
 GROUP BY 1,2,3 HAVING sp > 0
 ORDER BY 2,1,3
 """
-# the last day gc_view_3 carries spend for: the projection knows how many W3 days are in
-SPEND_ASOF_SQL = r"""
-SELECT FORMAT_DATE('%Y-%m-%d', MAX(start_date)) d FROM nushop.gc_view_3
-WHERE start_date BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 10 DAY) AND CURRENT_DATE() AND marketing_spend > 0
-"""
 
 
-def parse_w3daily(csv_text, asof_text):
-    """{asof, sellers{seller_id: [gw, [d0..d6]]}} -- day-by-day W3 spend, Rs, Monday first."""
-    asof = (list(csvmod.DictReader(io.StringIO(asof_text))) or [{}])[0].get("d") or ""
+def parse_w3daily(csv_text):
+    """{asof, sellers{seller_id: [gw, [d0..d6]]}} -- day-by-day W3 spend, Rs, Monday first.
+    asof = the last full day the daily source covers: yesterday in IST."""
+    asof = (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30) - timedelta(days=1)).strftime("%Y-%m-%d")
     sellers = {}
     for r in csvmod.DictReader(io.StringIO(csv_text)):
         try:
@@ -1545,7 +1553,7 @@ def main():
         print(f"  ! moves query failed ({e}); the moves card will be empty", file=sys.stderr)
         moves = None
     try:
-        w3daily = parse_w3daily(run_csv(session, W3DAILY_SQL), run_csv(session, SPEND_ASOF_SQL))
+        w3daily = parse_w3daily(run_csv(session, W3DAILY_SQL))
     except Exception as e:                                       # noqa: BLE001
         print(f"  ! W3 daily query failed ({e}); no projected W3 point", file=sys.stderr)
         w3daily = None
