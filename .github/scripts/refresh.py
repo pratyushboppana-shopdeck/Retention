@@ -1460,6 +1460,46 @@ def parse_moves(csv_text):
     return {"moves": MOVES, "from": MOVES_FROM, "days": days, "sellers": sellers, "rows": out}
 
 
+# Day-by-day W3 spend for recent go-live cohorts, for the projected-W3 point on the Offers tab
+# (owner, 2026-10-30): a seller part-way through W3 is projected from how sellers in the same spot
+# (W2 outcome, spend so far by the same day) finished in past cohorts. Same go-live definition and
+# spend source as DIAG_SQL (gc_view_3, first ISO week over Rs 1,000, HIT). dd = day of W3, 0 = Monday.
+W3DAILY_SQL = r"""
+WITH golive AS (
+  SELECT seller_id, MIN(start_date) golive_date, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
+  FROM nushop.gc_view_3 WHERE marketing_spend > 1000 AND team_mapping='HIT'
+  GROUP BY seller_id
+  HAVING MIN(start_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 150 DAY)
+     AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)
+),
+c AS (SELECT seller_id, gw, DATE_ADD(DATE_TRUNC(golive_date, ISOWEEK), INTERVAL 21 DAY) w3mon FROM golive)
+SELECT c.seller_id, c.gw, DATE_DIFF(v.start_date, c.w3mon, DAY) dd, ROUND(SUM(v.marketing_spend)) sp
+FROM c JOIN nushop.gc_view_3 v ON v.seller_id = c.seller_id
+WHERE v.start_date BETWEEN c.w3mon AND DATE_ADD(c.w3mon, INTERVAL 6 DAY)
+GROUP BY 1,2,3 HAVING sp > 0
+ORDER BY 2,1,3
+"""
+# the last day gc_view_3 carries spend for: the projection knows how many W3 days are in
+SPEND_ASOF_SQL = r"""
+SELECT FORMAT_DATE('%Y-%m-%d', MAX(start_date)) d FROM nushop.gc_view_3
+WHERE start_date BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 10 DAY) AND CURRENT_DATE() AND marketing_spend > 0
+"""
+
+
+def parse_w3daily(csv_text, asof_text):
+    """{asof, sellers{seller_id: [gw, [d0..d6]]}} -- day-by-day W3 spend, Rs, Monday first."""
+    asof = (list(csvmod.DictReader(io.StringIO(asof_text))) or [{}])[0].get("d") or ""
+    sellers = {}
+    for r in csvmod.DictReader(io.StringIO(csv_text)):
+        try:
+            dd, sp = int(r["dd"]), int(round(float(r.get("sp") or 0)))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= dd <= 6:
+            sellers.setdefault(r["seller_id"], [r["gw"], [0] * 7])[1][dd] += sp
+    return {"asof": asof, "sellers": sellers}
+
+
 NO_GOLIVE_GC = "No go-live GC"
 
 
@@ -1504,6 +1544,11 @@ def main():
     except Exception as e:                                       # noqa: BLE001
         print(f"  ! moves query failed ({e}); the moves card will be empty", file=sys.stderr)
         moves = None
+    try:
+        w3daily = parse_w3daily(run_csv(session, W3DAILY_SQL), run_csv(session, SPEND_ASOF_SQL))
+    except Exception as e:                                       # noqa: BLE001
+        print(f"  ! W3 daily query failed ({e}); no projected W3 point", file=sys.stderr)
+        w3daily = None
     tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))
     _gc = tasksla["roles"].get("GC", {})
     _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
@@ -1512,7 +1557,7 @@ def main():
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "offers": OFFERS, "sources": SOURCES, "gcgm": gcgm, "gcgmSellers": gcgms, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
                "stuck": stuck,
-               "prelive": prelive, "moves": moves}
+               "prelive": prelive, "moves": moves, "w3daily": w3daily}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -1525,7 +1570,8 @@ def main():
                 and old.get("taskSla") == payload["taskSla"]
                 and old.get("stuck") == payload["stuck"]
                 and old.get("prelive") == payload["prelive"]
-                and old.get("moves") == payload["moves"]):
+                and old.get("moves") == payload["moves"]
+                and old.get("w3daily") == payload["w3daily"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
