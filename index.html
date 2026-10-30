@@ -1559,7 +1559,7 @@ const GB_LAB={good:'Good offers',bad:'Bad offers',unclear:'Not yet clear',none:'
 // spend so far by the same day of W3 (0 / under 1k / 1-2k / 2-3k). Past = the last 12 cohorts whose
 // W3 is complete; a cell under 30 sellers falls back to every offer group. Day-by-day spend comes from
 // W3D (refresh.py W3DAILY_SQL); the final outcome is the usual W3 >= Rs 3k from gc_view_3.
-// The 80% range is the spread of the seller-level probabilities; the backtest replays the same
+// The 80% range combines the spread of the seller-level probabilities with the backtest error; the backtest replays the same
 // method on the last 8 complete cohorts at the same day of the week.
 const W3P_TRAIN=12, W3P_TEST=8, W3P_MIN=30;
 function w3Proj(C){
@@ -1596,6 +1596,9 @@ function w3Proj(C){
     done.slice(-W3P_TEST).forEach(t=>{ const i=done.indexOf(t), tr=done.slice(Math.max(0,i-W3P_TRAIN),i); if(tr.length<6) return;
       const r=run(t,K,tr); Object.entries(r).forEach(([g,o])=>{ if(o.n<MIX_MIN_N) return; (err[g]=err[g]||[]).push(Math.abs(o.rate-o.act/o.n)); }); });
     Object.keys(err).forEach(g=>{ const e=err[g]; err[g]=e.reduce((a,b)=>a+b,0)/e.length; });
+    // the seller-level spread alone ran narrow in the backtest (6-8 of 10 inside early in the week),
+    // so the range also carries the method's own error: a mean absolute error m is ~1.25m as an sd
+    Object.entries(pr).forEach(([g,o])=>{ const m=err[g]; if(m!=null) o.half=1.2816*Math.sqrt(o.v/(o.n*o.n)+Math.pow(1.25*m,2)); });
     return {w,K,pr,err};
   });
   return {asof:W.asof,res};
