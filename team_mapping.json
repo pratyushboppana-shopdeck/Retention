@@ -1,6 +1,6 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-11-05",
+ "fetched": "2026-11-06",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
@@ -18,6 +18,13 @@
   "tanaya rajkumar gore": "tanaya gore"
  },
  "rows": [
+  {
+   "gc": "Mannat Chawla",
+   "gm": "#N/A",
+   "cl": "#N/A",
+   "role": "1-5K GL",
+   "active": true
+  },
   {
    "gc": "Pridhi s",
    "gm": "Sagar Sharma",
@@ -229,6 +236,13 @@
    "active": true
   },
   {
+   "gc": "Aarushi Kumar",
+   "gm": "Rebecca Raechel Anil",
+   "cl": "Jivraj K",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
    "gc": "MANISH GUPTA",
    "gm": "Sahana Rajesh",
    "cl": "Jivraj K",
@@ -320,13 +334,6 @@
    "active": true
   },
   {
-   "gc": "Priyanshu Raj",
-   "gm": "Aastha Jha",
-   "cl": "Pratiksha Y",
-   "role": "1-5K GL",
-   "active": true
-  },
-  {
    "gc": "Sankhajit Ghosh",
    "gm": "Aastha Jha",
    "cl": "Pratiksha Y",
@@ -355,17 +362,24 @@
    "active": true
   },
   {
-   "gc": "SHRADHA KUMARI",
-   "gm": "Aastha Jha",
+   "gc": "Jatin Kuchhal",
+   "gm": "Aitesam Khan",
+   "cl": "Pratiksha Y",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Priyanshu Raj",
+   "gm": "Aitesam Khan",
    "cl": "Pratiksha Y",
    "role": "1-5K GL",
    "active": true
   },
   {
-   "gc": "Jatin Kuchhal",
+   "gc": "SHRADHA KUMARI",
    "gm": "Aitesam Khan",
    "cl": "Pratiksha Y",
-   "role": "Core GC",
+   "role": "1-5K GL",
    "active": true
   },
   {
@@ -405,13 +419,6 @@
   },
   {
    "gc": "Saurabh Kumar",
-   "gm": "Aniket Bhujang",
-   "cl": "Pratiksha Y",
-   "role": "1-5K GL",
-   "active": true
-  },
-  {
-   "gc": "Mannat Chawla",
    "gm": "Aniket Bhujang",
    "cl": "Pratiksha Y",
    "role": "1-5K GL",
@@ -601,13 +608,6 @@
   },
   {
    "gc": "Pushp Raj",
-   "gm": "Aakash Aakash",
-   "cl": "Roopesh B",
-   "role": "1-5K GL",
-   "active": true
-  },
-  {
-   "gc": "Aarushi Kumar",
    "gm": "Aakash Aakash",
    "cl": "Roopesh B",
    "role": "1-5K GL",
