@@ -437,6 +437,50 @@
   .dgrid>div{padding:4px 0;border-bottom:1px solid #efeee7;}
   .dgrid .hd{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;border-bottom:0;}
   .dgrid .r{text-align:right;}
+  /* ===== Summary tab ===== */
+  .tab[data-view="summary"] {--t:#eef2f8;--tA:#d5def0;--tI:#24395f;}
+  #sumCard{display:none;}
+  .sum-intro{font-size:12.5px;color:var(--muted);line-height:1.6;max-width:120ch;margin:2px 0 12px;}
+  .sum-intro b{color:#2e3129;}
+  .sum-kpis{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px;}
+  .sum-kpi{flex:1 1 170px;background:#fbfaf5;border:1px solid var(--line);border-radius:10px;padding:9px 13px;}
+  .sum-kpi .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;}
+  .sum-kpi .v{font-size:20px;font-weight:700;letter-spacing:-.01em;}
+  .sum-kpi .s{font-size:11.5px;color:var(--muted);}
+  .sumwrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:78vh;}
+  table.sumtab{border-collapse:separate;border-spacing:0;font-size:12px;min-width:100%;}
+  table.sumtab th,table.sumtab td{padding:5px 7px;border-bottom:1px solid #ecebe3;white-space:nowrap;}
+  table.sumtab thead th{position:sticky;top:0;z-index:3;background:#f3f2ea;color:#3d4036;font-size:10.5px;font-weight:700;
+    border-bottom:1px solid var(--line);text-align:center;vertical-align:bottom;}
+  table.sumtab thead th small{display:block;font-weight:500;color:var(--faint);font-size:10px;}
+  table.sumtab th.c-l2,table.sumtab td.c-l2{position:sticky;left:0;z-index:2;background:#fff;width:150px;min-width:150px;max-width:150px;
+    white-space:normal;font-size:11.5px;color:#3d4036;font-weight:600;vertical-align:top;border-right:1px solid #ecebe3;}
+  table.sumtab th.c-m,table.sumtab td.c-m{position:sticky;left:150px;z-index:2;background:#fff;min-width:270px;max-width:330px;
+    white-space:normal;border-right:1px solid var(--line);}
+  table.sumtab thead th.c-l2,table.sumtab thead th.c-m{z-index:4;background:#f3f2ea;text-align:left;}
+  table.sumtab td.c-m .mdef{display:block;font-size:10.5px;color:var(--faint);line-height:1.35;margin-top:1px;}
+  table.sumtab td.c-m .sel{font-size:10px;color:#8a5a12;font-weight:650;}
+  table.sumtab td.c-sz{text-align:center;color:var(--muted);font-size:11px;vertical-align:top;}
+  table.sumtab td.wk{text-align:center;font-variant-numeric:tabular-nums;min-width:50px;}
+  table.sumtab td.wk.part{color:#9a9d92;font-style:italic;}
+  table.sumtab td.wk.na{color:#c7c8c0;}
+  table.sumtab td.tr,table.sumtab td.imp,table.sumtab td.gap{text-align:right;font-variant-numeric:tabular-nums;min-width:70px;}
+  table.sumtab td.tr{border-left:1px solid var(--line);}
+  table.sumtab th.wk0,table.sumtab td.wk0{border-left:2px solid #d9d8cf;}
+  table.sumtab tr.lever td{background:#eef2f8;font-weight:700;font-size:12.5px;color:#24395f;border-top:2px solid #d5def0;
+    position:sticky;left:0;}
+  table.sumtab tr.lever td .lsz{font-weight:600;font-size:11px;color:#55607a;margin-left:8px;}
+  table.sumtab tr.lever td .lnote{font-weight:500;font-size:11px;color:#55607a;margin-left:10px;}
+  table.sumtab tr.key td.c-m{font-weight:700;}
+  table.sumtab tr:hover td.wk,table.sumtab tr:hover td.c-m{background-color:#faf9f3;}
+  .sum-up{color:#1f6b45;font-weight:700;} .sum-dn{color:#b0322b;font-weight:700;} .sum-flat{color:var(--muted);}
+  .sumleg{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--muted);margin:10px 0 2px;}
+  .sumleg i{display:inline-block;width:22px;height:11px;border-radius:3px;vertical-align:middle;margin-right:5px;}
+  .sumdefs{font-size:12px;color:#3d4036;line-height:1.55;margin-top:12px;}
+  .sumdefs summary{cursor:pointer;font-weight:650;}
+  .sumdefs table{border-collapse:collapse;margin-top:8px;font-size:11.5px;}
+  .sumdefs td,.sumdefs th{border-bottom:1px solid #ecebe3;padding:4px 8px;vertical-align:top;text-align:left;}
+  .sumdefs th{background:#f3f2ea;font-size:10.5px;}
 </style>
 </head>
 <body>
@@ -448,6 +492,7 @@
   <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point</b> to see why those sellers didn&rsquo;t retain that week. Auto-synced from Metabase once daily (~10&nbsp;AM IST).</p>
 
   <div class="tabs" id="tabs">
+    <button class="tab" type="button" data-view="summary">Summary</button>
     <button class="tab active" type="button" data-view="curve">Retention curve</button>
     <button class="tab" type="button" data-view="offers">Offers</button>
     <button class="tab" type="button" data-view="clsc">CL scorecard</button>
@@ -455,6 +500,29 @@
     <button class="tab" type="button" data-view="unassign">Unassignments &amp; moves</button>
     <button class="tab" type="button" data-view="slaGC">GC task SLA</button>
     <button class="tab" type="button" data-view="slaKAM">KAM task SLA</button>
+  </div>
+
+  <div class="card" id="sumCard">
+    <div class="fl-row" style="margin:0 0 6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="drill-h3" style="margin:0 auto 0 0">Summary &mdash; every PFS lever, week by week
+        <span class="hint" style="font-weight:500;color:var(--faint)">&mdash; core GC go-lives (card 12101), by go-live ISO week</span></div>
+      <span class="slaseg" id="sumRange">
+        <button type="button" data-v="12">Last 12 weeks</button>
+        <button type="button" data-v="all" class="on">All weeks</button>
+      </span>
+      <button class="gcexp" id="sumCsv" type="button">Download CSV &#8595;</button>
+    </div>
+    <div class="sum-intro" id="sumIntro"></div>
+    <div class="sum-kpis" id="sumKpis"></div>
+    <div class="sumwrap"><table class="sumtab" id="sumTable"></table></div>
+    <div class="sumleg">
+      <span><i style="background:#cfe8d8"></i>better than this metric's usual week</span>
+      <span><i style="background:#f6d6cf"></i>worse than usual</span>
+      <span><i style="background:#fff;border:1px dashed #c7c8c0"></i><span style="font-style:italic;color:#9a9d92">grey italic</span> = window not complete yet (will move)</span>
+      <span><b class="sum-up">&#9650;</b>/<b class="sum-dn">&#9660;</b> trend = last 4 complete weeks vs the 4 before, coloured by whether that is good</span>
+    </div>
+    <footer id="sumFoot"></footer>
+    <details class="sumdefs" id="sumDefs"><summary>How each metric is measured, and the cut used for the W3 gap</summary><div id="sumDefsBody"></div></details>
   </div>
 
   <div class="card" id="clCard" style="display:none">
@@ -1281,6 +1349,7 @@ async function load(){
     setStamp(snap.generated_at);
     STUCK=snap.stuck||null;
     PRELIVE=snap.prelive||null;
+    SUMM=snap.summary||null;
     const rows=parseCSV(csv);
     buildWeMap(rows);
     const groups=rollup(rows,OPTS);
@@ -2200,6 +2269,230 @@ document.getElementById('dlCsv').addEventListener('click',()=>{
   saveCsv(('not_retained_'+CURDRILL.label+'_W'+(CURDRILL.wk+1)).replace(/[^a-z0-9]+/gi,'_')+'.csv', csv);
 });
 
+// ===== Summary tab: every PFS lever / L2 as metric rows x go-live ISO week (core GC go-lives) =====
+// Data: snap.summary from refresh.py's three SUMMARY_*_SQL queries. Per metric and go-live week:
+// [num, den, nw, rw, nwo, rwo] -- value = num/den; nw/rw (nwo/rwo) = W3-mature sellers in the metric's
+// good (bad) state and how many of them were W3-retained. The W3 gap compares the two WITHIN each week
+// and then weights the weeks, so a week with a different mix cannot manufacture a gap.
+let SUMM=null; const sumSt={range:'all'};
+// f: pct (num/den as %), avg (num/den), int (num), pp (num), day (num/den, days)
+// dir: +1 higher is better, -1 lower is better, 0 context only. win: the cohort must be past this
+// relative week before the value is final. sel: the metric mostly tracks how ACTIVE a seller is
+// (active sellers raise more tickets, get more calls), so its W3 gap is not a lever estimate.
+const SUM_M={
+  o_n:{l:'Core GC go-lives',f:'int',dir:0,win:0,d:'Sellers whose GC on the go-live date (seller_poc_timeline) is a core GC in card 12101.'},
+  o_w1:{l:'W1 retention',f:'pct',dir:1,win:1,d:'Spent ₹3,000+ in week 1 after go-live.'},
+  o_w2:{l:'W2 retention',f:'pct',dir:1,win:2,d:'Spent ₹3,000+ in week 2.'},
+  o_w3:{l:'W3 retention',f:'pct',dir:1,win:3,key:1,d:'Spent ₹3,000+ in week 3 — the outcome every lever below is judged against.'},
+  o_c12:{l:'W1 → W2 continuation',f:'pct',dir:1,win:2,d:'Of sellers at ₹3k+ in W1, the share still at ₹3k+ in W2 — the cliff the check-in cadence targets.'},
+  o_c23:{l:'W2 → W3 continuation',f:'pct',dir:1,win:3,d:'Of sellers at ₹3k+ in W2, the share still at ₹3k+ in W3.'},
+  g_pl:{l:'Pre-live video call joined by the seller',f:'pct',dir:1,win:0,from:'2026-W34',fromNote:'pre-live video calls launched 25 Aug',d:'Share of go-lives where the seller joined a pre_live_call video session (session data from 20 Aug, so go-live weeks from W34).',cut:'joined'},
+  g_plq:{l:'Pre-live call quality score (0–100)',f:'avg',dir:1,win:0,d:'final_score of scored pre-live call recordings (card 15559), averaged over sellers with a score. Only about 40% of sellers have a scored call so far, so read the W3 gap with care.',cut:'score ≥ 40'},
+  g_sla:{l:'GC task SLA adherence, W0–W2',f:'pct',dir:1,win:2,d:'GC tasks on the seller in days 0–20 (seller callbacks, check-ins, TS SOP, POC handover, call commitments) done inside SLA. Due times as on the GC task SLA tab.',cut:'every task on time'},
+  g_cb:{l:'Seller-requested callbacks done in SLA',f:'pct',dir:1,win:2,d:'Seller-requested and scheduled callbacks in days 0–20 closed by the requested time + 2h. Judged on task closure, not call evidence (card 11230 uses calls).',cut:'every callback on time'},
+  g_w1call:{l:'Connected GC call in W1 (day 7–13)',f:'pct',dir:1,win:1,d:'Share of sellers with at least one connected call from a GC in the W1 → W2 window (exotel_call_details, caller = GC).',cut:'≥1 connected call'},
+  g_chk:{l:'W1–W2 check-in call done on time',f:'pct',dir:1,win:2,from:'2026-W33',fromNote:'check-in tasks were not live for this cohort',d:'Share of sellers with an early_retention_call (check-in) task in days 7–20 closed inside SLA. Check-in tasks started with the W33 cohort.',cut:'check-in done on time'},
+  g_conn:{l:'Connected GC calls per seller, W0–W2',f:'avg',dir:1,win:2,sel:1,d:'Connected GC calls in days 0–20, per seller.',cut:'≥ 10 connected calls'},
+  g_q:{l:'GC call quality — seller satisfaction (0–100)',f:'avg',dir:1,win:2,d:'call_quality_score.seller_satisfaction on connected GC calls in days 0–20 (unscored calls left out).',cut:'average ≥ 65'},
+  g_gcchg:{l:'Core GC changed in W0–W3',f:'pct',dir:-1,win:3,d:'Share of sellers moved from their go-live GC to another CORE GC within days 7–27. Moves to revival / hypercare GCs are left out — they follow a pause rather than cause it.',cut:'no GC change'},
+  g_poc:{l:'POC handover tasks done in SLA',f:'pct',dir:1,win:3,d:'GC seller_poc_handover tasks in days 0–27 closed inside SLA.',cut:'every handover task on time'},
+  g_com:{l:'Call commitments logged as tasks',f:'pct',dir:1,win:2,d:'Share of sellers with at least one “[Post-call]” commitment task created in days 0–20.',cut:'≥1 commitment task'},
+  g_comok:{l:'Commitment tasks closed in SLA',f:'pct',dir:1,win:2,d:'“[Post-call]” commitment tasks in days 0–20 closed inside SLA.',cut:'every commitment on time'},
+  k_glc:{l:'KAM go-live / training call done by W1',f:'pct',dir:1,win:1,d:'Share of go-lives with a completed go_live_call task by day 13. The task has only run in bursts (W35–W38, W44).',cut:'call done'},
+  k_dash:{l:'Dashboard training / issue tickets raised',f:'pct',dir:-1,win:3,sel:1,d:'Share of sellers with an account_dashboard ticket of type dashboard training / query / not working in days 0–27.',cut:'no such ticket'},
+  k_sla:{l:'KAM-ops task SLA adherence, W0–W2',f:'pct',dir:1,win:2,sel:1,d:'Tasks in days 0–20 assigned to KAMs, KAM ops managers and seller-management experts (most KAM-side tickets sit with the last two), closed inside SLA. Churn-processing tasks are left out — they are work on sellers already leaving.',cut:'every task on time'},
+  k_rep:{l:'Repeat ticket — same issue raised again',f:'pct',dir:-1,win:3,sel:1,d:'Share of sellers with the same ticket sub-type raised 2+ times in days 0–27 (dashboard, catalogue, shipping, finance, ad account, performance).',cut:'no repeat ticket'},
+  k_esc:{l:'SOS / leadership escalation raised',f:'pct',dir:-1,win:3,sel:1,d:'Share of sellers with an SOS (seller_app_requests) or leadership_support_escalation ticket in days 0–27.',cut:'no escalation'},
+  k_fin:{l:'Finance / remittance ticket raised',f:'pct',dir:-1,win:3,sel:1,d:'Share of sellers with a finance_payments ticket in days 0–27.',cut:'no finance ticket'},
+  k_web:{l:'Website / catalogue tickets closed in 48h',f:'pct',dir:1,win:3,d:'catalogue_website and catalogue tickets raised in days 0–27 completed within 48 hours.',cut:'every ticket in 48h'},
+  k_pg:{l:'Payment-gateway ticket around go-live',f:'pct',dir:-1,win:3,d:'Share of sellers with a payment_gateway_integration_in_website ticket from 14 days before to 27 days after go-live — PG not ready at handover.',cut:'no PG ticket'},
+  a_blk:{l:'Ad-account / BM block ticket, W0–W2',f:'pct',dir:-1,win:2,d:'Share of sellers with a blocking ticket (ad account blocked / suspended, BM restricted, page / pixel issues) in days 0–20.',cut:'no block ticket'},
+  a_48:{l:'Block tickets resolved within 48h',f:'pct',dir:1,win:2,d:'Block tickets raised in days 0–20 completed within 48 hours.',cut:'every block cleared in 48h'},
+  a_open:{l:'Blocked sellers still unresolved at end of W3',f:'pct',dir:-1,win:3,d:'Of sellers with a block ticket in days 0–20, the share whose ticket was not completed by day 27.',cut:'resolved by W3'},
+  t_cov:{l:'TS coverage — TS SOP call or Auto TS run, W0–W2',f:'pct',dir:1,win:2,sel:1,d:'Share of sellers with a TS SOP call task in days 0–20 or an Auto TS record that had run by day 20.',cut:'covered'},
+  t_sla:{l:'TS SOP calls done within 48h',f:'pct',dir:1,win:2,d:'TS SOP call tasks in days 0–20 closed within 48 hours — the explain-the-change call.',cut:'every TS SOP call in 48h'},
+  t_auto:{l:'Sellers in the Auto TS arm',f:'pct',dir:0,win:0,d:'Share of sellers whose latest auto_ts_sellers record puts them in the Auto arm (context — Auto vs Manual is a wash on W3).',cut:'Auto arm'},
+  t_gciqr:{l:'Spread of W3 retention across core GCs',f:'pp',dir:-1,win:3,d:'Interquartile range (pp) of W3 retention across core GCs with 5+ go-lives, over this go-live week and the 3 before it. Should narrow as GCs are certified on rebuttals.'},
+  p_d01:{l:'Shipments picked up D0 / D1',f:'pct',dir:1,win:2,d:'AWBs from orders placed in days 0–20 picked up on the AWB day or the next (tpl_master_data, card 12211).',cut:'≥ 70% D0/D1'},
+  p_lag:{l:'Label lag — order to AWB (days)',f:'day',dir:-1,win:2,d:'Average days from order to AWB on orders in days 0–20 — the seller’s own shipping leg.',cut:'≤ 1 day'},
+  p_shipt:{l:'Shipping / pickup ticket raised',f:'pct',dir:-1,win:3,sel:1,d:'Share of sellers with a shipping operations / dispute / shipping-issue ticket in days 0–27 (first-pickup follow-ups left out).',cut:'no shipping ticket'},
+  p_ship48:{l:'Shipping tickets closed within 48h',f:'pct',dir:1,win:3,d:'Shipping tickets raised in days 0–27 completed within 48 hours — the dispute-closure SLA.',cut:'every ticket in 48h'},
+  z_zero:{l:'Zero orders in W0–W1',f:'pct',dir:-1,win:1,d:'Share of sellers with no valid order in days 0–13 (orderitems basis).',cut:'≥1 order'},
+  z_sgmv:{l:'Meta spend ÷ GMV, W0–W2 (S/GMV)',f:'pct',dir:-1,win:2,d:'Meta spend over GMV of valid orders, days 0–20, pooled across the cohort.',cut:'S/GMV ≤ 35%'},
+  z_rto:{l:'RTO % of orders, W0–W3',f:'pct',dir:-1,win:3,d:'RTOs ÷ orders over weeks 0–3 (gc_view_3).',cut:'RTO ≤ 40%'},
+  l_bad:{l:'Go-lives on bad offers (5K+5K, 2K+5K)',f:'pct',dir:-1,win:0,d:'Offer from the dashboard lead rule (latest lead with a real offer).',cut:'not on a bad offer'},
+  l_none:{l:'Go-lives with no offer / NA / blank',f:'pct',dir:0,win:0,d:'No real offer on any lead — NA, blank or no lead.'},
+  l_w3good:{l:'W3 retention — good offers + no offer',f:'pct',dir:1,win:3,d:'W3 retention of sellers not on a bad offer (good offers, NA, blank, other).'},
+  l_w3bad:{l:'W3 retention — bad offers',f:'pct',dir:1,win:3,d:'W3 retention of sellers on 5K+5K or 2K+5K.'},
+  l_c12good:{l:'W1 → W2 continuation — good + no offer',f:'pct',dir:1,win:2,d:'W1 → W2 continuation for sellers not on a bad offer.'},
+  l_c12bad:{l:'W1 → W2 continuation — bad offers',f:'pct',dir:1,win:2,d:'W1 → W2 continuation for 5K+5K / 2K+5K sellers — the cliff where the one-time credit runs out.'},
+  l_fos:{l:'Go-lives from FOS',f:'pct',dir:-1,win:0,d:'Latest Salesforce lead source = FOS (field sales).',cut:'not FOS'}
+};
+// PFS tab of "W3 Retention PFS - Program Plan": problem area -> L2 -> metrics. Sizing as written there.
+const SUM_LEVERS=[
+  {n:'W3 retention — outcome',note:'what the levers below move',g:[{l2:'Core GC funnel',m:['o_n','o_w1','o_w2','o_w3','o_c12','o_c23']}]},
+  {n:'1 · GC servicing',sz:'4pp',g:[
+    {l2:'Pre-live call / expectation setting',sz:'2pp',m:['g_pl','g_plq']},
+    {l2:'No SLA',sz:'4pp',m:['g_sla','g_cb']},
+    {l2:'Responsiveness / no check-in',sz:'2.4pp',m:['g_w1call','g_chk','g_conn','g_q']},
+    {l2:'Hand-offs',sz:'2.8pp',m:['g_gcchg','g_poc']},
+    {l2:'Promises → no fulfilment',m:['g_com','g_comok']}]},
+  {n:'2 · KAM ops',sz:'4pp',g:[
+    {l2:'Dashboard unawareness',sz:'1pp',m:['k_glc','k_dash']},
+    {l2:'Responsiveness',sz:'3.7pp',m:['k_sla']},
+    {l2:'Solution quality',sz:'2pp',m:['k_rep','k_esc']},
+    {l2:'Remittance clarity',m:['k_fin']},
+    {l2:'Website / listing ticket delays',m:['k_web']},
+    {l2:'Payment gateway errors',m:['k_pg']}]},
+  {n:'3 · Ad-account issues',sz:'3pp',g:[
+    {l2:'No clarity / no timeline on blocks',sz:'3pp',m:['a_blk','a_48','a_open']}]},
+  {n:'4 · TS explainability',sz:'5.3pp',g:[
+    {l2:'Strategy understanding & cadence',sz:'5.3pp',m:['t_cov','t_sla','t_auto']},
+    {l2:'Rebuttals (GC capability)',m:['t_gciqr']}]},
+  {n:'5 · Pickup issues',sz:'2.6pp',g:[
+    {l2:'Resolution & pickup expectations',sz:'2.6pp',m:['p_d01','p_lag','p_shipt','p_ship48']}]},
+  {n:'6 · W0–W1 zero / low GMV',sz:'2.6pp',g:[
+    {l2:'Early profitability',sz:'2.6pp',m:['z_zero','z_sgmv','z_rto']}]},
+  {n:'7 · Lead offer & intent',sz:'2pp',g:[
+    {l2:'Offers',sz:'2.1pp',m:['l_bad','l_none','l_w3good','l_w3bad','l_c12good','l_c12bad']},
+    {l2:'FOS expectation mismatch',m:['l_fos']}]}
+];
+function sumVal(m,c){
+  if(!c) return null; const D=SUM_M[m]; const num=c[0], den=c[1];
+  if(D.f==='int'||D.f==='pp') return num;
+  return den>0?num/den:null;
+}
+function sumFmt(m,v){
+  if(v==null) return '–'; const f=SUM_M[m].f;
+  if(f==='pct') return (100*v).toFixed(1)+'%';
+  if(f==='int') return Math.round(v).toLocaleString();
+  if(f==='pp') return v.toFixed(0)+'pp';
+  if(f==='day') return v.toFixed(2)+'d';
+  return v.toFixed(1);
+}
+function sumDelta(m,a,b){             // a = recent, b = prior
+  if(a==null||b==null) return {txt:'–',cls:'sum-flat'};
+  const D=SUM_M[m]; let d=a-b, txt;
+  if(D.f==='pct'){d*=100; txt=(d>=0?'+':'')+d.toFixed(1)+'pp';}
+  else if(D.f==='int') txt=(d>=0?'+':'')+Math.round(d);
+  else if(D.f==='day') txt=(d>=0?'+':'')+d.toFixed(2)+'d';
+  else txt=(d>=0?'+':'')+d.toFixed(1);
+  const thr=D.f==='pct'?1:(D.f==='day'?0.05:(D.f==='int'?0:1));
+  const flat=Math.abs(d)<=thr, arrow=flat?'':(d>0?'▲ ':'▼ ');
+  const cls=(!D.dir||flat)?'sum-flat':(D.dir*d>0?'sum-up':'sum-dn');
+  return {txt:arrow+txt,cls};
+}
+function sumPool(m,weeks){            // pooled value over weeks (sum num / sum den)
+  const R=SUMM.rows[m]||{}; let num=0,den=0,k=0;
+  weeks.forEach(w=>{const c=R[w]; if(c){num+=c[0]; den+=c[1]; k++;}});
+  if(!k) return null;
+  const f=SUM_M[m].f;
+  if(f==='int'||f==='pp') return num/k;     // average per week
+  return den>0?num/den:null;
+}
+// W3 gap: good-state minus bad-state W3 retention within each W3-mature week, weighted n1*n0/(n1+n0)
+function sumGap(m,weeks){
+  const R=SUMM.rows[m]||{}; let s=0,wt=0,n1=0,n0=0;
+  weeks.forEach(w=>{const c=R[w]; if(!c) return; const nw=c[2],rw=c[3],nwo=c[4],rwo=c[5];
+    if(nw>=5&&nwo>=5){const x=nw*nwo/(nw+nwo); s+=x*(rw/nw-rwo/nwo); wt+=x; n1+=nw; n0+=nwo;}});
+  return wt?{gap:100*s/wt,n1,n0}:null;
+}
+function sumShare(m,weeks){           // share of W3-mature sellers in the good state
+  const R=SUMM.rows[m]||{}; let a=0,b=0;
+  weeks.forEach(w=>{const c=R[w]; if(c){a+=c[2]; b+=c[2]+c[4];}});
+  return b>=20?a/b:null;
+}
+function sumTint(m,v,vals){           // shade by where v sits among this row's complete weeks
+  const D=SUM_M[m]; if(v==null||!D.dir||vals.length<4) return '';
+  const lo=Math.min(...vals), hi=Math.max(...vals); if(hi-lo<1e-9) return '';
+  let t=(v-lo)/(hi-lo); if(D.dir<0) t=1-t;      // 1 = best week, 0 = worst
+  const x=(t-0.5)*2;
+  if(Math.abs(x)<0.15) return '';
+  const a=Math.min(1,Math.abs(x));
+  return x>0?`background:rgba(47,138,88,${(0.10+0.32*a).toFixed(2)})`:`background:rgba(208,84,62,${(0.08+0.30*a).toFixed(2)})`;
+}
+function buildSummary(){
+  const T=document.getElementById('sumTable');
+  if(!SUMM||!SUMM.rows){ T.innerHTML='<tr><td style="padding:20px">The summary is not in this snapshot yet — it appears after the next refresh.</td></tr>'; return; }
+  const all=SUMM.weeks.slice().sort();
+  const weeks=sumSt.range==='all'?all:all.slice(-12);
+  const we=SUMM.we||{}, N=SUMM.n||{};
+  const live=(m,w)=>!SUM_M[m].from||w>=SUM_M[m].from;             // the process existed for this cohort
+  const done=(m,w)=>live(m,w)&&(we[w]||0)>SUM_M[m].win;      // ...and the metric's window has fully passed
+  const m3=weeks.filter(w=>(we[w]||0)>3);           // W3-mature weeks in view
+  const recent=m=>{const ws=weeks.filter(w=>done(m,w)); return {a:ws.slice(-4), b:ws.slice(-8,-4)};};
+  const lab=w=>w.replace(/^\d{4}-/,'');
+  let h='<thead><tr><th class="c-l2">Problem area &middot; L2</th><th class="c-m">Metric</th><th>PFS<br>sizing</th>'+
+    '<th title="Last 4 complete weeks vs the 4 before, pooled">Trend<small>last 4 vs prior 4</small></th>'+
+    '<th title="W3 retention of sellers in the metric’s good state minus the rest, compared within each W3-complete go-live week and then weighted. An association, not proof of cause.">W3 gap<small>good vs bad state</small></th>'+
+    '<th title="W3 gap × change in the share of sellers in the good state (last 4 W3-complete weeks vs the 4 before): what the metric’s movement is worth IF the gap were causal. Blank for activity-driven rows.">Implied ΔW3<small>from the trend</small></th>'+
+    weeks.map((w,i)=>`<th class="${i===0?'wk0':''}" title="go-live week ${w} · ${N[w]||0} core GC go-lives">${lab(w)}<small>${N[w]||''}</small></th>`).join('')+
+    '</tr></thead><tbody>';
+  const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+  const csv=[['problem_area','l2','pfs_sizing','metric'].concat(weeks).concat(['trend_last4_vs_prior4','w3_gap_pp','implied_w3_pp']).map(q).join(',')];
+  SUM_LEVERS.forEach(L=>{
+    h+=`<tr class="lever"><td colspan="${weeks.length+6}">${esc(L.n)}${L.sz?`<span class="lsz">PFS sizing ${esc(L.sz)}</span>`:''}${L.note?`<span class="lnote">${esc(L.note)}</span>`:''}</td></tr>`;
+    L.g.forEach(G=>{
+      G.m.forEach((m,i)=>{
+        const D=SUM_M[m]; if(!D) return; const R=SUMM.rows[m]||{};
+        const vals=weeks.filter(w=>done(m,w)).map(w=>sumVal(m,R[w])).filter(v=>v!=null);
+        const rc=recent(m), va=sumPool(m,rc.a), vb=rc.b.length>=2?sumPool(m,rc.b):null, dl=sumDelta(m,va,vb);
+        const m3l=m3.filter(w=>live(m,w));
+        const gp=D.cut?sumGap(m,m3l):null;
+        const sa=sumShare(m,m3l.slice(-4)), sb=m3l.length>=8?sumShare(m,m3l.slice(-8,-4)):null;
+        const imp=(gp&&!D.sel&&sa!=null&&sb!=null)?gp.gap*(sa-sb):null;   // pp of W3
+        h+=`<tr class="${D.key?'key':''}">`;
+        if(i===0) h+=`<td class="c-l2" rowspan="${G.m.length}">${esc(G.l2)}</td>`;
+        h+=`<td class="c-m" title="${esc(D.d)}">${esc(D.l)}${D.sel?' <span class="sel" title="Mostly tracks how active a seller is (active sellers raise more tickets and get more calls), so the W3 gap is not a lever estimate.">activity-driven</span>':''}</td>`;
+        if(i===0) h+=`<td class="c-sz" rowspan="${G.m.length}">${esc(G.sz||'')}</td>`;
+        h+=`<td class="tr ${dl.cls}">${dl.txt}</td>`;
+        h+= gp?`<td class="gap" title="${gp.n1.toLocaleString()} sellers in the good state (${esc(D.cut)}) vs ${gp.n0.toLocaleString()} not, W3-complete weeks in view" style="${D.sel?'color:#9a9d92':''}">${(gp.gap>=0?'+':'')+gp.gap.toFixed(1)}pp</td>`:'<td class="gap" style="color:#c7c8c0">–</td>';
+        h+= imp!=null?`<td class="imp ${Math.abs(imp)<0.1?'sum-flat':(imp>0?'sum-up':'sum-dn')}">${(imp>=0?'+':'')+imp.toFixed(1)}pp</td>`:'<td class="imp" style="color:#c7c8c0">–</td>';
+        weeks.forEach((w,wi)=>{
+          const k0=wi===0?' wk0':'';
+          if(!live(m,w)){h+=`<td class="wk na${k0}" title="${esc(D.fromNote||'not live for this cohort')}">n/l</td>`; return;}
+          const c=R[w], v=sumVal(m,c), fin=done(m,w);
+          const extra=c&&(D.f==='pct'||D.f==='avg'||D.f==='day')?` (${Math.round(c[0]).toLocaleString()} / ${Math.round(c[1]).toLocaleString()})`:'';
+          const tip=c?`${w}: ${sumFmt(m,v)}${extra}${fin?'':' — window still open, will move'}`:'';
+          h+=`<td class="wk ${v==null?'na':(fin?'':'part')}${k0}" style="${fin?sumTint(m,v,vals):''}" title="${esc(tip)}">${sumFmt(m,v)}</td>`;
+        });
+        h+='</tr>';
+        csv.push([L.n,G.l2,G.sz||'',D.l].concat(weeks.map(w=>{const v=sumVal(m,R[w]); return v==null?'':(D.f==='pct'?(100*v).toFixed(1):v.toFixed(2));}))
+          .concat([dl.txt.replace(/[▲▼] /,''), gp?gp.gap.toFixed(1):'', imp!=null?imp.toFixed(2):'']).map(q).join(','));
+      });
+    });
+  });
+  T.innerHTML=h+'</tbody>';
+  window.SUMCSV=csv.join('\n');
+  const w3w=all.filter(w=>(we[w]||0)>3), lw=w3w[w3w.length-1];
+  const k=(t,v,s)=>`<div class="sum-kpi"><div class="k">${t}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  const v3=lw?sumVal('o_w3',(SUMM.rows.o_w3||{})[lw]):null;
+  const r3=recent('o_w3'), a3=sumPool('o_w3',r3.a), b3=sumPool('o_w3',r3.b);
+  const wc=all.filter(w=>(we[w]||0)>2), lc=wc[wc.length-1];
+  const vc=lc?sumVal('o_c12',(SUMM.rows.o_c12||{})[lc]):null;
+  document.getElementById('sumKpis').innerHTML=
+    k('Latest complete W3',v3==null?'–':(100*v3).toFixed(1)+'%',lw?`go-live ${lw} · ${N[lw]||0} core GC go-lives`:'')+
+    k('W3, last 4 vs prior 4 weeks',a3==null||b3==null?'–':((a3-b3>=0?'+':'')+(100*(a3-b3)).toFixed(1)+'pp'),
+      a3==null||b3==null?'':`${(100*a3).toFixed(1)}% vs ${(100*b3).toFixed(1)}%`)+
+    k('W1 → W2 continuation',vc==null?'–':(100*vc).toFixed(1)+'%',lc?`go-live ${lc} — the biggest drop-off step`:'')+
+    k('Metrics tracked',Object.keys(SUM_M).length,`${SUM_LEVERS.length-1} PFS problem areas + the outcome`);
+  document.getElementById('sumIntro').innerHTML=
+    'Each row is a metric for one L2 of the PFS plan, measured on <b>core GC go-lives</b> of that go-live week, inside the seller’s first three weeks (before the W3 outcome). '+
+    '<b>Colour</b> compares a week with the same metric’s other complete weeks: green is better, red is worse. '+
+    '<b>W3 gap</b> = W3 retention of sellers in the metric’s good state minus the rest, compared within each week. It is an association, not proof of cause; rows marked <i>activity-driven</i> mostly measure how active a seller is. '+
+    '<b>Implied ΔW3</b> = that gap × how much the good-state share moved in the last 4 W3-complete weeks.';
+  document.getElementById('sumFoot').innerHTML=
+    'Go-live = first ISO week with HIT marketing spend over ₹1,000 (card 11435). Core GC = the seller’s GC on the go-live date in <code>analytics.seller_poc_timeline</code> is a <code>core_gc</code> in card 12101; GCs who have left the roster drop out, so older weeks hold fewer sellers. '+
+    'Windows: W0–W2 = days 0–20 from the go-live week’s Monday, W0–W3 = days 0–27. Grey italic cells are cohorts still inside that window. '+
+    `PFS sizing is copied from the PFS tab and overlaps across rows. Go-lives from ${esc(SUMM.from||'2026-07-06')}; snapshot ${esc((window.SNAP_AT||'').slice(0,10))}.`;
+  let dh='<table><tr><th>Metric</th><th>How it is measured</th><th>Good state used for the W3 gap</th></tr>';
+  SUM_LEVERS.forEach(L=>L.g.forEach(G=>G.m.forEach(m=>{const D=SUM_M[m]; dh+=`<tr><td>${esc(D.l)}</td><td>${esc(D.d)}</td><td>${esc(D.cut||'—')}</td></tr>`;})));
+  document.getElementById('sumDefsBody').innerHTML=dh+'</table>';
+}
+document.querySelectorAll('#sumRange button').forEach(b=>b.addEventListener('click',()=>{
+  sumSt.range=b.dataset.v; document.querySelectorAll('#sumRange button').forEach(x=>x.classList.toggle('on',x===b)); buildSummary();}));
+document.getElementById('sumCsv').addEventListener('click',()=>{ if(window.SUMCSV) saveCsv('retention_summary_by_week.csv', window.SUMCSV); });
+
 // ===== GC & GM retention view =====
 let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={}, WEEKACT=null;
 const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All', cl:'All', showAllRanks:false};
@@ -2216,6 +2509,8 @@ function setView(v){
   document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
   document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
   document.getElementById('clCard').style.display=v==='clsc'?'block':'none';
+  document.getElementById('sumCard').style.display=v==='summary'?'block':'none';
+  if(v==='summary') buildSummary();
   if(v==='clsc'){ buildClsc(); buildClHeat(); }
   document.getElementById('unCard').style.display=v==='unassign'?'block':'none';
   document.getElementById('mvCard').style.display=v==='unassign'?'block':'none';
