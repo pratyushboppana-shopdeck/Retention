@@ -1532,6 +1532,411 @@ def prelive_by_golive(pl, gcgms):
     return {**pl, "gcs": gcs, "gms": gms, "rows": _prelive_rows(pl["sellers"])}
 
 
+# ---------------------------------------------------------------------------
+# SUMMARY tab (owner, 2026-11-07): every L2 of the "W3 Retention PFS - Program Plan" sheet as a metric
+# row, by go-live ISO week, for CORE GC go-lives only. Core GC = the seller's GC on the go-live date
+# (analytics.seller_poc_timeline) is a core_gc row of csv_upload.core_gc_mapping, which is what card
+# 12101 reads. Inputs are measured inside the seller's first weeks (W0-W2 = days 0-20 from the go-live
+# week's Monday, W0-W3 = days 0-27) so they come before the W3 outcome.
+# Each query returns long rows: gw, m (metric id), we (weeks elapsed), num, den -> the week's value, and
+# nw/rw, nwo/rwo -> W3-mature sellers in the metric's good / bad state and how many retained at W3.
+# The UI (index.html, SUM_M / SUM_LEVERS) holds labels, direction and the PFS mapping.
+# Split three ways so no single job runs long; each one ran in well under three minutes on 2026-11-07.
+# Rolling window: go-live weeks from 18 ISO weeks back. Scans are bounded to match (tasks 150 days,
+# calls / orders / Meta spend 140 days).
+SUMMARY_WEEKS = 18
+SUMMARY_TASKS_SQL = r"""
+WITH core AS (
+  -- card 12101 reads csv_upload.core_gc_mapping; core GCs only (team_mapping = core_gc)
+  SELECT DISTINCT COALESCE(NULLIF(TRIM(m.user_id),''), u._id) uid
+  FROM csv_upload.core_gc_mapping m LEFT JOIN nushop.users u ON LOWER(TRIM(u.email))=LOWER(TRIM(m.core_gc_email_id))
+  WHERE LOWER(m.team_mapping)='core_gc'),
+gl0 AS (
+  SELECT seller_id, MIN(start_date) gl, DATE_TRUNC(MIN(start_date),ISOWEEK) gd, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
+  FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1
+  HAVING MIN(start_date) >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 18 WEEK), ISOWEEK) AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)),
+-- GC on the go-live date from analytics.seller_poc_timeline
+gcat AS (
+  SELECT g.seller_id, ARRAY_AGG(t.poc_id ORDER BY t.start_date DESC LIMIT 1)[OFFSET(0)] gc_id
+  FROM gl0 g JOIN analytics.seller_poc_timeline t ON t.seller_id=g.seller_id AND t.poc_type='Growth Consultant'
+   AND DATE(t.start_date) <= DATE_ADD(g.gl, INTERVAL 6 DAY) AND (t.end_date IS NULL OR DATE(t.end_date) >= g.gl)
+  GROUP BY 1),
+spw AS (
+  SELECT g.seller_id,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=1, v.marketing_spend,0)) s1,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=2, v.marketing_spend,0)) s2,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=3, v.marketing_spend,0)) s3,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK) BETWEEN 0 AND 3, v.rtos,0)) rto03,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK) BETWEEN 0 AND 3, v.total_orders,0)) ord03
+  FROM gl0 g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id GROUP BY 1),
+base AS (
+  SELECT g.*, a.gc_id, DATE_DIFF(CURRENT_DATE(), g.gd, ISOWEEK) we,
+    IF(s.s1>=3000,1,0) r1, IF(s.s2>=3000,1,0) r2, IF(s.s3>=3000,1,0) r3, s.rto03, s.ord03
+  FROM gl0 g JOIN gcat a USING(seller_id) JOIN core c ON c.uid=a.gc_id LEFT JOIN spw s USING(seller_id)),
+roles AS (
+  SELECT _id uid, CASE WHEN LOWER(role) LIKE '%growth-consultant%' THEN 'GC' ELSE 'KAM' END role FROM nushop.users
+  WHERE LOWER(role) LIKE '%growth-consultant%' OR LOWER(role) LIKE '%key-account-manager%'
+     OR LOWER(role) LIKE '%key-account-operations-manager%' OR LOWER(role) LIKE '%seller-management-expert%'),
+tk AS (
+  SELECT b.seller_id, t.id, t.type, t.sub_type, t.title, t.created_at, t.completed_at, t.completion_date, t.sla_in_min,
+    DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'), b.gd, DAY) rd,
+    DATE_DIFF(DATE(t.completed_at,'Asia/Kolkata'), b.gd, DAY) cdd,
+    COALESCE(u.role,'O') role
+  FROM base b JOIN (SELECT id, seller_id, type, sub_type, title, created_at, completed_at, completion_date, sla_in_min, assignee
+                    FROM nushop.workboard_tasks WHERE DATE(created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 150 DAY)
+                      AND seller_id IN (SELECT seller_id FROM base)) t ON t.seller_id=b.seller_id
+  LEFT JOIN roles u ON u.uid=t.assignee
+  WHERE DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'), b.gd, DAY) BETWEEN -14 AND 27),
+tl AS (
+  SELECT *, CASE
+    WHEN role='GC' AND type='callback' AND sub_type='schedule_call' AND title LIKE '%Seller Requested Callback at%' THEN 'cb'
+    WHEN role='GC' AND type='seller_callback_management' AND sub_type!='seller_callback_overdue_sub_task' THEN 'cb'
+    WHEN role='GC' AND type='callback' AND sub_type='early_retention_call' THEN 'ret'
+    WHEN role='GC' AND type='troubleshoot_action' AND sub_type='troubleshoot_sop' THEN 'tss'
+    WHEN role='GC' AND type='seller_poc_handover' THEN 'poc'
+    WHEN role='GC' AND type='other_request' AND title LIKE '[Post-call]%' THEN 'com'
+    -- churn-processing tasks (TTS churn calls, bank / payment verification, closure requests) are work on
+    -- sellers already leaving; they would make prompt KAM work look like a churn signal
+    WHEN role='KAM' AND type!='notification' AND IFNULL(sub_type,'')!='seller_callback_overdue_sub_task'
+         AND type NOT LIKE '%churn%' AND IFNULL(sub_type,'') NOT LIKE '%churn%' THEN 'kam'
+  END k FROM tk),
+td AS (
+  SELECT *, CASE
+      WHEN k='cb' AND sub_type='schedule_call' THEN TIMESTAMP_ADD(completion_date, INTERVAL 120 MINUTE)
+      WHEN k='tss' THEN TIMESTAMP_ADD(created_at, INTERVAL 48 HOUR)
+      WHEN sub_type='seller_callback_primary_task' AND completion_date IS NOT NULL THEN completion_date
+      WHEN sla_in_min IS NULL THEN NULL
+      WHEN k IN ('ret','poc','com','cb') AND completion_date > TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE)
+           AND completion_date <= TIMESTAMP_ADD(TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE), INTERVAL 48 HOUR) THEN completion_date
+      ELSE TIMESTAMP_ADD(created_at, INTERVAL sla_in_min MINUTE) END due
+  FROM tl),
+tsc AS (
+  SELECT *, CASE WHEN due IS NULL THEN 'na'
+      WHEN completed_at IS NOT NULL AND completed_at <= due THEN 'ok'
+      WHEN completed_at IS NOT NULL THEN 'late'
+      WHEN CURRENT_TIMESTAMP() > due THEN 'late' ELSE 'pend' END oc,
+    sub_type IN ('ad_account_suspension','ad_account_blocked','business_manager_verification','business_manager_restricted',
+      'pixel_inactive','page_restricted','ad_account_hacked','business_manager_access','account_restricted',
+      'account_permanently_restricted','page_unpublished','ad_account_has_limit') is_blk,
+    type IN ('shipping_operations','shipping_dispute','hit_seller_shipping_issues') AND IFNULL(sub_type,'')!='seller_first_pickup' is_ship
+  FROM td),
+tagg AS (
+  SELECT seller_id,
+    COUNTIF(k IN ('cb','ret','tss','poc','com') AND rd BETWEEN 0 AND 20 AND oc IN ('ok','late')) gc_due,
+    COUNTIF(k IN ('cb','ret','tss','poc','com') AND rd BETWEEN 0 AND 20 AND oc='ok') gc_ok,
+    COUNTIF(k='cb' AND rd BETWEEN 0 AND 20 AND oc IN ('ok','late')) cb_due,
+    COUNTIF(k='cb' AND rd BETWEEN 0 AND 20 AND oc='ok') cb_ok,
+    COUNTIF(k='ret' AND rd BETWEEN 7 AND 20 AND oc='ok') ret_ok,
+    COUNTIF(k='tss' AND rd BETWEEN 0 AND 20) tss_n,
+    COUNTIF(k='tss' AND rd BETWEEN 0 AND 20 AND oc='ok') tss_ok,
+    COUNTIF(k='com' AND rd BETWEEN 0 AND 20) com_n,
+    COUNTIF(k='com' AND rd BETWEEN 0 AND 20 AND oc='ok') com_ok,
+    COUNTIF(k='poc' AND rd BETWEEN 0 AND 27 AND oc IN ('ok','late')) poc_n,
+    COUNTIF(k='poc' AND rd BETWEEN 0 AND 27 AND oc='ok') poc_ok,
+    COUNTIF(k='kam' AND rd BETWEEN 0 AND 20 AND oc IN ('ok','late')) kam_due,
+    COUNTIF(k='kam' AND rd BETWEEN 0 AND 20 AND oc='ok') kam_ok,
+    COUNTIF(type='go_live_call' AND completed_at IS NOT NULL AND cdd <= 13) kam_glc,
+    COUNTIF(type='account_dashboard' AND sub_type IN ('dashboard_training_or_query_or_concern','dashboard_not_working_properly') AND rd BETWEEN 0 AND 27) dash_q,
+    COUNTIF(sub_type='payment_gateway_integration_in_website' AND rd BETWEEN -14 AND 27) pg_t,
+    COUNTIF(type='finance_payments' AND rd BETWEEN 0 AND 27) fin_t,
+    COUNTIF(type IN ('catalogue_website','catalogue') AND rd BETWEEN 0 AND 27) web_n,
+    COUNTIF(type IN ('catalogue_website','catalogue') AND rd BETWEEN 0 AND 27 AND completed_at IS NOT NULL AND TIMESTAMP_DIFF(completed_at, created_at, HOUR) <= 48) web_48,
+    COUNTIF(is_blk AND rd BETWEEN 0 AND 20) blk_n,
+    COUNTIF(is_blk AND rd BETWEEN 0 AND 20 AND completed_at IS NOT NULL AND TIMESTAMP_DIFF(completed_at, created_at, HOUR) <= 48) blk_48,
+    COUNTIF(is_blk AND rd BETWEEN 0 AND 20 AND (completed_at IS NULL OR cdd > 27)) blk_open,
+    COUNTIF(is_ship AND rd BETWEEN 0 AND 27) ship_n,
+    COUNTIF(is_ship AND rd BETWEEN 0 AND 27 AND completed_at IS NOT NULL AND TIMESTAMP_DIFF(completed_at, created_at, HOUR) <= 48) ship_48,
+    COUNTIF(type='leadership_support_escalation' AND rd BETWEEN 0 AND 27) esc_n
+  FROM tsc GROUP BY 1),
+rep AS (
+  SELECT seller_id, IF(COUNTIF(c>=2)>0,1,0) rep FROM (
+    SELECT seller_id, sub_type, COUNT(*) c FROM tk
+    WHERE rd BETWEEN 0 AND 27 AND type IN ('account_dashboard','catalogue_website','shipping_operations','shipping_dispute',
+      'finance_payments','facebook_ad_account','urgent_performance_issue','marketing_rto_profit')
+    GROUP BY 1,2) GROUP BY 1),
+sos AS (
+  SELECT b.seller_id, COUNT(*) n FROM base b JOIN nushop.seller_app_requests r ON r.seller_id=b.seller_id
+  WHERE r.request_type IN ('sos','leadership_escalation') AND DATE(r.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 150 DAY)
+    AND DATE_DIFF(DATE(r.created_at,'Asia/Kolkata'), b.gd, DAY) BETWEEN 0 AND 27 GROUP BY 1),
+ats AS (
+  SELECT a.seller_id, MAX(IF(a.total_runs>0 AND DATE(a.created_at) <= DATE_ADD(b.gd, INTERVAL 20 DAY),1,0)) ran
+  FROM base b JOIN nushop.auto_ts_sellers a ON a.seller_id=b.seller_id GROUP BY 1),
+x AS (
+  SELECT b.*, COALESCE(t.gc_due,0) gc_due, COALESCE(t.gc_ok,0) gc_ok, COALESCE(t.cb_due,0) cb_due, COALESCE(t.cb_ok,0) cb_ok,
+    COALESCE(t.ret_ok,0) ret_ok, COALESCE(t.tss_n,0) tss_n, COALESCE(t.tss_ok,0) tss_ok, COALESCE(t.com_n,0) com_n, COALESCE(t.com_ok,0) com_ok,
+    COALESCE(t.poc_n,0) poc_n, COALESCE(t.poc_ok,0) poc_ok, COALESCE(t.kam_due,0) kam_due, COALESCE(t.kam_ok,0) kam_ok,
+    COALESCE(t.kam_glc,0) kam_glc, COALESCE(t.dash_q,0) dash_q, COALESCE(t.pg_t,0) pg_t, COALESCE(t.fin_t,0) fin_t,
+    COALESCE(t.web_n,0) web_n, COALESCE(t.web_48,0) web_48, COALESCE(t.blk_n,0) blk_n, COALESCE(t.blk_48,0) blk_48,
+    COALESCE(t.blk_open,0) blk_open, COALESCE(t.ship_n,0) ship_n, COALESCE(t.ship_48,0) ship_48,
+    COALESCE(t.esc_n,0)+COALESCE(s.n,0) esc, COALESCE(r.rep,0) rep, COALESCE(a.ran,0) ats_ran
+  FROM base b LEFT JOIN tagg t USING(seller_id) LEFT JOIN rep r USING(seller_id) LEFT JOIN sos s USING(seller_id) LEFT JOIN ats a USING(seller_id)),
+-- one entry per metric: num / den for the weekly value, flag = 1 good state / 0 bad state / NULL not applicable
+sm AS (
+  SELECT gw, we, r3, [
+    STRUCT('g_sla' AS m, CAST(gc_ok AS FLOAT64) AS num, CAST(gc_due AS FLOAT64) AS den, IF(gc_due>0, IF(gc_ok=gc_due,1,0), NULL) AS flag),
+    STRUCT('g_cb', cb_ok, cb_due, IF(cb_due>0, IF(cb_ok=cb_due,1,0), NULL)),
+    STRUCT('g_chk', IF(ret_ok>0,1,0), 1, IF(ret_ok>0,1,0)),
+    STRUCT('g_poc', poc_ok, poc_n, IF(poc_n>0, IF(poc_ok=poc_n,1,0), NULL)),
+    STRUCT('g_com', IF(com_n>0,1,0), 1, IF(com_n>0,1,0)),
+    STRUCT('g_comok', com_ok, com_n, IF(com_n>0, IF(com_ok=com_n,1,0), NULL)),
+    STRUCT('k_glc', IF(kam_glc>0,1,0), 1, IF(kam_glc>0,1,0)),
+    STRUCT('k_dash', IF(dash_q>0,1,0), 1, IF(dash_q>0,0,1)),
+    STRUCT('k_sla', kam_ok, kam_due, IF(kam_due>0, IF(kam_ok=kam_due,1,0), NULL)),
+    STRUCT('k_rep', rep, 1, 1-rep),
+    STRUCT('k_esc', IF(esc>0,1,0), 1, IF(esc>0,0,1)),
+    STRUCT('k_fin', IF(fin_t>0,1,0), 1, IF(fin_t>0,0,1)),
+    STRUCT('k_web', web_48, web_n, IF(web_n>0, IF(web_48=web_n,1,0), NULL)),
+    STRUCT('k_pg', IF(pg_t>0,1,0), 1, IF(pg_t>0,0,1)),
+    STRUCT('a_blk', IF(blk_n>0,1,0), 1, IF(blk_n>0,0,1)),
+    STRUCT('a_48', blk_48, blk_n, IF(blk_n>0, IF(blk_48=blk_n,1,0), NULL)),
+    STRUCT('a_open', IF(blk_open>0,1,0), IF(blk_n>0,1,0), IF(blk_n>0, IF(blk_open>0,0,1), NULL)),
+    STRUCT('t_cov', IF(tss_n>0 OR ats_ran>0,1,0), 1, IF(tss_n>0 OR ats_ran>0,1,0)),
+    STRUCT('t_sla', tss_ok, tss_n, IF(tss_n>0, IF(tss_ok=tss_n,1,0), NULL)),
+    STRUCT('p_shipt', IF(ship_n>0,1,0), 1, IF(ship_n>0,0,1)),
+    STRUCT('p_ship48', ship_48, ship_n, IF(ship_n>0, IF(ship_48=ship_n,1,0), NULL))
+  ] mx FROM x)
+,
+lg AS (SELECT s.gw, s.we, s.r3, mm.* FROM sm s, UNNEST(s.mx) mm)
+SELECT gw, m, MAX(we) we, ROUND(SUM(num),2) num, ROUND(SUM(den),2) den,
+  COUNTIF(flag=1 AND we>3) nw, COUNTIF(flag=1 AND we>3 AND r3=1) rw,
+  COUNTIF(flag=0 AND we>3) nwo, COUNTIF(flag=0 AND we>3 AND r3=1) rwo
+FROM lg GROUP BY gw, m ORDER BY gw, m
+"""
+
+SUMMARY_CALLS_SQL = r"""
+WITH core AS (
+  -- card 12101 reads csv_upload.core_gc_mapping; core GCs only (team_mapping = core_gc)
+  SELECT DISTINCT COALESCE(NULLIF(TRIM(m.user_id),''), u._id) uid
+  FROM csv_upload.core_gc_mapping m LEFT JOIN nushop.users u ON LOWER(TRIM(u.email))=LOWER(TRIM(m.core_gc_email_id))
+  WHERE LOWER(m.team_mapping)='core_gc'),
+gl0 AS (
+  SELECT seller_id, MIN(start_date) gl, DATE_TRUNC(MIN(start_date),ISOWEEK) gd, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
+  FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1
+  HAVING MIN(start_date) >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 18 WEEK), ISOWEEK) AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)),
+-- GC on the go-live date from analytics.seller_poc_timeline
+gcat AS (
+  SELECT g.seller_id, ARRAY_AGG(t.poc_id ORDER BY t.start_date DESC LIMIT 1)[OFFSET(0)] gc_id
+  FROM gl0 g JOIN analytics.seller_poc_timeline t ON t.seller_id=g.seller_id AND t.poc_type='Growth Consultant'
+   AND DATE(t.start_date) <= DATE_ADD(g.gl, INTERVAL 6 DAY) AND (t.end_date IS NULL OR DATE(t.end_date) >= g.gl)
+  GROUP BY 1),
+spw AS (
+  SELECT g.seller_id,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=1, v.marketing_spend,0)) s1,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=2, v.marketing_spend,0)) s2,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=3, v.marketing_spend,0)) s3,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK) BETWEEN 0 AND 3, v.rtos,0)) rto03,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK) BETWEEN 0 AND 3, v.total_orders,0)) ord03
+  FROM gl0 g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id GROUP BY 1),
+base AS (
+  SELECT g.*, a.gc_id, DATE_DIFF(CURRENT_DATE(), g.gd, ISOWEEK) we,
+    IF(s.s1>=3000,1,0) r1, IF(s.s2>=3000,1,0) r2, IF(s.s3>=3000,1,0) r3, s.rto03, s.ord03
+  FROM gl0 g JOIN gcat a USING(seller_id) JOIN core c ON c.uid=a.gc_id LEFT JOIN spw s USING(seller_id)),
+ec AS (
+  SELECT e.seller_id, DATE(e.created_at,'Asia/Kolkata') d, e.duration,
+    NULLIF(SAFE_CAST(JSON_VALUE(e.call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) sat
+  FROM nushop.exotel_call_details e
+  WHERE e.created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 140 DAY)) AND e.seller_id IN (SELECT seller_id FROM base)
+    AND e.user_id IN (SELECT _id FROM nushop.users WHERE LOWER(role) LIKE '%growth-consultant%')),
+calls AS (
+  SELECT b.seller_id,
+    COUNTIF(DATE_DIFF(e.d,b.gd,DAY) BETWEEN 0 AND 20) att02,
+    COUNTIF(DATE_DIFF(e.d,b.gd,DAY) BETWEEN 0 AND 20 AND e.duration>0) conn02,
+    COUNTIF(DATE_DIFF(e.d,b.gd,DAY) BETWEEN 7 AND 13 AND e.duration>0) conn_w1,
+    COUNTIF(DATE_DIFF(e.d,b.gd,DAY) BETWEEN 0 AND 20 AND e.duration>0 AND e.sat IS NOT NULL) q_n,
+    SUM(IF(DATE_DIFF(e.d,b.gd,DAY) BETWEEN 0 AND 20 AND e.duration>0, e.sat, NULL)) q_sum
+  FROM base b JOIN ec e ON e.seller_id=b.seller_id GROUP BY 1),
+gch AS (
+  SELECT b.seller_id, COUNT(DISTINCT t.poc_id) n_new
+  FROM base b JOIN analytics.seller_poc_timeline t ON t.seller_id=b.seller_id AND t.poc_type='Growth Consultant'
+  JOIN core cc ON cc.uid=t.poc_id   -- core GC to core GC only: moves to revival/hypercare follow a pause, so they are excluded
+  WHERE DATE(t.start_date) > DATE_ADD(b.gl, INTERVAL 6 DAY) AND DATE(t.start_date) <= DATE_ADD(b.gd, INTERVAL 27 DAY)
+    AND t.poc_id != b.gc_id
+  GROUP BY 1),
+arm AS (
+  SELECT seller_id, CASE WHEN a.status IN ('active','paused','graduated') OR IFNULL(a.flags,'') LIKE '%manually_moved_to_control%' THEN 1
+    WHEN a.status='control' THEN 0 END auto
+  FROM (SELECT seller_id, ARRAY_AGG(STRUCT(status, flags) ORDER BY updated_at DESC LIMIT 1)[OFFSET(0)] a
+        FROM nushop.auto_ts_sellers WHERE seller_id IN (SELECT seller_id FROM base) GROUP BY 1)),
+pev AS (
+  SELECT se.session_id, se.event, COALESCE(REGEXP_EXTRACT(se.actor,r'^guest-([0-9a-f]{24})-'), REGEXP_EXTRACT(se.actor,r'^([0-9a-f]{24})$')) eid
+  FROM meet_service.session_events se WHERE se.use_case_key='pre_live_call' AND DATE(se.created_at) >= '2026-08-20'),
+psess AS (
+  SELECT p.session_id, MAX(IF(REGEXP_CONTAINS(u.role, r'(^|,)\s*seller\s*(,|$)'), p.eid, NULL)) sid,
+    COUNTIF(p.event='participant_joined' AND REGEXP_CONTAINS(u.role, r'(^|,)\s*seller\s*(,|$)'))>0 sj
+  FROM pev p LEFT JOIN nushop.users u ON u._id=p.eid GROUP BY 1),
+pq AS (
+  SELECT session_id, AVG(SAFE_CAST(REGEXP_EXTRACT(CAST(call_scoring AS STRING), r"['\"]final_score['\"]:\s*(-?[0-9.]+)") AS FLOAT64)) q
+  FROM meet_service.recordings WHERE created_at >= TIMESTAMP('2026-08-20') GROUP BY 1),
+pl AS (SELECT s.sid seller_id, MAX(IF(s.sj,1,0)) pl_join, AVG(pq.q) pl_q
+  FROM psess s LEFT JOIN pq USING(session_id) WHERE s.sid IS NOT NULL GROUP BY 1),
+x AS (
+  SELECT b.*, COALESCE(c.att02,0) att02, COALESCE(c.conn02,0) conn02, COALESCE(c.conn_w1,0) conn_w1,
+    COALESCE(c.q_n,0) q_n, COALESCE(c.q_sum,0) q_sum, IF(g.n_new>0,1,0) gc_chg, ar.auto,
+    IF(b.gd >= DATE '2026-08-17',1,0) pl_on, COALESCE(pl.pl_join,0) pl_join, pl.pl_q
+  FROM base b LEFT JOIN calls c USING(seller_id) LEFT JOIN gch g USING(seller_id) LEFT JOIN arm ar USING(seller_id) LEFT JOIN pl USING(seller_id)),
+sm AS (
+  SELECT gw, we, r3, [
+    STRUCT('g_pl' AS m, CAST(pl_join*pl_on AS FLOAT64) AS num, CAST(pl_on AS FLOAT64) AS den, IF(pl_on=1, pl_join, NULL) AS flag),
+    STRUCT('g_plq', COALESCE(pl_q,0), IF(pl_q IS NULL,0,1), IF(pl_q IS NULL, NULL, IF(pl_q>=40,1,0))),
+    STRUCT('g_w1call', IF(conn_w1>0,1,0), 1, IF(conn_w1>0,1,0)),
+    STRUCT('g_conn', conn02, 1, IF(conn02>=10,1,0)),
+    STRUCT('g_att', att02, 1, NULL),
+    STRUCT('g_q', q_sum, q_n, IF(q_n>0, IF(q_sum/q_n>=65,1,0), NULL)),
+    STRUCT('g_gcchg', gc_chg, 1, 1-gc_chg),
+    STRUCT('t_auto', IF(auto=1,1,0), IF(auto IS NULL,0,1), auto)
+  ] mx FROM x)
+,
+lg AS (SELECT s.gw, s.we, s.r3, mm.* FROM sm s, UNNEST(s.mx) mm)
+SELECT gw, m, MAX(we) we, ROUND(SUM(num),2) num, ROUND(SUM(den),2) den,
+  COUNTIF(flag=1 AND we>3) nw, COUNTIF(flag=1 AND we>3 AND r3=1) rw,
+  COUNTIF(flag=0 AND we>3) nwo, COUNTIF(flag=0 AND we>3 AND r3=1) rwo
+FROM lg GROUP BY gw, m ORDER BY gw, m
+"""
+
+SUMMARY_PERF_SQL = r"""
+WITH core AS (
+  -- card 12101 reads csv_upload.core_gc_mapping; core GCs only (team_mapping = core_gc)
+  SELECT DISTINCT COALESCE(NULLIF(TRIM(m.user_id),''), u._id) uid
+  FROM csv_upload.core_gc_mapping m LEFT JOIN nushop.users u ON LOWER(TRIM(u.email))=LOWER(TRIM(m.core_gc_email_id))
+  WHERE LOWER(m.team_mapping)='core_gc'),
+gl0 AS (
+  SELECT seller_id, MIN(start_date) gl, DATE_TRUNC(MIN(start_date),ISOWEEK) gd, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
+  FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1
+  HAVING MIN(start_date) >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 18 WEEK), ISOWEEK) AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)),
+-- GC on the go-live date from analytics.seller_poc_timeline
+gcat AS (
+  SELECT g.seller_id, ARRAY_AGG(t.poc_id ORDER BY t.start_date DESC LIMIT 1)[OFFSET(0)] gc_id
+  FROM gl0 g JOIN analytics.seller_poc_timeline t ON t.seller_id=g.seller_id AND t.poc_type='Growth Consultant'
+   AND DATE(t.start_date) <= DATE_ADD(g.gl, INTERVAL 6 DAY) AND (t.end_date IS NULL OR DATE(t.end_date) >= g.gl)
+  GROUP BY 1),
+spw AS (
+  SELECT g.seller_id,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=1, v.marketing_spend,0)) s1,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=2, v.marketing_spend,0)) s2,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK)=3, v.marketing_spend,0)) s3,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK) BETWEEN 0 AND 3, v.rtos,0)) rto03,
+    SUM(IF(DATE_DIFF(v.start_date,g.gl,ISOWEEK) BETWEEN 0 AND 3, v.total_orders,0)) ord03
+  FROM gl0 g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id GROUP BY 1),
+base AS (
+  SELECT g.*, a.gc_id, DATE_DIFF(CURRENT_DATE(), g.gd, ISOWEEK) we,
+    IF(s.s1>=3000,1,0) r1, IF(s.s2>=3000,1,0) r2, IF(s.s3>=3000,1,0) r3, s.rto03, s.ord03
+  FROM gl0 g JOIN gcat a USING(seller_id) JOIN core c ON c.uid=a.gc_id LEFT JOIN spw s USING(seller_id)),
+oi AS (
+  SELECT seller_id, createdat, awb_no, seller_last_status, in_house_status,
+    selling_price*quantity+cod_charge+delivery_fees-total_discount gmv
+  FROM nushop.orderitems WHERE DATE(createdat) >= DATE_SUB(CURRENT_DATE(), INTERVAL 140 DAY) AND seller_id IN (SELECT seller_id FROM base)),
+ord AS (
+  SELECT b.seller_id,
+    COUNTIF(DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'), b.gd, DAY) BETWEEN 0 AND 13) o01,
+    SUM(oi.gmv) gmv02
+  FROM base b JOIN oi ON oi.seller_id=b.seller_id
+  WHERE oi.seller_last_status NOT IN ('initiated','enqueued','invalid') AND oi.awb_no!='None' AND oi.in_house_status!='awb_expired'
+    AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'), b.gd, DAY) BETWEEN 0 AND 20 GROUP BY 1),
+fb AS (
+  SELECT b.seller_id, SUM(f.spend) fb02 FROM base b JOIN
+    (SELECT seller_id, spend_date, spend FROM fb_marketings.fb_marketing_insights
+     WHERE breakdown_key IS NULL AND DATE(spend_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 140 DAY) AND seller_id IN (SELECT seller_id FROM base)) f
+    ON f.seller_id=b.seller_id
+  WHERE DATE_DIFF(DATE(f.spend_date,'Asia/Kolkata'), b.gd, DAY) BETWEEN 0 AND 20 GROUP BY 1),
+ship AS (
+  SELECT b.seller_id, COUNT(DISTINCT t.awb_no) awbs,
+    COUNT(DISTINCT IF(DATE(t.pickup_date)<=DATE(t.created_at)+1, t.awb_no, NULL)) d0d1,
+    SUM(DATE_DIFF(DATE(t.created_at,'Asia/Kolkata'), DATE(oi.createdat,'Asia/Kolkata'), DAY)) lag_sum, COUNT(*) lag_n
+  FROM base b JOIN oi ON oi.seller_id=b.seller_id
+  JOIN (SELECT awb_no, created_at, pickup_date, clickpost_unified_status FROM nushop.tpl_master_data
+        WHERE DATE(created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 140 DAY)) t ON t.awb_no=oi.awb_no
+  WHERE oi.seller_last_status NOT IN ('initiated','enqueued','invalid','cancelled','cancel_initiated')
+    AND oi.awb_no!='None' AND COALESCE(t.clickpost_unified_status,'')!='Cancelled'
+    AND DATE_DIFF(DATE(oi.createdat,'Asia/Kolkata'), b.gd, DAY) BETWEEN 0 AND 20 GROUP BY 1),
+-- offer and source: the dashboard's lead rule (latest lead with a real offer, else latest with any value)
+sfl AS (
+  SELECT REGEXP_REPLACE(TRIM(Seller_ID__c),r'^"|"$','') seller_id, TRIM(Source__c) src, TRIM(Offers__c) o,
+    COALESCE(DATE(TIMESTAMP(Website_Form_Filled_D_T__c),'Asia/Kolkata'),DATE(TIMESTAMP(CreatedDate),'Asia/Kolkata')) d,
+    TIMESTAMP(CreatedDate) c
+  FROM `blitzscale-prod-project.salesforce.Lead`
+  WHERE Seller_ID__c IS NOT NULL AND LOWER(TRIM(Seller_ID__c)) NOT IN ('na','n/a','null','')),
+sfl_latest AS (SELECT seller_id, src FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY seller_id ORDER BY d DESC, c DESC) rn FROM sfl) WHERE rn=1),
+sfl_offer AS (SELECT seller_id, o FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY seller_id ORDER BY d DESC, c DESC) rn FROM sfl
+  WHERE o IS NOT NULL AND o NOT IN ('','NA')) WHERE rn=1),
+lead AS (
+  SELECT l.seller_id, IF(l.src='FOS',1,0) fos,
+    CASE WHEN f.o IN ('2K+5K','₹2K Deposit + ₹5K Marketing','5K+5K','₹5K Deposit + ₹5K Marketing') THEN 'bad'
+         WHEN f.o IN ('Zero(0) SD','0% Commission 1st Month','0% Commission for First 30 Days','5k SD post 15k Spend',
+                      '₹5K Credit After ₹15K Spend','5k+0% Commission','₹5K Credit + 0% Commission Combo') THEN 'good'
+         WHEN f.o IN ('5k SD post 10k Spend','₹5K Credit After ₹10K Spend') THEN 'unclear'
+         ELSE 'none' END og
+  FROM sfl_latest l LEFT JOIN sfl_offer f USING(seller_id)),
+x AS (
+  SELECT b.*, COALESCE(o.o01,0) o01, COALESCE(o.gmv02,0) gmv02, COALESCE(f.fb02,0) fb02,
+    COALESCE(sh.awbs,0) awbs, COALESCE(sh.d0d1,0) d0d1, COALESCE(sh.lag_sum,0) lag_sum, COALESCE(sh.lag_n,0) lag_n,
+    COALESCE(ld.og,'none') og, COALESCE(ld.fos,0) fos
+  FROM base b LEFT JOIN ord o USING(seller_id) LEFT JOIN fb f USING(seller_id) LEFT JOIN ship sh USING(seller_id) LEFT JOIN lead ld USING(seller_id)),
+sm AS (
+  SELECT gw, we, r3, [
+    STRUCT('o_n' AS m, 1.0 AS num, 0.0 AS den, CAST(NULL AS INT64) AS flag),
+    STRUCT('o_w1', IF(we>1,r1,0), IF(we>1,1,0), NULL),
+    STRUCT('o_w2', IF(we>2,r2,0), IF(we>2,1,0), NULL),
+    STRUCT('o_w3', IF(we>3,r3,0), IF(we>3,1,0), NULL),
+    STRUCT('o_c12', IF(we>2 AND r1=1,r2,0), IF(we>2,r1,0), NULL),
+    STRUCT('o_c23', IF(we>3 AND r2=1,r3,0), IF(we>3,r2,0), NULL),
+    STRUCT('z_zero', IF(o01=0,1,0), 1, IF(o01=0,0,1)),
+    STRUCT('z_sgmv', fb02, gmv02, IF(gmv02>0 AND fb02/gmv02<=0.35,1,0)),
+    STRUCT('z_rto', rto03, ord03, IF(ord03>0, IF(rto03/ord03<=0.40,1,0), NULL)),
+    STRUCT('p_d01', d0d1, awbs, IF(awbs>0, IF(d0d1/awbs>=0.70,1,0), NULL)),
+    STRUCT('p_lag', lag_sum, lag_n, IF(lag_n>0, IF(lag_sum/lag_n<=1,1,0), NULL)),
+    STRUCT('l_bad', IF(og='bad',1,0), 1, IF(og='bad',0,1)),
+    STRUCT('l_none', IF(og='none',1,0), 1, NULL),
+    STRUCT('l_fos', fos, 1, 1-fos),
+    STRUCT('l_w3good', IF(og IN ('good','none') AND we>3, r3, 0), IF(og IN ('good','none') AND we>3, 1, 0), NULL),
+    STRUCT('l_w3bad', IF(og='bad' AND we>3, r3, 0), IF(og='bad' AND we>3, 1, 0), NULL),
+    STRUCT('l_c12good', IF(og IN ('good','none') AND we>2 AND r1=1, r2, 0), IF(og IN ('good','none') AND we>2, r1, 0), NULL),
+    STRUCT('l_c12bad', IF(og='bad' AND we>2 AND r1=1, r2, 0), IF(og='bad' AND we>2, r1, 0), NULL)
+  ] mx FROM x),
+-- spread of W3 retention across core GCs: each go-live week with the three before it, GCs with 5+ go-lives
+wk AS (SELECT DISTINCT gw, gd FROM base WHERE we>3),
+gcr AS (
+  SELECT w.gw, b.gc_id, AVG(b.r3) r, COUNT(*) n FROM wk w JOIN base b ON b.gd BETWEEN DATE_SUB(w.gd, INTERVAL 21 DAY) AND w.gd
+  GROUP BY 1,2 HAVING n>=5),
+spread AS (
+  SELECT gw, 't_gciqr' m, 99 we, ROUND(100*(APPROX_QUANTILES(r,4)[OFFSET(3)]-APPROX_QUANTILES(r,4)[OFFSET(1)]),2) num, 1.0 den,
+    COUNT(*) nw, 0 rw, 0 nwo, 0 rwo FROM gcr GROUP BY gw)
+,
+lg AS (SELECT s.gw, s.we, s.r3, mm.* FROM sm s, UNNEST(s.mx) mm)
+SELECT gw, m, MAX(we) we, ROUND(SUM(num),2) num, ROUND(SUM(den),2) den,
+  COUNTIF(flag=1 AND we>3) nw, COUNTIF(flag=1 AND we>3 AND r3=1) rw,
+  COUNTIF(flag=0 AND we>3) nwo, COUNTIF(flag=0 AND we>3 AND r3=1) rwo
+FROM lg GROUP BY gw, m
+UNION ALL SELECT * FROM spread
+ORDER BY 1, 2
+"""
+
+
+def parse_summary(csv_texts):
+    """Long rows from the three SUMMARY queries ->
+    {"from", "weeks": [...], "we": {gw: weeks elapsed}, "n": {gw: core GC go-lives},
+     "rows": {metric: {gw: [num, den, nw, rw, nwo, rwo]}}}"""
+    rows, we, n, weeks = {}, {}, {}, set()
+    for text in csv_texts:
+        for r in csvmod.DictReader(io.StringIO(text)):
+            gw, m = (r.get("gw") or "").strip(), (r.get("m") or "").strip()
+            if not gw or not m:
+                continue
+            def f(k):
+                try:
+                    return float(r.get(k) or 0)
+                except ValueError:
+                    return 0.0
+            rows.setdefault(m, {})[gw] = [round(f("num"), 2), round(f("den"), 2),
+                                          int(f("nw")), int(f("rw")), int(f("nwo")), int(f("rwo"))]
+            weeks.add(gw)
+            if m != "t_gciqr":            # the GC-spread rows carry a placeholder we
+                we[gw] = max(we.get(gw, 0), int(f("we")))
+            if m == "o_n":
+                n[gw] = int(f("num"))
+    frm = min(weeks) if weeks else ""
+    return {"from": frm, "weeks": sorted(weeks), "we": we, "n": n, "rows": rows}
+
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -1557,6 +1962,14 @@ def main():
     except Exception as e:                                       # noqa: BLE001
         print(f"  ! W3 daily query failed ({e}); no projected W3 point", file=sys.stderr)
         w3daily = None
+    try:
+        summary = parse_summary([run_csv(session, SUMMARY_TASKS_SQL), run_csv(session, SUMMARY_CALLS_SQL),
+                                 run_csv(session, SUMMARY_PERF_SQL)])
+        if not summary["rows"]:
+            summary = None
+    except Exception as e:                                       # noqa: BLE001
+        print(f"  ! summary queries failed ({e}); the Summary tab will say so", file=sys.stderr)
+        summary = None
     tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))
     _gc = tasksla["roles"].get("GC", {})
     _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
@@ -1565,7 +1978,7 @@ def main():
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "offers": OFFERS, "sources": SOURCES, "gcgm": gcgm, "gcgmSellers": gcgms, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
                "stuck": stuck,
-               "prelive": prelive, "moves": moves, "w3daily": w3daily}
+               "prelive": prelive, "moves": moves, "w3daily": w3daily, "summary": summary}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -1579,7 +1992,8 @@ def main():
                 and old.get("stuck") == payload["stuck"]
                 and old.get("prelive") == payload["prelive"]
                 and old.get("moves") == payload["moves"]
-                and old.get("w3daily") == payload["w3daily"]):
+                and old.get("w3daily") == payload["w3daily"]
+                and old.get("summary") == payload["summary"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
@@ -1594,7 +2008,8 @@ def main():
           f"{len(unas['rows'])} unassign rows, {len(weekact)} week-actual rows, "
           f"{sum(len(v['rows']) for v in tasksla['roles'].values())} task-SLA rows, "
           f"{len(stuck['rows'])} stuck tasks, "
-          f"{len(prelive['rows'])} pre-live day/GC rows.")
+          f"{len(prelive['rows'])} pre-live day/GC rows, "
+          f"{len((summary or {}).get('rows', {}))} summary metrics.")
 
 
 if __name__ == "__main__":
