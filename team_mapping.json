@@ -1,6 +1,6 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-11-06",
+ "fetched": "2026-11-07",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
@@ -23,34 +23,6 @@
    "gm": "#N/A",
    "cl": "#N/A",
    "role": "1-5K GL",
-   "active": true
-  },
-  {
-   "gc": "Pridhi s",
-   "gm": "Sagar Sharma",
-   "cl": "Jivraj K",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "Ravi Dotaniya",
-   "gm": "Sagar Sharma",
-   "cl": "Jivraj K",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "Aseer Akhtar",
-   "gm": "Sagar Sharma",
-   "cl": "Jivraj K",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "SHREYA YADAV",
-   "gm": "Sagar Sharma",
-   "cl": "Jivraj K",
-   "role": "Core GC",
    "active": true
   },
   {
@@ -240,6 +212,27 @@
    "gm": "Rebecca Raechel Anil",
    "cl": "Jivraj K",
    "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "Pridhi s",
+   "gm": "Sahana Rajesh",
+   "cl": "Jivraj K",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Aseer Akhtar",
+   "gm": "Sahana Rajesh",
+   "cl": "Jivraj K",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "SHREYA YADAV",
+   "gm": "Sahana Rajesh",
+   "cl": "Jivraj K",
+   "role": "Core GC",
    "active": true
   },
   {
@@ -569,6 +562,13 @@
    "gm": "Vatsal Sharma",
    "cl": "Pratiksha Y",
    "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "Ravi Dotaniya",
+   "gm": "Sagar Sharma",
+   "cl": "Roopesh B",
+   "role": "Core GC",
    "active": true
   },
   {
