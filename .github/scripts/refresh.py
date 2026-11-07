@@ -1951,7 +1951,14 @@ def main():
     weekact = parse_weekact(run_csv(session, WEEKACT_SQL))
     stuck = parse_stuck(run_csv(session, STUCK_SQL))
     prelive = prelive_by_golive(parse_prelive(run_csv(session, PRELIVE_SQL)), gcgms)
-    # optional: a failure here must not cost the whole snapshot
+    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))
+    _gc = tasksla["roles"].get("GC", {})
+    _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
+    if _left:
+        print(f"  ! EXCLUDE_GCS did not take effect for: {_left}", file=sys.stderr)
+    # Optional pieces run LAST: they share the daily BigQuery quota with the required queries
+    # above, and a heavy optional query running first could leave TASKSLA_SQL to fail on quota
+    # and cost the whole snapshot. A failure here must not cost the snapshot either.
     try:
         moves = parse_moves(run_csv(session, MOVES_SQL))
     except Exception as e:                                       # noqa: BLE001
@@ -1968,13 +1975,19 @@ def main():
         if not summary["rows"]:
             summary = None
     except Exception as e:                                       # noqa: BLE001
-        print(f"  ! summary queries failed ({e}); the Summary tab will say so", file=sys.stderr)
+        print(f"  ! summary queries failed ({e}); keeping the previous summary", file=sys.stderr)
         summary = None
-    tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))
-    _gc = tasksla["roles"].get("GC", {})
-    _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
-    if _left:
-        print(f"  ! EXCLUDE_GCS did not take effect for: {_left}", file=sys.stderr)
+    if summary is None:
+        # keep yesterday's rather than blanking the tab; the page shows which date it is from
+        try:
+            with open(OUT) as f:
+                prev_snap = json.load(f)
+            prev = prev_snap.get("summary")
+            if prev and prev.get("rows"):
+                prev["stale_from"] = prev.get("stale_from") or (prev_snap.get("generated_at") or "")[:10]
+                summary = prev
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "offers": OFFERS, "sources": SOURCES, "gcgm": gcgm, "gcgmSellers": gcgms, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
                "stuck": stuck,

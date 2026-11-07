@@ -447,7 +447,16 @@
   .sum-kpi .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;}
   .sum-kpi .v{font-size:20px;font-weight:700;letter-spacing:-.01em;}
   .sum-kpi .s{font-size:11.5px;color:var(--muted);}
-  .sumwrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:78vh;}
+  /* One screen tall: when the table is in view its horizontal scrollbar sits at the bottom of the
+     screen. At 78vh it sat under the fold of a 1,900px-tall box, reachable only after scrolling the
+     box all the way down. scroll-margin lets "jump to table" land it flush with the top. */
+  .sumwrap{overflow:auto;border:1px solid var(--line);border-radius:10px;max-height:calc(100vh - 24px);scroll-margin-top:12px;}
+  .sumwrap::-webkit-scrollbar{height:12px;width:10px;} .sumwrap::-webkit-scrollbar-thumb{background:#c9c7bb;border-radius:6px;}
+  .sumwrap::-webkit-scrollbar-track{background:#f3f2ea;}
+  /* the problem-area band is one cell spanning every column; pin its LABEL, not the cell */
+  table.sumtab tr.lever td .lvl{position:sticky;left:8px;display:inline-block;}
+  .sum-jump{font-size:11.5px;color:#185FA5;cursor:pointer;border:0;background:none;padding:0;margin-left:10px;}
+  .sum-jump:hover{text-decoration:underline;}
   table.sumtab{border-collapse:separate;border-spacing:0;font-size:12px;min-width:100%;}
   table.sumtab th,table.sumtab td{padding:5px 7px;border-bottom:1px solid #ecebe3;white-space:nowrap;}
   table.sumtab thead th{position:sticky;top:0;z-index:3;background:#f3f2ea;color:#3d4036;font-size:10.5px;font-weight:700;
@@ -466,6 +475,7 @@
   table.sumtab td.wk.na{color:#c7c8c0;}
   table.sumtab td.tr,table.sumtab td.imp,table.sumtab td.gap{text-align:right;font-variant-numeric:tabular-nums;min-width:70px;}
   table.sumtab td.tr{border-left:1px solid var(--line);}
+  table.sumtab th.s0,table.sumtab td.s0{border-left:2px solid #d9d8cf;}
   table.sumtab th.wk0,table.sumtab td.wk0{border-left:2px solid #d9d8cf;}
   table.sumtab tr.lever td{background:#eef2f8;font-weight:700;font-size:12.5px;color:#24395f;border-top:2px solid #d5def0;
     position:sticky;left:0;}
@@ -474,6 +484,13 @@
   table.sumtab tr.key td.c-m{font-weight:700;}
   table.sumtab tr:hover td.wk,table.sumtab tr:hover td.c-m{background-color:#faf9f3;}
   .sum-up{color:#1f6b45;font-weight:700;} .sum-dn{color:#b0322b;font-weight:700;} .sum-flat{color:var(--muted);}
+  /* on a phone the two pinned columns (420px) would cover the screen: keep only a narrow metric
+     name pinned, so every row still says what it is, and let the problem-area column scroll */
+  @media (max-width:760px){
+    table.sumtab th.c-l2,table.sumtab td.c-l2{position:static;width:96px;min-width:96px;max-width:96px;white-space:normal;}
+    table.sumtab th.c-m,table.sumtab td.c-m{left:0;min-width:128px;max-width:128px;white-space:normal;font-size:11px;}
+    table.sumtab td.c-m .sel{display:none;}
+  }
   .sumleg{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--muted);margin:10px 0 2px;}
   .sumleg i{display:inline-block;width:22px;height:11px;border-radius:3px;vertical-align:middle;margin-right:5px;}
   .sumdefs{font-size:12px;color:#3d4036;line-height:1.55;margin-top:12px;}
@@ -2414,6 +2431,7 @@ function sumTint(m,v,vals){           // shade by where v sits among this row's 
 function buildSummary(){
   const T=document.getElementById('sumTable');
   if(!SUMM||!SUMM.rows){ T.innerHTML='<tr><td style="padding:20px">The summary is not in this snapshot yet — it appears after the next refresh.</td></tr>'; return; }
+  const stale=SUMM.stale_from?`<div class="clbanner" style="background:#fdf3e5;border-color:#e6c9a8">Today’s summary queries failed, so this is the summary from <b>${esc(SUMM.stale_from)}</b>. Everything else on the dashboard is today’s.</div>`:'';
   const all=SUMM.weeks.slice().sort();
   const weeks=sumSt.range==='all'?all:all.slice(-12);
   const we=SUMM.we||{}, N=SUMM.n||{};
@@ -2422,16 +2440,19 @@ function buildSummary(){
   const m3=weeks.filter(w=>(we[w]||0)>3);           // W3-mature weeks in view
   const recent=m=>{const ws=weeks.filter(w=>done(m,w)); return {a:ws.slice(-4), b:ws.slice(-8,-4)};};
   const lab=w=>w.replace(/^\d{4}-/,'');
-  let h='<thead><tr><th class="c-l2">Problem area &middot; L2</th><th class="c-m">Metric</th><th>PFS<br>sizing</th>'+
-    '<th title="Last 4 complete weeks vs the 4 before, pooled">Trend<small>last 4 vs prior 4</small></th>'+
+  // Weeks first, the summary columns LAST: the table opens scrolled to the right (latest weeks), so
+  // trend / gap / implied sit next to the newest weeks instead of being scrolled out of view.
+  let h='<thead><tr><th class="c-l2">Problem area &middot; L2</th><th class="c-m">Metric</th>'+
+    weeks.map((w,i)=>`<th class="${i===0?'wk0':''}" title="go-live week ${w} · ${N[w]||0} core GC go-lives">${lab(w)}<small>${N[w]||''}</small></th>`).join('')+
+    '<th class="s0" title="Last 4 complete weeks vs the 4 before, pooled">Trend<small>last 4 vs prior 4</small></th>'+
     '<th title="W3 retention of sellers in the metric’s good state minus the rest, compared within each W3-complete go-live week and then weighted. An association, not proof of cause.">W3 gap<small>good vs bad state</small></th>'+
     '<th title="W3 gap × change in the share of sellers in the good state (last 4 W3-complete weeks vs the 4 before): what the metric’s movement is worth IF the gap were causal. Blank for activity-driven rows.">Implied ΔW3<small>from the trend</small></th>'+
-    weeks.map((w,i)=>`<th class="${i===0?'wk0':''}" title="go-live week ${w} · ${N[w]||0} core GC go-lives">${lab(w)}<small>${N[w]||''}</small></th>`).join('')+
+    '<th>PFS<br>sizing</th>'+
     '</tr></thead><tbody>';
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
   const csv=[['problem_area','l2','pfs_sizing','metric'].concat(weeks).concat(['trend_last4_vs_prior4','w3_gap_pp','implied_w3_pp']).map(q).join(',')];
   SUM_LEVERS.forEach(L=>{
-    h+=`<tr class="lever"><td colspan="${weeks.length+6}">${esc(L.n)}${L.sz?`<span class="lsz">PFS sizing ${esc(L.sz)}</span>`:''}${L.note?`<span class="lnote">${esc(L.note)}</span>`:''}</td></tr>`;
+    h+=`<tr class="lever"><td colspan="${weeks.length+6}"><span class="lvl">${esc(L.n)}${L.sz?`<span class="lsz">PFS sizing ${esc(L.sz)}</span>`:''}${L.note?`<span class="lnote">${esc(L.note)}</span>`:''}</span></td></tr>`;
     L.g.forEach(G=>{
       G.m.forEach((m,i)=>{
         const D=SUM_M[m]; if(!D) return; const R=SUMM.rows[m]||{};
@@ -2444,10 +2465,6 @@ function buildSummary(){
         h+=`<tr class="${D.key?'key':''}">`;
         if(i===0) h+=`<td class="c-l2" rowspan="${G.m.length}">${esc(G.l2)}</td>`;
         h+=`<td class="c-m" title="${esc(D.d)}">${esc(D.l)}${D.sel?' <span class="sel" title="Mostly tracks how active a seller is (active sellers raise more tickets and get more calls), so the W3 gap is not a lever estimate.">activity-driven</span>':''}</td>`;
-        if(i===0) h+=`<td class="c-sz" rowspan="${G.m.length}">${esc(G.sz||'')}</td>`;
-        h+=`<td class="tr ${dl.cls}">${dl.txt}</td>`;
-        h+= gp?`<td class="gap" title="${gp.n1.toLocaleString()} sellers in the good state (${esc(D.cut)}) vs ${gp.n0.toLocaleString()} not, W3-complete weeks in view" style="${D.sel?'color:#9a9d92':''}">${(gp.gap>=0?'+':'')+gp.gap.toFixed(1)}pp</td>`:'<td class="gap" style="color:#c7c8c0">–</td>';
-        h+= imp!=null?`<td class="imp ${Math.abs(imp)<0.1?'sum-flat':(imp>0?'sum-up':'sum-dn')}">${(imp>=0?'+':'')+imp.toFixed(1)}pp</td>`:'<td class="imp" style="color:#c7c8c0">–</td>';
         weeks.forEach((w,wi)=>{
           const k0=wi===0?' wk0':'';
           if(!live(m,w)){h+=`<td class="wk na${k0}" title="${esc(D.fromNote||'not live for this cohort')}">n/l</td>`; return;}
@@ -2456,6 +2473,10 @@ function buildSummary(){
           const tip=c?`${w}: ${sumFmt(m,v)}${extra}${fin?'':' — window still open, will move'}`:'';
           h+=`<td class="wk ${v==null?'na':(fin?'':'part')}${k0}" style="${fin?sumTint(m,v,vals):''}" title="${esc(tip)}">${sumFmt(m,v)}</td>`;
         });
+        h+=`<td class="tr s0 ${dl.cls}">${dl.txt}</td>`;
+        h+= gp?`<td class="gap" title="${gp.n1.toLocaleString()} sellers in the good state (${esc(D.cut)}) vs ${gp.n0.toLocaleString()} not, W3-complete weeks in view" style="${D.sel?'color:#9a9d92':''}">${(gp.gap>=0?'+':'')+gp.gap.toFixed(1)}pp</td>`:'<td class="gap" style="color:#c7c8c0">–</td>';
+        h+= imp!=null?`<td class="imp ${Math.abs(imp)<0.1?'sum-flat':(imp>0?'sum-up':'sum-dn')}">${(imp>=0?'+':'')+imp.toFixed(1)}pp</td>`:'<td class="imp" style="color:#c7c8c0">–</td>';
+        if(i===0) h+=`<td class="c-sz" rowspan="${G.m.length}">${esc(G.sz||'')}</td>`;
         h+='</tr>';
         csv.push([L.n,G.l2,G.sz||'',D.l].concat(weeks.map(w=>{const v=sumVal(m,R[w]); return v==null?'':(D.f==='pct'?(100*v).toFixed(1):v.toFixed(2));}))
           .concat([dl.txt.replace(/[▲▼] /,''), gp?gp.gap.toFixed(1):'', imp!=null?imp.toFixed(2):'']).map(q).join(','));
@@ -2463,6 +2484,10 @@ function buildSummary(){
     });
   });
   T.innerHTML=h+'</tbody>';
+  // open on the latest weeks: they sit at the right edge, and the left columns are pinned anyway
+  // set it synchronously (reading scrollWidth forces layout): requestAnimationFrame does not fire in
+  // a background tab, which left the table parked on the oldest weeks
+  const wrap=T.closest('.sumwrap'); wrap.scrollLeft=wrap.scrollWidth;
   window.SUMCSV=csv.join('\n');
   const w3w=all.filter(w=>(we[w]||0)>3), lw=w3w[w3w.length-1];
   const k=(t,v,s)=>`<div class="sum-kpi"><div class="k">${t}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
@@ -2476,11 +2501,13 @@ function buildSummary(){
       a3==null||b3==null?'':`${(100*a3).toFixed(1)}% vs ${(100*b3).toFixed(1)}%`)+
     k('W1 → W2 continuation',vc==null?'–':(100*vc).toFixed(1)+'%',lc?`go-live ${lc} — the biggest drop-off step`:'')+
     k('Metrics tracked',Object.keys(SUM_M).length,`${SUM_LEVERS.length-1} PFS problem areas + the outcome`);
-  document.getElementById('sumIntro').innerHTML=
+  document.getElementById('sumIntro').innerHTML=stale+
     'Each row is a metric for one L2 of the PFS plan, measured on <b>core GC go-lives</b> of that go-live week, inside the seller’s first three weeks (before the W3 outcome). '+
     '<b>Colour</b> compares a week with the same metric’s other complete weeks: green is better, red is worse. '+
     '<b>W3 gap</b> = W3 retention of sellers in the metric’s good state minus the rest, compared within each week. It is an association, not proof of cause; rows marked <i>activity-driven</i> mostly measure how active a seller is. '+
-    '<b>Implied ΔW3</b> = that gap × how much the good-state share moved in the last 4 W3-complete weeks.';
+    '<b>Implied ΔW3</b> = that gap × how much the good-state share moved in the last 4 W3-complete weeks.'+
+    '<button type="button" class="sum-jump" id="sumJump">Jump to the table &darr;</button>';
+  const j=document.getElementById('sumJump'); if(j) j.onclick=()=>document.querySelector('.sumwrap').scrollIntoView({behavior:'smooth',block:'start'});
   document.getElementById('sumFoot').innerHTML=
     'Go-live = first ISO week with HIT marketing spend over ₹1,000 (card 11435). Core GC = the seller’s GC on the go-live date in <code>analytics.seller_poc_timeline</code> is a <code>core_gc</code> in card 12101; GCs who have left the roster drop out, so older weeks hold fewer sellers. '+
     'Windows: W0–W2 = days 0–20 from the go-live week’s Monday, W0–W3 = days 0–27. Grey italic cells are cohorts still inside that window. '+
