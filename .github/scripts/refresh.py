@@ -1945,6 +1945,100 @@ def parse_summary(csv_texts):
     return {"from": frm, "weeks": sorted(weeks), "we": we, "n": n, "rows": rows}
 
 
+
+# ---------------------------------------------------------------------------
+# KAE (Key Account Executive) task SLA (owner, 2026-11-11). Same rules as the GC/KAM tabs:
+# counted on the task's CREATION day (IST); done = has a completed_at (the status label is
+# ignored); on time = completed by created_at + its own sla_in_min; stuck = no completed_at
+# and past that time. HIT sellers only. ts_sop_communication is left out: a parked system
+# queue (1,047 tasks on 3 KAEs over 30 days, non-HIT, 3 ever completed), not KAE work.
+# Overdue callback sub-tasks are left out as on the GC tab.
+KAE_BASE = r"""
+WITH t AS (
+  SELECT t.id, t.seller_id, t.type, t.sub_type, t.status, t.created_at, t.completed_at, t.sla_in_min,
+    DATE(t.created_at,'Asia/Kolkata') cd,
+    REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') kae,
+    TIMESTAMP_ADD(t.created_at, INTERVAL COALESCE(t.sla_in_min,0) MINUTE) due_ts
+  FROM nushop.workboard_tasks t
+  JOIN nushop.users u ON u._id = t.assignee AND LOWER(u.role) LIKE '%key-account-executive%'
+  JOIN nushop.sellers s ON s._id = t.seller_id AND s.seller_account_status='hit' AND s.user_type='seller'
+  -- UTC bounds prune the DATE(created_at) partitions; the IST pair defines the window
+  WHERE DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY)
+    AND DATE(t.created_at) <= DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+    AND DATE(t.created_at,'Asia/Kolkata') >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 90 DAY)
+    AND DATE(t.created_at,'Asia/Kolkata') <= CURRENT_DATE('Asia/Kolkata')
+    AND t.type != 'ts_sop_communication'
+    AND IFNULL(t.sub_type,'') != 'seller_callback_overdue_sub_task'
+    AND t.sla_in_min > 0
+),
+c AS (
+  SELECT *, CASE
+    WHEN type='troubleshoot_action' AND sub_type='troubleshoot_manual_action' THEN 'TS manual action'
+    WHEN type IN ('meta_automation','campaign_automation','google_task_automation','automation','google_onboarding',
+                  'marketing_rto_profit') THEN 'Meta / campaign automation'
+    WHEN type IN ('website_automation','catalogue_website','catalogue') THEN 'Website / catalogue'
+    WHEN type IN ('facebook_ad_account','business_manager','facebook_page','pixel','access_management',
+                  'shopdeck_prepaid','shopdeck_postpaid','postpaid','suspension','personal_facebook_account') THEN 'Ad account / BM'
+    WHEN type='crm_generic' THEN 'CRM generic'
+    ELSE 'Other' END cat,
+    CASE WHEN completed_at IS NOT NULL AND completed_at <= due_ts THEN 'on_time'
+         WHEN completed_at IS NOT NULL THEN 'late'
+         WHEN CURRENT_TIMESTAMP() > due_ts THEN 'stuck'
+         ELSE 'pending' END outcome
+  FROM t WHERE kae != ''
+)
+"""
+KAE_SQL = KAE_BASE + r"""
+SELECT FORMAT_DATE('%Y-%m-%d', cd) d, cat, kae,
+  COUNT(*) created, COUNTIF(outcome='on_time') on_time, COUNTIF(outcome='late') late,
+  COUNTIF(outcome='stuck') stuck, COUNTIF(outcome='pending') pending,
+  CAST(ROUND(SUM(CASE WHEN outcome='late' THEN TIMESTAMP_DIFF(completed_at, due_ts, MINUTE)
+                      WHEN outcome='stuck' THEN TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), due_ts, MINUTE) ELSE 0 END)) AS INT64) over_min
+FROM c GROUP BY 1,2,3 ORDER BY 1,2,3
+"""
+KAE_STUCK_SQL = KAE_BASE + r"""
+SELECT c.id task_id, c.kae, c.cat, c.sub_type, c.seller_id,
+  COALESCE(NULLIF(TRIM(s.display_name),''), '') sname, IFNULL(c.status,'') status,
+  FORMAT_DATE('%Y-%m-%d', c.cd) d, FORMAT_TIMESTAMP('%Y-%m-%d', c.due_ts, 'Asia/Kolkata') due_d,
+  CAST(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), c.due_ts, MINUTE) AS INT64) over_min
+FROM c LEFT JOIN nushop.sellers s ON s._id = c.seller_id
+WHERE c.outcome='stuck' ORDER BY over_min DESC
+"""
+KAE_CATS = ["TS manual action", "Meta / campaign automation", "Website / catalogue", "Ad account / BM", "CRM generic", "Other"]
+
+
+def parse_kae(csv_text, stuck_text):
+    """{days, kaes, cats, rows: [dayIdx, catIdx, kaeIdx, created, on_time, late, stuck, pending, overMin],
+        stuck: [taskId, kaeIdx, catIdx, subType, sellerId, sellerName, status, day, dueDay, overMin]}"""
+    days, kaes, di, ki = [], [], {}, {}
+
+    def idx(v, arr, m):
+        if v not in m:
+            m[v] = len(arr); arr.append(v)
+        return m[v]
+
+    def gi(r, k):
+        try:
+            return int(float(r.get(k) or 0))
+        except ValueError:
+            return 0
+    rows = []
+    for r in csvmod.DictReader(io.StringIO(csv_text)):
+        cat = r.get("cat") or "Other"
+        rows.append([idx(r["d"], days, di), KAE_CATS.index(cat) if cat in KAE_CATS else 5, idx(r["kae"], kaes, ki),
+                     gi(r, "created"), gi(r, "on_time"), gi(r, "late"), gi(r, "stuck"), gi(r, "pending"), gi(r, "over_min")])
+    order = sorted(range(len(days)), key=lambda k: days[k]); remap = {o: n for n, o in enumerate(order)}
+    for x in rows:
+        x[0] = remap[x[0]]
+    days = [days[k] for k in order]
+    stuck = []
+    for r in csvmod.DictReader(io.StringIO(stuck_text or "")):
+        cat = r.get("cat") or "Other"
+        stuck.append([r.get("task_id") or "", idx(r["kae"], kaes, ki), KAE_CATS.index(cat) if cat in KAE_CATS else 5,
+                      (r.get("sub_type") or "")[:60], r.get("seller_id") or "", (r.get("sname") or "")[:60],
+                      r.get("status") or "", r.get("d") or "", r.get("due_d") or "", gi(r, "over_min")])
+    return {"days": days, "kaes": kaes, "cats": KAE_CATS, "rows": rows, "stuck": stuck}
+
 def main():
     session = login()
     curve_csv = run_csv(session, CURVE_SQL).strip()
@@ -1973,6 +2067,11 @@ def main():
         print(f"  ! moves query failed ({e}); the moves card will be empty", file=sys.stderr)
         moves = None
     try:
+        kae = parse_kae(run_csv(session, KAE_SQL), run_csv(session, KAE_STUCK_SQL))
+    except Exception as e:                                       # noqa: BLE001
+        print(f"  ! KAE task SLA queries failed ({e}); the KAE tab will say so", file=sys.stderr)
+        kae = None
+    try:
         w3daily = parse_w3daily(run_csv(session, W3DAILY_SQL))
     except Exception as e:                                       # noqa: BLE001
         print(f"  ! W3 daily query failed ({e}); no projected W3 point", file=sys.stderr)
@@ -1999,7 +2098,7 @@ def main():
 
     payload = {"csv": curve_csv, "buckets": BUCKETS, "diagnosis": diag, "offers": OFFERS, "sources": SOURCES, "gcgm": gcgm, "gcgmSellers": gcgms, "unassign": unas, "weekActuals": weekact, "taskSla": tasksla,
                "stuck": stuck,
-               "prelive": prelive, "moves": moves, "w3daily": w3daily, "summary": summary}
+               "prelive": prelive, "moves": moves, "w3daily": w3daily, "summary": summary, "kae": kae}
     # only rewrite when the DATA changed (ignore the timestamp), to avoid commit noise
     try:
         with open(OUT) as f:
@@ -2014,7 +2113,8 @@ def main():
                 and old.get("prelive") == payload["prelive"]
                 and old.get("moves") == payload["moves"]
                 and old.get("w3daily") == payload["w3daily"]
-                and old.get("summary") == payload["summary"]):
+                and old.get("summary") == payload["summary"]
+                and old.get("kae") == payload["kae"]):
             print(f"No data change ({len(diag)} sellers, {len(curve_csv.splitlines())-1} cohorts) - leaving {OUT}."); return
     except (FileNotFoundError, json.JSONDecodeError):
         pass
