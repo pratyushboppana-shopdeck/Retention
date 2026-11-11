@@ -1,6 +1,6 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-11-10",
+ "fetched": "2026-11-11",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
@@ -55,13 +55,6 @@
   },
   {
    "gc": "Prerna Kedia",
-   "gm": "Maloo Pratibha",
-   "cl": "Jivraj K",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "Ankit Jaiswal",
    "gm": "Maloo Pratibha",
    "cl": "Jivraj K",
    "role": "Core GC",
@@ -632,6 +625,13 @@
    "gm": "Aaruni Vaidya",
    "cl": "Pratyush B",
    "role": "Hypercare GC",
+   "active": true
+  },
+  {
+   "gc": "Ankit Jaiswal",
+   "gm": "Aaruni Vaidya",
+   "cl": "Pratyush B",
+   "role": "Core GC",
    "active": true
   },
   {
