@@ -1359,7 +1359,7 @@ async function load(){
         calls:r[10]||0,conn:r[11]||0,spend:r[12]||0,
         lastSp:r[13]||'',attA:r[14]||0,connA:r[15]||0,att7:r[16]||0,conn7:r[17]||0,
         astat:r[18]||'',istat:r[19]||''};});
-      GCGMS=by;
+      GCGMS=by; GMINF=null;
     }
     DIAGBY={}; (window.DIAG||[]).forEach(d=>{DIAGBY[d.s]=d;});
     UNAS=snap.unassign||null; unInit=false;
@@ -1423,12 +1423,32 @@ async function loadTeamMap(){
 // '' = deliberately outside every CL (exclude_from_cl in team_mapping.json); CL roll-ups skip it
 function clOf(gcName,gmName){
   if(!TEAMMAP) return '(no CL)';
-  const a=k=>TEAMMAP.alias[k]||k, X=TEAMMAP.excl;
+  // an exact name on the mapping always wins over an alias (a stale alias hid 2 GCs' CL)
+  const a=k=>(TEAMMAP.gc[k]||!TEAMMAP.alias[k])?k:TEAMMAP.alias[k], X=TEAMMAP.excl;
   if(X.has(a(nrm(gmName)))||X.has(a(nrm(gcName)))) return '';
   const g=TEAMMAP.gc[a(nrm(gcName))];
   if(g&&X.has(nrm(g.gm))) return '';
   if(g&&g.cl) return g.cl;
-  return TEAMMAP.gmCl[a(nrm(gmName))]||'(no CL)';
+  const gk=a(nrm(gmName));
+  return TEAMMAP.gmCl[gk]
+    // a GM who is not on card 12101 (left, or never added): the CL most of their go-live GCs sit under
+    ||gmClInferred()[gk]
+    // a name used as a go-live GC that the card only knows as a (past) GM
+    ||(gmName?'':TEAMMAP.gmCl[a(nrm(gcName))]||gmClInferred()[a(nrm(gcName))])
+    ||'(no CL)';
+}
+// GM -> CL inferred from the GCs under them (go-live GC/GM pairs in the GC & GM seller data). Used only
+// when the mapping has no row for that GM, so it fills gaps and never overrides card 12101.
+let GMINF=null;
+function gmClInferred(){
+  if(GMINF) return GMINF;
+  if(!TEAMMAP||!GCGMS) return {};
+  const v={};
+  for(const sid in GCGMS){ const x=GCGMS[sid]; if(!x.gm||!x.gc) continue;
+    const g=TEAMMAP.gc[nrm(x.gc)]; if(!g||!g.cl) continue;
+    const k=nrm(x.gm); (v[k]=v[k]||{})[g.cl]=(v[k][g.cl]||0)+1; }
+  GMINF={}; for(const k in v) GMINF[k]=Object.entries(v[k]).sort((p,q)=>q[1]-p[1])[0][0];
+  return GMINF;
 }
 function esc(s){return (s==null?'':(''+s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 // Save `text` as `name`. The anchor MUST be in the document: a detached <a>.click()

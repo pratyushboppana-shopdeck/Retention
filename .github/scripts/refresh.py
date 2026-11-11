@@ -1016,6 +1016,14 @@ def write_team_map(active):
             seen.add(k)
             past.append({**x, "role": (old.get("roles") or {}).get(x.get("role"), x.get("role")),
                          "cl": GM_CL_OVERRIDE.get(_norm_name(x.get("gm")), x.get("cl")), "active": False})
+    # Prune aliases that now point AWAY from a real name. They came from the old mapping sheet;
+    # once card 12101 spells a GC its own way ("Aanchal Agrawal", "Nikita S GC") the alias sent
+    # that name to an old spelling that no longer exists, and the GC read "(no CL)" everywhere.
+    active_names = {_norm_name(x["gc"]) for x in active}
+    # GM lookups share this alias list ("aakash a" -> GM "aakash aakash"), so GM names count too
+    all_names = (active_names | {_norm_name(x.get("gc")) for x in past}
+                 | {_norm_name(x.get("gm")) for x in active + past})
+    alias = {k: v for k, v in alias.items() if k not in active_names and v in all_names}
     out = {"source": f"Metabase card {MAP_CARD} (HITS Team Mapping Validation - Rolling), written by refresh.py",
            "fetched": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
            "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so "
