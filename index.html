@@ -506,7 +506,7 @@
     <h1 style="margin-right:auto">HIT Retention &amp; Servicing</h1>
     <span class="stamp" id="dataStamp" title="When this snapshot was built. The pipeline runs once daily at ~10 AM IST.">checking&hellip;</span>
   </div>
-  <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October omitted, new months appear automatically. <b>Click any point</b> to see why those sellers didn&rsquo;t retain that week. Auto-synced from Metabase once daily (~10&nbsp;AM IST).</p>
+  <p class="sub">Weekly go-live cohorts (first ISO week with marketing spend &gt; &#8377;1,000) rolled into monthly retention lines &mdash; May&ndash;July split early/late, October 2025 omitted, new months appear automatically. <b>Click any point</b> to see why those sellers didn&rsquo;t retain that week. Auto-synced from Metabase once daily (~10&nbsp;AM IST).</p>
 
   <div class="tabs" id="tabs">
     <button class="tab" type="button" data-view="summary">Summary</button>
@@ -1149,7 +1149,9 @@ function rollup(rows,opts){
   // future month) falls through to a single whole-month line automatically.
   const groups={}; // key -> {label, order, weeks:[...]}
   for(const r of rows){
-    if(opts.omitOct && r.co.mm===10) continue;
+    // only October 2025 is omitted (the partial first month of the series). Matching any
+    // October also dropped Oct-2026 go-lives (W41, W42) from the curve and the reason matrix.
+    if(opts.omitOct && r.co.my===2025 && r.co.mm===10) continue;
     let key,label,order;
     const mm2=String(r.co.mm).padStart(2,'0');
     const monName=MONTH[r.co.mm-1];
@@ -2123,8 +2125,8 @@ function buildReasonTrend(rows,diag){
   const card=document.getElementById('reasonCard');
   if(!diag||!diag.length){ card.style.display='none'; return; }
   const B=window.BUCKETS;
-  // mature ISO-week cohorts (W3 elapsed => W3 not null), October excluded, chronological
-  const mature=rows.filter(r=>r.vals[2]!=null && r.co.mm!==10).sort((a,b)=>(a.co.y*100+a.co.w)-(b.co.y*100+b.co.w));
+  // mature ISO-week cohorts (W3 elapsed => W3 not null), October 2025 excluded, chronological
+  const mature=rows.filter(r=>r.vals[2]!=null && !(r.co.my===2025 && r.co.mm===10)).sort((a,b)=>(a.co.y*100+a.co.w)-(b.co.y*100+b.co.w));
   const weeks=mature.map(r=>isoStr(r.co)); const wset=new Set(weeks);
   const byWk={}; weeks.forEach(w=>byWk[w]={tot:0,ret:0,b:new Array(B.length).fill(0)});
   diag.forEach(d=>{ if(!wset.has(d.w))return; const o=byWk[d.w]; o.tot++; if((d.sp[2]||0)>=3000)o.ret++; else o.b[d.b]++; });
