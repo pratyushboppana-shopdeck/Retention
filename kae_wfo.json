@@ -1,0 +1,4 @@
+{
+ "note": "KAEs who work from office (owner, 2026-11-12). Every other KAE is treated as WFH. Names are matched ignoring case and spacing; a trailing initial is tolerated (\"Seema Kumawat N\" = \"Seema Kumawat\"). Gonugunta Sasikala and E Gnaneswar Reddy are 'admin' users with no KAE tasks, so they never appear in the data.",
+ "wfo": ["Nayana Bai B","Seema Kumawat N","Thuraka Lalitha","Gonugunta Sasikala","Arpit Lall","Bhumika Verma","Tanisha Vilas Kale","Krashika Arora","Syed Ashaan Ali","Sujal Yadav","Sultana Banu","Soumik Dutta","E Gnaneswar Reddy","Thamizarasan Kumar","Nihar Hegade","Prakash Chhetri"]
+}
