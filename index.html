@@ -141,7 +141,14 @@
   table.kaeh{border-collapse:separate;border-spacing:2px;font-size:11px;}
   table.kaeh th{font-size:10px;font-weight:650;color:var(--muted);text-align:center;padding:2px 3px;white-space:nowrap;position:sticky;top:0;background:var(--card);}
   table.kaeh th small{display:block;font-weight:500;color:var(--faint);font-size:9px;}
-  table.kaeh td.hc{width:30px;min-width:30px;height:22px;text-align:center;border-radius:3px;font-weight:650;background:#f6f5ef;}
+  table.kaeh td.hc{width:46px;min-width:46px;height:32px;text-align:center;border-radius:4px;background:#f6f5ef;line-height:1.1;padding:2px 1px;}
+  table.kaeh td.hc b{display:block;font-size:11.5px;font-weight:700;} table.kaeh td.hc small{display:block;font-size:9.5px;font-weight:500;}
+  table.kaeh td.hc.empty{background:#faf9f4;} table.kaeh th.we{background:#f1efe7;color:#8a8d80;}
+  table.kaeh tr.tot td{border-bottom:2px solid var(--line);} table.kaeh tr.tot .kn{font-weight:700;}
+  table.kaerank th.msel,table.kaerank td.msel{background:#f3f7f2;}
+  table.kaerank tfoot td{font-weight:700;background:#fbfaf5;border-top:2px solid var(--line);padding:6px 8px;}
+  table.kaerank tfoot td.num{text-align:right;}
+  #kaeCard .kpi.sel{border-color:#2f6d4f;box-shadow:inset 0 0 0 1px #2f6d4f;}
   table.kaeh .kn{position:sticky;left:0;background:var(--card);text-align:left;padding-right:10px;white-space:nowrap;font-size:11.5px;color:#23251f;z-index:1;}
   .kaeheat{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:8px;padding:6px;}
   .kaewrap{max-height:none;}
@@ -1024,21 +1031,24 @@
     <span class="gcfg"><span class="gcfl">Period</span>
       <span class="slaseg" id="kaeRange"><button type="button" data-v="7">7 days</button><button type="button" data-v="28" class="on">28 days</button><button type="button" data-v="90">90 days</button></span></span>
     <span class="gcfg" style="flex:1 1 420px"><span class="gcfl">Tasks</span><span class="slaChips" id="kaeCats" style="margin:0"></span></span>
+    <span class="gcfg"><span class="gcfl">Measure</span>
+      <span class="slaseg" id="kaeMetric"><button type="button" data-v="sla" class="on">SLA adherence</button><button type="button" data-v="done">Task completion</button></span></span>
     <label class="gcfg" style="font-size:12px;color:var(--muted)"><input type="checkbox" id="kaeMin" checked> hide KAEs with &lt;20 tasks in the period</label>
   </div>
   <div class="kpis kaekpis" id="kaeKpis"></div>
+  <div class="drill-sub" id="kaeMetricNote" style="margin:-4px 0 6px"></div>
   <div class="mixgrid" style="margin-top:6px">
-    <div><div class="drill-h3">Team adherence &mdash; day on day <span class="hint" id="kaeDayHint"></span></div>
+    <div><div class="drill-h3">Team, day on day &mdash; tasks due (bars) and <span class="kaeHeatM">SLA adherence</span> (line) <span class="hint" id="kaeDayHint"></span></div>
       <div class="chart-box" style="height:250px"><canvas id="kaeDayChart" role="img" aria-label="Daily share of KAE tasks completed within SLA, with tasks due per day."></canvas></div></div>
-    <div><div class="drill-h3">Team adherence &mdash; by ISO year-week <span class="hint">all 13 weeks</span></div>
+    <div><div class="drill-h3">Team, by ISO year-week &mdash; tasks due (bars) and <span class="kaeHeatM">SLA adherence</span> (line) <span class="hint">* = week still filling in</span></div>
       <div class="chart-box" style="height:250px"><canvas id="kaeWkChart" role="img" aria-label="Weekly share of KAE tasks completed within SLA."></canvas></div></div>
   </div>
-  <div class="drill-h3" style="margin-top:16px">KAEs &mdash; lowest adherence first <span class="hint">click a KAE to see their stuck tasks and categories</span></div>
+  <div class="drill-h3" style="margin-top:16px">KAEs <span class="hint" id="kaeTableHint"></span></div>
   <div class="tablewrap kaewrap"><table class="rank kaerank" id="kaeTable"></table></div>
   <div id="kaeDetail"></div>
-  <div class="drill-h3" style="margin-top:18px">KAE &times; day <span class="hint">on-time % of tasks created that day; blank = no tasks due; hover for counts</span></div>
+  <div class="drill-h3" style="margin-top:18px">KAE &times; day &mdash; <span class="kaeHeatM">SLA adherence</span> <span class="hint">% on top, done / due below; blank = no tasks due; weekends shaded</span></div>
   <div class="kaeheat" id="kaeHeatDay"></div>
-  <div class="drill-h3" style="margin-top:18px">KAE &times; ISO year-week <span class="hint">* = week still in progress</span></div>
+  <div class="drill-h3" style="margin-top:18px">KAE &times; ISO year-week &mdash; <span class="kaeHeatM">SLA adherence</span> <span class="hint">% on top, done / due below; * = week still filling in</span></div>
   <div class="kaeheat" id="kaeHeatWk"></div>
   <footer class="gbdef" id="kaeFoot"></footer>
 </div>
@@ -3159,12 +3169,21 @@ document.getElementById('spCsv').addEventListener('click',()=>{
 
 // ================= TAB: KAE task SLA adherence =================
 // KAE = snap.kae from refresh.py (KAE_SQL / KAE_STUCK_SQL). Rows are
-// [dayIdx, catIdx, kaeIdx, created, on_time, late, stuck, pending, overMin]; adherence =
-// on_time / (on_time + late + stuck). Pending tasks (not yet due) are left out of the base.
+// [dayIdx, catIdx, kaeIdx, created, on_time, late, stuck, pending, overMin].
+// Two metrics over the same base (tasks DUE = on_time + late + stuck; not-yet-due tasks left out):
+//   SLA adherence   = on_time / due            -- done inside the task's SLA
+//   Task completion = (on_time + late) / due   -- done at all, however late
 let KAE=null, kaeInit=false, kaeC1=null, kaeC2=null;
-const kaeSt={range:28, off:{}, min:true, sel:null};
+const kaeSt={range:28, off:{}, min:true, sel:null, metric:'sla'};
+const KAE_MET={sla:{l:'SLA adherence',short:'SLA',num:a=>a.on,txt:'completed within SLA'},
+               done:{l:'Task completion',short:'Completed',num:a=>a.on+a.late,txt:'completed at all (on time or late)'}};
 const kaeIsoWk=d=>{const t=new Date(d+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+4-(t.getUTCDay()||7));
   const y=new Date(Date.UTC(t.getUTCFullYear(),0,1)); return t.getUTCFullYear()+'-W'+String(Math.ceil(((t-y)/864e5+1)/7)).padStart(2,'0');};
+const kaeRate=(a,m)=>a&&a.due?KAE_MET[m||kaeSt.metric].num(a)/a.due:null;
+// completion runs 90-100% for almost everyone, so it gets its own, tighter colour scale
+const kaeColor=(r,m)=>(m||kaeSt.metric)==='done'
+  ?(r<0.85?'#C0392B':r<0.95?'#BA7517':r<0.98?'#8a8f33':'#2f6d4f')
+  :slaAdhColor(r??0);
 function kaeAgg(dayFrom, dayTo, key){        // key(row) -> bucket
   const m=new Map();
   for(const r of KAE.rows){
@@ -3174,38 +3193,43 @@ function kaeAgg(dayFrom, dayTo, key){        // key(row) -> bucket
     if(!a){ a={on:0,late:0,stuck:0,pend:0,over:0}; m.set(k,a); }
     a.on+=r[4]; a.late+=r[5]; a.stuck+=r[6]; a.pend+=r[7]; a.over+=r[8];
   }
-  m.forEach(a=>{ a.due=a.on+a.late+a.stuck; a.adh=a.due?a.on/a.due:null; a.avgOver=(a.late+a.stuck)?a.over/(a.late+a.stuck):null; });
+  m.forEach(a=>{ a.due=a.on+a.late+a.stuck; a.done=a.on+a.late; a.avgOver=(a.late+a.stuck)?a.over/(a.late+a.stuck):null; });
   return m;
 }
 const kaePct=v=>v==null?'—':(100*v).toFixed(1)+'%';
+const kaeN=v=>(v||0).toLocaleString();
+// heatmap cell: the % on top, the count under it ("18/25"); colour = the chosen metric
 function kaeCell(a,lab){
-  if(!a||!a.due) return '<td class="hc"></td>';
-  const c=slaAdhColor(a.adh), alpha=0.18+0.62*Math.min(1,a.due/20);
-  return `<td class="hc" style="background:${hx(c,alpha)};color:${alpha>0.5?'#fff':'#23251f'}" title="${esc(lab)}: ${a.on} of ${a.due} on time · ${a.late} late · ${a.stuck} stuck">${Math.round(100*a.adh)}</td>`;
+  if(!a||!a.due) return '<td class="hc empty"></td>';
+  const r=kaeRate(a), c=kaeColor(r), alpha=0.20+0.60*Math.min(1,a.due/25), dark=alpha>0.5;
+  const num=KAE_MET[kaeSt.metric].num(a);
+  return `<td class="hc" style="background:${hx(c,alpha)};color:${dark?'#fff':'#23251f'}" `+
+    `title="${esc(lab)} · ${a.due} due: ${a.on} on time, ${a.late} late, ${a.stuck} stuck">`+
+    `<b>${Math.round(100*r)}%</b><small style="color:${dark?'rgba(255,255,255,.85)':'#6b6e63'}">${num}/${a.due}</small></td>`;
 }
 function buildKae(){
-  const card=document.getElementById('kaeCard');
   if(!KAE||!KAE.rows||!KAE.rows.length){ document.getElementById('kaeKpis').innerHTML='<div class="kpi"><div class="k">No data</div><div class="s">KAE tasks are not in this snapshot yet; they arrive with the next refresh.</div></div>'; return; }
   if(!kaeInit){
     kaeInit=true;
     document.querySelectorAll('#kaeRange button').forEach(b=>b.addEventListener('click',()=>{
       kaeSt.range=+b.dataset.v; document.querySelectorAll('#kaeRange button').forEach(x=>x.classList.toggle('on',x===b)); paintKae(); }));
+    document.querySelectorAll('#kaeMetric button').forEach(b=>b.addEventListener('click',()=>{
+      kaeSt.metric=b.dataset.v; document.querySelectorAll('#kaeMetric button').forEach(x=>x.classList.toggle('on',x===b)); paintKae(); }));
     document.getElementById('kaeMin').addEventListener('change',e=>{ kaeSt.min=e.target.checked; paintKae(); });
     document.getElementById('kaeCsv').addEventListener('click',kaeCsv);
   }
   paintKae();
 }
 function paintKae(){
-  const D=KAE.days, last=D.length-1;
-  // A day counts only once its tasks are (almost) all past due. Tasks not yet due are left out of the
-  // adherence base, so a fresh day holds only the tasks already closed ON TIME and reads ~95%; the
-  // window ends on the last day with <=5% of its tasks still not due (usually 2 days back, 48h SLAs).
+  const D=KAE.days, last=D.length-1, M=KAE_MET[kaeSt.metric];
+  // A day counts only once its tasks are (almost) all past due: not-yet-due tasks are left out of the
+  // base, so a fresh day holds only the tasks already closed and reads far too high. The window ends
+  // on the last day with <=5% of its tasks still not due (usually 2 days back, 48h SLAs).
   const pend=new Array(D.length).fill(0), made=new Array(D.length).fill(0);
   KAE.rows.forEach(r=>{ pend[r[0]]+=r[7]; made[r[0]]+=r[3]; });
   let to=last; while(to>0&&(!made[to]||pend[to]/made[to]>0.05)) to--;
   kaeSt.to=to;
-  const from=Math.max(0,to-kaeSt.range+1);
-  const pFrom=Math.max(0,from-kaeSt.range), pTo=from-1;
+  const from=Math.max(0,to-kaeSt.range+1), pFrom=Math.max(0,from-kaeSt.range), pTo=from-1;
   // category chips
   const cc=document.getElementById('kaeCats');
   cc.innerHTML='<span class="item" data-all="1" style="font-weight:650">All / none</span>'+
@@ -3215,97 +3239,112 @@ function paintKae(){
     else kaeSt.off[+el.dataset.i]=!kaeSt.off[+el.dataset.i];
     paintKae(); }));
   const byK=kaeAgg(from,to,r=>r[2]), prevK=pTo>=0?kaeAgg(pFrom,pTo,r=>r[2]):new Map();
-  const T=[...byK.values()].reduce((s,a)=>({on:s.on+a.on,late:s.late+a.late,stuck:s.stuck+a.stuck}),{on:0,late:0,stuck:0});
-  T.due=T.on+T.late+T.stuck;
-  const P=[...prevK.values()].reduce((s,a)=>({on:s.on+a.on,due:s.due+a.due}),{on:0,due:0});
-  const adh=T.due?T.on/T.due:null, padh=P.due?P.on/P.due:null;
+  const sum=m=>[...m.values()].reduce((s,a)=>({on:s.on+a.on,late:s.late+a.late,stuck:s.stuck+a.stuck}),{on:0,late:0,stuck:0});
+  const T=sum(byK), P=sum(prevK); [T,P].forEach(x=>{ x.due=x.on+x.late+x.stuck; x.done=x.on+x.late; });
   const keep=k=>{const a=byK.get(k); return a&&a.due>=(kaeSt.min?20:1);};
   const list=[...byK.keys()].filter(keep).map(k=>({k,name:KAE.kaes[k],...byK.get(k),prev:prevK.get(k)}))
-    .sort((a,b)=>(a.adh??9)-(b.adh??9)||b.due-a.due);
+    .sort((a,b)=>(kaeRate(a)??9)-(kaeRate(b)??9)||b.due-a.due);
   const stuckNow=(KAE.stuck||[]).filter(s=>!kaeSt.off[s[2]]).length;
-  const dlt=(a,b)=>a==null||b==null?'':`<span class="${a-b>=0?'sum-up':'sum-dn'}">${a-b>=0?'▲':'▼'} ${Math.abs(100*(a-b)).toFixed(1)}pp</span> vs prior ${kaeSt.range}d`;
-  document.getElementById('kaeKpis').innerHTML=[
-    ['On-time rate',kaePct(adh),dlt(adh,padh)||'&nbsp;',''],
-    ['Tasks due',T.due.toLocaleString(),`${D[from]} → ${D[to]} (last day with its tasks due)`,''],
-    ['Completed late',T.late.toLocaleString(),T.due?Math.round(100*T.late/T.due)+'% of due':'','warn'],
-    ['Stuck now',stuckNow.toLocaleString(),'open past SLA, all 90 days','bad'],
-    ['KAEs',list.length,kaeSt.min?'with 20+ tasks in the period':'with tasks in the period','']
-  ].map(([k,v,s,c])=>`<div class="kpi ${c}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
-  // day-on-day chart (period) and year-week chart (all weeks)
-  const byD=kaeAgg(from,to,r=>r[0]);
-  const dl=[]; for(let i=from;i<=to;i++) dl.push(i);
-  if(kaeC1) kaeC1.destroy();
-  kaeC1=new Chart(document.getElementById('kaeDayChart'),{data:{labels:dl.map(i=>D[i].slice(5)),datasets:[
-      {type:'line',label:'On time %',data:dl.map(i=>{const a=byD.get(i); return a&&a.due?+(100*a.adh).toFixed(1):null;}),borderColor:'#2f6d4f',backgroundColor:'#2f6d4f',borderWidth:2,pointRadius:2,tension:.25,yAxisID:'y',spanGaps:true},
-      {type:'bar',label:'Tasks due',data:dl.map(i=>{const a=byD.get(i); return a?a.due:0;}),backgroundColor:'rgba(120,124,110,.18)',yAxisID:'y1'}]},
-    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{boxWidth:10,font:{size:11}}}},
-      scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:0,autoSkip:true}},
-        y:{min:0,max:100,ticks:{callback:v=>v+'%',color:AXIS}},y1:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},ticks:{color:AXIS}}}}});
-  document.getElementById('kaeDayHint').textContent='last '+kaeSt.range+' days whose tasks are all due (to '+D[to].slice(5)+')';
-  const wkOf=D.map(kaeIsoWk), wks=[...new Set(wkOf)];
+  const dlt=(m)=>{ const a=kaeRate(T,m), b=kaeRate(P,m); if(a==null||b==null) return 'no earlier period';
+    return `<span class="${a-b>=0?'sum-up':'sum-dn'}">${a-b>=0?'▲':'▼'} ${Math.abs(100*(a-b)).toFixed(1)}pp</span> vs prior ${kaeSt.range} days`; };
+  const on=kaeSt.metric;
+  document.getElementById('kaeKpis').innerHTML=
+    `<div class="kpi${on==='sla'?' sel':''}"><div class="k">SLA adherence</div><div class="v">${kaePct(kaeRate(T,'sla'))}</div>`+
+      `<div class="s">${kaeN(T.on)} of ${kaeN(T.due)} done within SLA · ${dlt('sla')}</div></div>`+
+    `<div class="kpi${on==='done'?' sel':''}"><div class="k">Task completion</div><div class="v">${kaePct(kaeRate(T,'done'))}</div>`+
+      `<div class="s">${kaeN(T.done)} of ${kaeN(T.due)} done at all · ${dlt('done')}</div></div>`+
+    `<div class="kpi"><div class="k">Tasks due</div><div class="v">${kaeN(T.due)}</div><div class="s">${D[from].slice(5)} → ${D[to].slice(5)} · ${list.length} KAEs${kaeSt.min?' (20+ tasks)':''}</div></div>`+
+    `<div class="kpi warn"><div class="k">Completed late</div><div class="v">${kaeN(T.late)}</div><div class="s">${T.due?Math.round(100*T.late/T.due):0}% of tasks due</div></div>`+
+    `<div class="kpi bad"><div class="k">Not completed</div><div class="v">${kaeN(T.stuck)}</div><div class="s">open past SLA in the period · ${kaeN(stuckNow)} across all 90 days</div></div>`;
+  document.getElementById('kaeMetricNote').innerHTML=`Showing <b>${M.l}</b> &mdash; ${M.txt} &divide; tasks due. Switch to compare.`;
+  // charts: stacked absolute counts (on time / late / not completed) + the chosen % as a line
+  const mkChart=(id,labels,buckets,old)=>{ if(old) old.destroy();
+    return new Chart(document.getElementById(id),{data:{labels,datasets:[
+      {type:'line',label:M.l+' %',data:buckets.map(a=>{const r=kaeRate(a); return r==null?null:+(100*r).toFixed(1);}),borderColor:'#23251f',backgroundColor:'#23251f',borderWidth:2,pointRadius:2.5,tension:.25,yAxisID:'y1',order:0,spanGaps:true},
+      {type:'bar',label:'On time',data:buckets.map(a=>a?a.on:0),backgroundColor:'rgba(47,109,79,.75)',stack:'n',yAxisID:'y',order:1},
+      {type:'bar',label:'Late',data:buckets.map(a=>a?a.late:0),backgroundColor:'rgba(214,150,52,.75)',stack:'n',yAxisID:'y',order:1},
+      {type:'bar',label:'Not completed',data:buckets.map(a=>a?a.stuck:0),backgroundColor:'rgba(192,57,43,.75)',stack:'n',yAxisID:'y',order:1}]},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{labels:{boxWidth:10,font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.dataset.type==='line'?(c.parsed.y==null?'—':c.parsed.y+'%'):c.parsed.y.toLocaleString())}}},
+        scales:{x:{stacked:true,grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:0,autoSkip:true}},
+          y:{stacked:true,beginAtZero:true,ticks:{color:AXIS},title:{display:true,text:'tasks due',color:AXIS_TITLE}},
+          y1:{position:'right',min:0,max:100,grid:{drawOnChartArea:false},ticks:{callback:v=>v+'%',color:AXIS},title:{display:true,text:M.short+' %',color:AXIS_TITLE}}}}}); };
+  const byD=kaeAgg(from,to,r=>r[0]), dl=[]; for(let i=from;i<=to;i++) dl.push(i);
+  kaeC1=mkChart('kaeDayChart',dl.map(i=>D[i].slice(5)),dl.map(i=>byD.get(i)),kaeC1);
+  document.getElementById('kaeDayHint').textContent=`last ${kaeSt.range} days, to ${D[to].slice(5)} (the last day whose tasks are all due)`;
+  const wkOf=D.map(kaeIsoWk), wks=[...new Set(wkOf.slice(0,to+1))], curWk=wkOf[to];
   const byW=kaeAgg(0,to,r=>wkOf[r[0]]);
-  const curWk=wkOf[to];        // the week holding the last judged day is still filling in
-  if(kaeC2) kaeC2.destroy();
-  kaeC2=new Chart(document.getElementById('kaeWkChart'),{data:{labels:wks.map(w=>w.replace('2026-',"'26-")+(w===curWk?' *':'')),datasets:[
-      {type:'line',label:'On time %',data:wks.map(w=>{const a=byW.get(w); return a&&a.due?+(100*a.adh).toFixed(1):null;}),borderColor:'#2f6d4f',backgroundColor:'#2f6d4f',borderWidth:2,pointRadius:3,tension:.25,yAxisID:'y'},
-      {type:'bar',label:'Tasks due',data:wks.map(w=>{const a=byW.get(w); return a?a.due:0;}),backgroundColor:'rgba(120,124,110,.18)',yAxisID:'y1'}]},
-    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{boxWidth:10,font:{size:11}}}},
-      scales:{x:{grid:{display:false},ticks:{font:{size:10},color:AXIS,maxRotation:0}},
-        y:{min:0,max:100,ticks:{callback:v=>v+'%',color:AXIS}},y1:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false},ticks:{color:AXIS}}}}});
-  // ranking table
-  let h='<thead><tr><th>#</th><th>KAE</th><th class="num">Tasks due</th><th class="num">On time</th><th class="num">Late</th><th class="num">Stuck</th>'+
-    '<th class="retc">Adherence</th><th class="num" title="change vs the previous period of the same length">vs prior '+kaeSt.range+'d</th><th class="num" title="average time past SLA over late and stuck tasks">Avg over SLA</th></tr></thead><tbody>';
-  list.forEach((x,i)=>{ const c=slaAdhColor(x.adh??0), pa=x.prev&&x.prev.due>=5?x.prev.adh:null;
+  kaeC2=mkChart('kaeWkChart',wks.map(w=>w.replace('2026-',"'26-")+(w===curWk?' *':'')),wks.map(w=>byW.get(w)),kaeC2);
+  // ranking table: counts first, then both rates, sorted by the chosen one
+  const bar=(r,m)=>{ const c=kaeColor(r,m); return `<span class="rw"><span class="retv" style="color:${c}">${kaePct(r)}</span><span class="rtrack"><span class="rbar" style="width:${Math.max(2,100*(r??0))}%;background:${c}"></span></span></span>`; };
+  let h='<thead><tr class="g1"><th rowspan="2">#</th><th rowspan="2">KAE</th><th class="num grp" colspan="5">Tasks (count)</th>'+
+    `<th class="grp" colspan="2">Rates</th><th class="num" rowspan="2" title="change in ${M.l} vs the previous period of the same length">${M.short} vs prior<br>${kaeSt.range} days</th>`+
+    '<th class="num" rowspan="2" title="average time past SLA over late and not-completed tasks">Avg over<br>SLA</th></tr>'+
+    '<tr class="g2"><th class="num gl">Due</th><th class="num">On time</th><th class="num">Late</th><th class="num">Not done</th><th class="num">Done</th>'+
+    `<th class="gl${on==='sla'?' msel':''}">SLA adherence</th><th class="${on==='done'?'msel':''}">Task completion</th></tr></thead><tbody>`;
+  list.forEach((x,i)=>{ const pr=x.prev&&x.prev.due>=5?kaeRate(x.prev):null, cr=kaeRate(x);
     h+=`<tr class="${kaeSt.sel===x.k?'sel':''}" data-k="${x.k}"><td class="rk">${i+1}</td><td class="nm">${esc(niceName(x.name))}</td>`+
-      `<td class="num">${x.due}</td><td class="num">${x.on}</td><td class="num" style="color:#a8650f">${x.late}</td><td class="num" style="color:#b5372a;font-weight:650">${x.stuck}</td>`+
-      `<td class="retc"><span class="rw"><span class="retv" style="color:${c}">${kaePct(x.adh)}</span><span class="rtrack"><span class="rbar" style="width:${Math.max(2,100*(x.adh??0))}%;background:${c}"></span></span></span></td>`+
-      `<td class="num">${pa==null||x.adh==null?'<span class="hint">—</span>':`<span class="${x.adh-pa>=0?'sum-up':'sum-dn'}">${x.adh-pa>=0?'+':'−'}${Math.abs(100*(x.adh-pa)).toFixed(1)}</span>`}</td>`+
+      `<td class="num gl"><b>${kaeN(x.due)}</b></td><td class="num" style="color:#2f6d4f">${kaeN(x.on)}</td><td class="num" style="color:#a8650f">${kaeN(x.late)}</td>`+
+      `<td class="num" style="color:#b5372a;font-weight:650">${kaeN(x.stuck)}</td><td class="num">${kaeN(x.done)}</td>`+
+      `<td class="retc gl${on==='sla'?' msel':''}">${bar(kaeRate(x,'sla'),'sla')}</td><td class="retc${on==='done'?' msel':''}">${bar(kaeRate(x,'done'),'done')}</td>`+
+      `<td class="num">${pr==null||cr==null?'<span class="hint">—</span>':`<span class="${cr-pr>=0?'sum-up':'sum-dn'}">${cr-pr>=0?'+':'−'}${Math.abs(100*(cr-pr)).toFixed(1)}pp</span>`}</td>`+
       `<td class="num">${slaHrs(x.avgOver)||'—'}</td></tr>`; });
-  document.getElementById('kaeTable').innerHTML=h+'</tbody>';
+  const Tr=`<tfoot><tr><td></td><td>All KAEs shown</td><td class="num gl">${kaeN(T.due)}</td><td class="num">${kaeN(T.on)}</td><td class="num">${kaeN(T.late)}</td><td class="num">${kaeN(T.stuck)}</td><td class="num">${kaeN(T.done)}</td>`+
+    `<td class="gl">${kaePct(kaeRate(T,'sla'))}</td><td>${kaePct(kaeRate(T,'done'))}</td><td></td><td></td></tr></tfoot>`;
+  document.getElementById('kaeTable').innerHTML=h+'</tbody>'+Tr;
+  document.getElementById('kaeTableHint').textContent=`sorted by ${M.l}, lowest first · click a KAE for their open tasks and categories`;
   document.querySelectorAll('#kaeTable tbody tr').forEach(tr=>tr.addEventListener('click',()=>{
     const k=+tr.dataset.k; kaeSt.sel=kaeSt.sel===k?null:k; paintKae(); }));
   kaeDetail(from,to);
-  // heatmaps: KAE x day (period), KAE x week (all)
-  const ord=list.map(x=>x.k);
+  // heatmaps
+  const ord=list.map(x=>x.k), DOW=['Su','Mo','Tu','We','Th','Fr','Sa'];
   const kd=kaeAgg(from,to,r=>r[2]+'|'+r[0]);
-  let hd='<table class="kaeh"><thead><tr><th class="kn">KAE</th>'+dl.map(i=>`<th>${D[i].slice(8)}<small>${['Su','Mo','Tu','We','Th','Fr','Sa'][new Date(D[i]+'T00:00:00Z').getUTCDay()]}</small></th>`).join('')+'</tr></thead><tbody>';
+  const tot=(f)=>'<tr class="tot"><td class="kn">All KAEs shown</td>'+f+'</tr>';
+  let hd='<table class="kaeh"><thead><tr><th class="kn">KAE</th>'+dl.map(i=>{const dw=new Date(D[i]+'T00:00:00Z').getUTCDay();
+    return `<th class="${dw===0||dw===6?'we':''}">${D[i].slice(8)}<small>${DOW[dw]}</small></th>`;}).join('')+'</tr></thead><tbody>';
+  hd+=tot(dl.map(i=>kaeCell(byD.get(i),D[i])).join(''));
   ord.forEach(k=>{ hd+=`<tr><td class="kn">${esc(niceName(KAE.kaes[k]))}</td>`+dl.map(i=>kaeCell(kd.get(k+'|'+i),D[i])).join('')+'</tr>'; });
   document.getElementById('kaeHeatDay').innerHTML=hd+'</tbody></table>';
   const kw=kaeAgg(0,to,r=>r[2]+'|'+wkOf[r[0]]);
   let hw='<table class="kaeh"><thead><tr><th class="kn">KAE</th>'+wks.map(w=>`<th>${w.slice(5)}${w===curWk?'*':''}</th>`).join('')+'</tr></thead><tbody>';
+  hw+=tot(wks.map(w=>kaeCell(byW.get(w),w)).join(''));
   ord.forEach(k=>{ hw+=`<tr><td class="kn">${esc(niceName(KAE.kaes[k]))}</td>`+wks.map(w=>kaeCell(kw.get(k+'|'+w),w)).join('')+'</tr>'; });
   document.getElementById('kaeHeatWk').innerHTML=hw+'</tbody></table>';
   document.querySelectorAll('.kaeheat').forEach(el=>{ el.scrollLeft=el.scrollWidth; });
+  document.querySelectorAll('.kaeHeatM').forEach(el=>{ el.textContent=M.l; });
   document.getElementById('kaeFoot').innerHTML=
     '<b>Source:</b> <code>nushop.workboard_tasks</code> assigned to users with the key-account-executive role, HIT sellers only, last 90 days, by the IST day the task was created. '+
-    '<b>Due</b> = created + the task&rsquo;s own <code>sla_in_min</code> (mostly 48h for TS and automation tasks, 24h for CRM and ad-account tasks). '+
-    '<b>Done</b> = the task has a <code>completed_at</code>, whatever its status label says. Tasks not yet due are left out of the adherence base. '+
-    'The period ends on the last day with at most 5% of its tasks not yet due (usually two days ago, as most SLAs are 48h): a newer day would only contain the tasks already closed on time and read far too high. '+
+    '<b>Tasks due</b> = tasks whose SLA time has passed (created + the task&rsquo;s own <code>sla_in_min</code>: mostly 48h for TS and automation tasks, 24h for CRM and ad-account tasks). '+
+    '<b>SLA adherence</b> = done within that time &divide; due. <b>Task completion</b> = done at all, on time or late &divide; due. <b>Not completed</b> = still open past its SLA. '+
+    '<b>Completion is measured to date:</b> an older task has had longer to be finished, so recent days read lower on completion until their tasks catch up &mdash; compare days of similar age. SLA adherence has no such drift: a task is on time or not the moment its SLA passes. '+
+    '<b>Done</b> = the task has a <code>completed_at</code>, whatever its status label says. '+
+    'The period ends on the last day with at most 5% of its tasks not yet due: a newer day would only contain tasks already closed and read far too high. '+
     '<b>Left out:</b> <code>ts_sop_communication</code> (a parked system queue on 3 KAEs, non-HIT, almost never completed) and overdue callback sub-tasks. '+
     'Categories: TS manual action = troubleshoot manual actions; Meta / campaign automation = meta, campaign and Google automation; Website / catalogue = website automation and catalogue tickets; '+
-    'Ad account / BM = ad account, BM, page, pixel, access and wallet tasks; CRM generic; Other = everything else. Heatmap colour = adherence, stronger with more tasks.';
+    'Ad account / BM = ad account, BM, page, pixel, access and wallet tasks; CRM generic; Other = everything else. Heatmap: % on top, count below; colour = the chosen rate (SLA adherence: green from 75%; task completion: green from 98%, amber below 95%, red below 85%), stronger with more tasks; weekends shaded.';
 }
 function kaeDetail(from,to){
   const el=document.getElementById('kaeDetail'), k=kaeSt.sel;
   const S=(KAE.stuck||[]).filter(s=>!kaeSt.off[s[2]]&&(k==null||s[1]===k));
-  const head=k==null?'Stuck tasks &mdash; all KAEs':'Stuck tasks &mdash; '+esc(niceName(KAE.kaes[k]));
+  const head=k==null?'Open tasks past SLA &mdash; all KAEs':'Open tasks past SLA &mdash; '+esc(niceName(KAE.kaes[k]));
   let cats='';
   if(k!=null){
     const bc=kaeAgg(from,to,r=>r[2]===k?r[1]:-1);
     cats='<div class="kaecats">'+KAE.cats.map((c,i)=>{const a=bc.get(i); if(!a||!a.due) return '';
-      return `<span class="kaecat" style="border-color:${slaAdhColor(a.adh)}"><b style="color:${slaAdhColor(a.adh)}">${Math.round(100*a.adh)}%</b> ${esc(c)} <small>${a.on}/${a.due}</small></span>`;}).join('')+'</div>';
+      const r=kaeRate(a); return `<span class="kaecat" style="border-color:${kaeColor(r)}"><b style="color:${kaeColor(r)}">${Math.round(100*r)}%</b> ${esc(c)} <small>${KAE_MET[kaeSt.metric].num(a)}/${a.due} · ${a.stuck} not done</small></span>`;}).join('')+'</div>';
   }
-  el.innerHTML=`<div class="drill-h3" style="margin-top:14px">${head} <span class="hint">${S.length} open past SLA, oldest first</span></div>`+cats+
+  el.innerHTML=`<div class="drill-h3" style="margin-top:14px">${head} <span class="hint">${S.length} tasks, oldest first (all 90 days)</span></div>`+cats+
     (S.length?'<div class="tablewrap" style="max-height:300px"><table class="stk"><thead><tr><th>Seller</th><th>Seller ID</th><th>Task ID</th><th>KAE</th><th>Category · sub-type</th><th>Raised</th><th>Due</th><th>Over SLA</th><th>Status</th></tr></thead><tbody>'+
       S.slice(0,400).map(s=>`<tr><td class="sn">${esc(s[5]||'—')}</td><td class="sid">${esc(s[4])}</td><td class="sid">${esc(s[0])}</td><td>${esc(niceName(KAE.kaes[s[1]]))}</td>`+
         `<td>${esc(KAE.cats[s[2]])} <span class="hint">${esc(s[3])}</span></td><td>${s[7].slice(5)}</td><td>${s[8].slice(5)}</td>`+
-        `<td style="color:#b5372a;font-weight:700">${(s[9]/1440).toFixed(1)}d</td><td>${esc(s[6]||'—')}</td></tr>`).join('')+'</tbody></table></div>':'<div class="drill-sub">Nothing stuck.</div>');
+        `<td style="color:#b5372a;font-weight:700">${(s[9]/1440).toFixed(1)}d</td><td>${esc(s[6]||'—')}</td></tr>`).join('')+'</tbody></table></div>':'<div class="drill-sub">Nothing open past SLA.</div>');
 }
 function kaeCsv(){
   const q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
-  const out=[['date','iso_week','kae','category','tasks_created','on_time','late','stuck','not_yet_due','adherence_pct'].join(',')];
+  const out=[['date','iso_week','kae','category','tasks_created','tasks_due','on_time','late','not_completed','not_yet_due','sla_adherence_pct','task_completion_pct'].join(',')];
   KAE.rows.forEach(r=>{ const due=r[4]+r[5]+r[6];
-    out.push([KAE.days[r[0]],kaeIsoWk(KAE.days[r[0]]),KAE.kaes[r[2]],KAE.cats[r[1]],r[3],r[4],r[5],r[6],r[7],due?(100*r[4]/due).toFixed(1):''].map(q).join(',')); });
+    out.push([KAE.days[r[0]],kaeIsoWk(KAE.days[r[0]]),KAE.kaes[r[2]],KAE.cats[r[1]],r[3],due,r[4],r[5],r[6],r[7],
+      due?(100*r[4]/due).toFixed(1):'',due?(100*(r[4]+r[5])/due).toFixed(1):''].map(q).join(',')); });
   saveCsv('kae_task_sla_by_day.csv', out.join('\n'));
 }
 // ================= TABS: GC / KAM task SLA adherence =================
