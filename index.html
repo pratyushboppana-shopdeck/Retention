@@ -132,6 +132,7 @@
   .tab.active{background:var(--tA);color:var(--tI);border-color:rgba(18,19,15,.08);box-shadow:0 1px 2px rgba(18,19,15,.08);}
   .tab[data-view="curve"]   {--t:#eef4fc;--tA:#d6e6f8;--tI:#1d4f86;}
   .tab[data-view="offers"]  {--t:#fdf1ea;--tA:#f9dccb;--tI:#94451c;}
+  .tab[data-view="ramp"]    {--t:#eef5f0;--tA:#d6e8dc;--tI:#1b5c3e;}
   .tab[data-view="clsc"]    {--t:#edf6ef;--tA:#d3ebda;--tI:#24613d;}
   .tab[data-view="gcgm"]    {--t:#f4effb;--tA:#e3d8f4;--tI:#5b3a8c;}
   .tab[data-view="unassign"]{--t:#fdf8e6;--tA:#f6e9b8;--tI:#7a5b0c;}
@@ -543,6 +544,7 @@
     <button class="tab" type="button" data-view="summary">Summary</button>
     <button class="tab active" type="button" data-view="curve">Retention curve</button>
     <button class="tab" type="button" data-view="offers">Offers</button>
+    <button class="tab" type="button" data-view="ramp">Spend ramp</button>
     <button class="tab" type="button" data-view="clsc">CL scorecard</button>
     <button class="tab" type="button" data-view="gcgm">GC &amp; GM retention</button>
     <button class="tab" type="button" data-view="unassign">Unassignments &amp; moves</button>
@@ -823,6 +825,25 @@
       <button type="button" id="mixCsv" class="mbtn" style="margin-left:8px">Download CSV</button></div>
     <div class="tablewrap" style="max-height:520px;overflow:auto"><table class="mixtab" id="mixTable"></table></div>
     <footer id="mixFoot"></footer>
+  </div>
+
+  <div class="card" id="rampCard">
+    <h2>Spend ramp &mdash; how far go-live sellers get</h2>
+    <p class="sub" id="rampSub"></p>
+    <div class="ctl" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <span class="slaseg" id="rampGrain"><button type="button" data-v="week" class="on">Year-week</button><button type="button" data-v="month">Month</button></span>
+      <span class="slaseg" id="rampView"><button type="button" data-v="cum" class="on">Reached at least</button><button type="button" data-v="comp">Where sellers land</button></span>
+      <label style="font-size:12px;color:var(--muted)">Cumulative spend by end of
+        <select id="rampWk" style="margin-left:6px;padding:3px 6px;border-radius:7px;border:1px solid var(--line)">
+          <option value="1">week 1</option><option value="2">week 2</option><option value="3">week 3</option>
+          <option value="4">week 4</option><option value="5">week 5</option><option value="6" selected>week 6</option>
+          <option value="7">week 7</option></select></label>
+    </div>
+    <div class="chart-box" style="height:380px"><canvas id="rampChart" role="img" aria-label="Share of each go-live cohort's sellers by the cumulative marketing spend they reached within the chosen number of weeks after go-live."></canvas></div>
+    <div class="gbdef" id="rampFoot"></div>
+    <div class="drill-h3" style="margin-top:16px">Every cohort &mdash; share reaching each spend level
+      <button type="button" id="rampCsv" class="mbtn" style="margin-left:8px">Download CSV</button></div>
+    <div class="tablewrap" style="max-height:460px;overflow:auto"><table class="mixtab" id="rampTable"></table></div>
   </div>
 
   <div class="card" id="tsArmCard">
@@ -2625,6 +2646,104 @@ document.getElementById('sumCsv').addEventListener('click',()=>{ if(window.SUMCS
 // ===== GC & GM retention view =====
 let GCGM=null, gcgmInit=false, GCGMS=null, DIAGBY={}, WEEKACT=null;
 const gcgmSel={weeks:new Set(), metric:3, gc:'All', gm:'All', cl:'All', showAllRanks:false};
+// ===== Spend ramp tab: how far go-live sellers get on cumulative marketing spend =====
+// Cumulative spend is rebuilt in the browser from the diagnosis rows (s0 = W0 spend, sp[k-1] = Wk),
+// so any threshold can be asked for without touching the pipeline. Checked against the pipeline's
+// own wk_to_30k for every seller who reached Rs 30K inside W0-W7: 2,458 of 2,458 agree.
+// The levels are ORDERED, so the series use a single-hue sequential ramp (light = lowest level)
+// rather than categorical hues; "under Rs 5K" is the one non-attainment band and stays neutral grey.
+// Ramp validated with the dataviz ordinal checks on a #fff surface: lightness monotone, adjacent
+// dL >= 0.06, single hue (spread 5 deg), light-end contrast 2.23:1.
+const RAMP_T=[5000,10000,20000,30000,50000];
+const RAMP_TL=['₹5K','₹10K','₹20K','₹30K','₹50K'];
+const RAMP_COL=['#86b99a','#5a9f7d','#36835f','#216548','#104a32'];
+const RAMP_GREY='#c9c8c0';
+const rampSt={grain:'week',view:'cum',wk:6};   // "reached at least" answers the question directly
+let rampC=null;
+const rampCum=(d,k)=>{let c=d.s0||0; for(let i=0;i<k;i++) c+=(d.sp[i]||0); return c;};
+function rampData(){
+  const D=window.DIAG||[], now=mixNowMon(), k=rampSt.wk;
+  const key=rampSt.grain==='week'?(d=>d.w):(d=>d.mo), P={};
+  D.forEach(d=>{ const kk=key(d); if(!kk) return;
+    const o=P[kk]||(P[kk]={k:kk,tot:0,n:0,mature:true,reach:RAMP_T.map(()=>0),band:new Array(RAMP_T.length+1).fill(0)});
+    o.tot++;
+    if(mixWeeksElapsed(d.w,now)<=k){ o.mature=false; return; }   // seller has not finished week k
+    o.n++;
+    const c=rampCum(d,k); let b=0;
+    RAMP_T.forEach((t,i)=>{ if(c>=t){ o.reach[i]++; b=i+1; } });
+    o.band[b]++; });
+  return Object.values(P).sort((a,b)=>a.k<b.k?-1:1);
+}
+function rampBandNames(){
+  return ['under '+RAMP_TL[0]].concat(RAMP_T.map((t,i)=>i<RAMP_T.length-1?RAMP_TL[i]+'–'+RAMP_TL[i+1]:RAMP_TL[i]+'+'));
+}
+function rampPaint(){
+  const per=rampData(), k=rampSt.wk, comp=rampSt.view==='comp';
+  const part=o=>!o.mature&&o.n>=MIX_MIN_N, show=o=>o.mature||part(o);
+  const labels=per.map(o=>mixLabel(o.k,rampSt.grain)+(o.mature?'':part(o)?' (partial)':' *'));
+  const pct=(num,den)=>den>=MIX_MIN_N?+(100*num/den).toFixed(1):null;
+  const names=comp?rampBandNames():RAMP_T.map((t,i)=>'≥ '+RAMP_TL[i]);
+  const cols=comp?[RAMP_GREY].concat(RAMP_COL):RAMP_COL;
+  const ds=names.map((nm,i)=>comp
+    ? {label:nm,data:per.map(o=>show(o)?pct(o.band[i],o.n):null),
+       backgroundColor:cols[i],borderColor:'#fff',borderWidth:1,   // 1px surface gap between bands
+       fill:true,stack:'s',pointRadius:0,tension:.25}
+    : {label:nm,data:per.map(o=>show(o)?pct(o.reach[i],o.n):null),
+       borderColor:cols[i],backgroundColor:cols[i],borderWidth:2,fill:false,tension:.25,spanGaps:true,
+       pointBackgroundColor:per.map(o=>part(o)?'#fff':cols[i]),
+       pointRadius:per.map(o=>part(o)?4:2.5),pointBorderWidth:per.map(o=>part(o)?2:1),
+       segment:{borderDash:x=>part(per[x.p1DataIndex])?[4,4]:undefined}});
+  if(rampC) rampC.destroy();
+  rampC=new Chart(document.getElementById('rampChart'),{type:'line',data:{labels,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{reverse:comp,labels:{boxWidth:14,font:{size:11}}},
+        tooltip:{callbacks:{
+          label:c=>{const o=per[c.dataIndex]; if(c.parsed.y==null) return c.dataset.label+': —';
+            const n=comp?o.band[c.datasetIndex]:o.reach[c.datasetIndex];
+            return c.dataset.label+': '+c.parsed.y+'% ('+n.toLocaleString()+' of '+o.n.toLocaleString()+')';},
+          afterBody:it=>{const o=per[it[0].dataIndex];
+            return part(o)?'partial — '+o.n.toLocaleString()+' of '+o.tot.toLocaleString()+' sellers have finished week '+k:'';}}}},
+      scales:{y:{min:0,max:100,stacked:comp,ticks:{color:'#3d4036',callback:v=>v+'%'},grid:{color:'rgba(18,19,15,0.075)'}},
+              x:{stacked:comp,ticks:{color:'#3d4036',maxRotation:0,autoSkip:true},grid:{display:false}}}}});
+  const mature=per.filter(o=>o.mature);
+  document.getElementById('rampSub').textContent=
+    'Cumulative marketing spend from the go-live week (W0) through week '+k+', for sellers on the canonical go-live base. '+
+    'A cohort is only drawn once its sellers have finished week '+k+'; one still filling up is marked (partial), drawn hollow on a dashed line.';
+  document.getElementById('rampFoot').innerHTML=
+    '<b>'+(comp?'Where sellers land':'Reached at least')+'.</b> '+
+    (comp?'Each cohort splits into bands that add to 100%, so you can see the whole distribution move — darker is more spend.'
+        :'Each line is the share reaching at least that level, so the lines nest — every seller at ₹30K is also counted at ₹20K.')+
+    ' Levels are cumulative spend by end of week '+k+', not spend in that week alone.'+
+    (mature.length?' Latest complete cohort: <b>'+mixLabel(mature[mature.length-1].k,rampSt.grain)+'</b>.':'');
+  const head='<tr><th>Cohort</th><th>Sellers</th>'+RAMP_T.map((t,i)=>'<th>≥ '+RAMP_TL[i]+'</th>').join('')+'</tr>';
+  const body=per.filter(o=>o.n>0).reverse().map(o=>{   // a cohort with nobody past week k says nothing
+    const tag=o.mature?'':part(o)?' <span style="color:#8a8d80">(partial)</span>':' <span style="color:#8a8d80">*</span>';
+    return '<tr><td>'+esc(mixLabel(o.k,rampSt.grain))+tag+'</td><td>'+(o.n||0).toLocaleString()+'</td>'+
+      RAMP_T.map((t,i)=>{const v=pct(o.reach[i],o.n);
+        return '<td>'+(v==null?'–':v.toFixed(1)+'%')+'</td>';}).join('')+'</tr>';}).join('');
+  document.getElementById('rampTable').innerHTML=head+body;
+}
+function buildRamp(){
+  if(!buildRamp.wired){
+    buildRamp.wired=1;
+    document.querySelectorAll('#rampGrain button').forEach(b=>b.addEventListener('click',()=>{
+      rampSt.grain=b.dataset.v;
+      document.querySelectorAll('#rampGrain button').forEach(x=>x.classList.toggle('on',x===b)); rampPaint();}));
+    document.querySelectorAll('#rampView button').forEach(b=>b.addEventListener('click',()=>{
+      rampSt.view=b.dataset.v;
+      document.querySelectorAll('#rampView button').forEach(x=>x.classList.toggle('on',x===b)); rampPaint();}));
+    document.getElementById('rampWk').addEventListener('change',e=>{rampSt.wk=+e.target.value; rampPaint();});
+    document.getElementById('rampCsv').addEventListener('click',()=>{
+      const per=rampData(), q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+      const rows=[['cohort','sellers_finished_week_'+rampSt.wk,'cohort_total','complete']
+        .concat(RAMP_T.map((t,i)=>'pct_reached_'+t)).concat(rampBandNames().map(n=>'n_'+n.replace(/\s+/g,'_'))).map(q).join(',')];
+      per.forEach(o=>rows.push([o.k,o.n,o.tot,o.mature?'yes':'no']
+        .concat(RAMP_T.map((t,i)=>o.n?(100*o.reach[i]/o.n).toFixed(1):''))
+        .concat(o.band).map(q).join(',')));
+      saveCsv('spend_ramp_'+rampSt.grain+'_W'+rampSt.wk+'.csv',rows.join('\n'));});
+  }
+  rampPaint();
+}
 const MONTH2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function wkMonthKey(w){const co=parseCohort(w); return co?co.my*100+co.mm:0;}
 function wkMonthLabel(w){const co=parseCohort(w); return co?MONTH2[co.mm-1]+' '+String(co.my).slice(2):w;}
@@ -2637,6 +2756,8 @@ function setView(v){
   if(v==='offers') buildOffers();
   document.getElementById('drillCard').style.display=(curve&&CURDRILL)?'block':'none';
   document.getElementById('gcgmCard').style.display=v==='gcgm'?'block':'none';
+  document.getElementById('rampCard').style.display=v==='ramp'?'block':'none';
+  if(v==='ramp') buildRamp();
   document.getElementById('clCard').style.display=v==='clsc'?'block':'none';
   document.getElementById('sumCard').style.display=v==='summary'?'block':'none';
   if(v==='summary') buildSummary();
