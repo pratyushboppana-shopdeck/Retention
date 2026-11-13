@@ -359,6 +359,8 @@ lead AS (
          WHEN offer_raw IN ('5k SD post 10k Spend','₹5K Credit After ₹10K Spend') THEN '5k post10k'
          WHEN offer_raw IN ('5k SD post 15k Spend','₹5K Credit After ₹15K Spend') THEN '5k post15k'
          WHEN offer_raw IN ('5k+0% Commission','₹5K Credit + 0% Commission Combo') THEN '5k+0%'
+         WHEN offer_raw IN ('10K+5K','₹10K Deposit + ₹5K Marketing') THEN '10K+5K'
+         WHEN offer_raw IN ('15K+10K','₹15K Deposit + ₹10K Marketing') THEN '15K+10K'
          WHEN offer_raw = 'NA' THEN 'NA'
          WHEN offer_raw IS NULL OR offer_raw='' THEN 'No lead' ELSE 'Other' END offer
   FROM (

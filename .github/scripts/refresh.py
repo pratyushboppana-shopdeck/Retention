@@ -169,6 +169,9 @@ lead AS (
       WHEN COALESCE(f.o,a.o) IN ('5k SD post 10k Spend','₹5K Credit After ₹10K Spend') THEN '5k SD post 10k'
       WHEN COALESCE(f.o,a.o) IN ('5k SD post 15k Spend','₹5K Credit After ₹15K Spend') THEN '5k SD post 15k'
       WHEN COALESCE(f.o,a.o) IN ('5k+0% Commission','₹5K Credit + 0% Commission Combo') THEN '5k+0% Comm'
+      -- new deposit+marketing tiers (owner, 2026-11-13); both graded Good by override, see GB_FORCE_GOOD
+      WHEN COALESCE(f.o,a.o) IN ('10K+5K','₹10K Deposit + ₹5K Marketing') THEN '10K+5K'
+      WHEN COALESCE(f.o,a.o) IN ('15K+10K','₹15K Deposit + ₹10K Marketing') THEN '15K+10K'
       WHEN COALESCE(f.o,a.o) = 'NA' THEN 'NA'
       WHEN COALESCE(f.o,a.o) IS NULL THEN 'No offer recorded'
       ELSE 'Other' END offer
@@ -234,7 +237,8 @@ def run_card_csv(session, card_id):
         return r.read().decode("utf-8", "replace")
 
 
-OFFERS = ["5K+5K", "5k+0% Comm", "5k SD post 15k", "5k SD post 10k", "2K+5K", "Zero(SD)", "Other", "NA", "No offer recorded"]
+OFFERS = ["5K+5K", "5k+0% Comm", "5k SD post 15k", "5k SD post 10k", "2K+5K", "Zero(SD)",
+          "10K+5K", "15K+10K", "Other", "NA", "No offer recorded"]
 SOURCES = ["Marketing Lead", "Website Inbound", "Channel Partner", "FOS", "App leads", "Other", "No lead"]
 
 
@@ -1870,7 +1874,9 @@ lead AS (
   SELECT l.seller_id, IF(l.src='FOS',1,0) fos,
     CASE WHEN f.o IN ('2K+5K','₹2K Deposit + ₹5K Marketing','5K+5K','₹5K Deposit + ₹5K Marketing') THEN 'bad'
          WHEN f.o IN ('Zero(0) SD','0% Commission 1st Month','0% Commission for First 30 Days','5k SD post 15k Spend',
-                      '₹5K Credit After ₹15K Spend','5k+0% Commission','₹5K Credit + 0% Commission Combo') THEN 'good'
+                      '₹5K Credit After ₹15K Spend','5k+0% Commission','₹5K Credit + 0% Commission Combo',
+                      -- owner override 2026-11-13, see GB_FORCE_GOOD in index.html
+                      '10K+5K','₹10K Deposit + ₹5K Marketing','15K+10K','₹15K Deposit + ₹10K Marketing') THEN 'good'
          WHEN f.o IN ('5k SD post 10k Spend','₹5K Credit After ₹10K Spend') THEN 'unclear'
          ELSE 'none' END og
   FROM sfl_latest l LEFT JOIN sfl_offer f USING(seller_id)),
