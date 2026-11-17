@@ -1,6 +1,6 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-11-16",
+ "fetched": "2026-11-17",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
@@ -290,6 +290,13 @@
    "active": true
   },
   {
+   "gc": "Dhiraj Kumar Khandelwal",
+   "gm": "Aashirbad Sabat",
+   "cl": "Pratiksha Y",
+   "role": "Core GC",
+   "active": true
+  },
+  {
    "gc": "Harshita Gupta",
    "gm": "Aashirbad Sabat",
    "cl": "Pratiksha Y",
@@ -347,6 +354,13 @@
   },
   {
    "gc": "Jatin Kuchhal",
+   "gm": "Aitesam Khan",
+   "cl": "Pratiksha Y",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Shivansh Chaturvedi",
    "gm": "Aitesam Khan",
    "cl": "Pratiksha Y",
    "role": "Core GC",
@@ -434,20 +448,6 @@
    "gm": "Anshika Satpathy",
    "cl": "Pratiksha Y",
    "role": "1-5K GL",
-   "active": true
-  },
-  {
-   "gc": "Dhiraj Kumar Khandelwal",
-   "gm": "Ayushi Yadav",
-   "cl": "Pratiksha Y",
-   "role": "Core GC",
-   "active": true
-  },
-  {
-   "gc": "Shivansh Chaturvedi",
-   "gm": "Ayushi Yadav",
-   "cl": "Pratiksha Y",
-   "role": "Core GC",
    "active": true
   },
   {
