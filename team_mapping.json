@@ -1,6 +1,6 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-11-17",
+ "fetched": "2026-11-18",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
@@ -276,13 +276,6 @@
    "active": true
   },
   {
-   "gc": "Saiprasad Chandru Shet",
-   "gm": "Aashirbad Sabat",
-   "cl": "Pratiksha Y",
-   "role": "Core GC",
-   "active": true
-  },
-  {
    "gc": "Piyush Patil",
    "gm": "Aashirbad Sabat",
    "cl": "Pratiksha Y",
@@ -320,6 +313,13 @@
   {
    "gc": "Divyansh deep",
    "gm": "Aashirbad Sabat",
+   "cl": "Pratiksha Y",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Saiprasad Chandru Shet",
+   "gm": "Aastha Jha",
    "cl": "Pratiksha Y",
    "role": "Core GC",
    "active": true
