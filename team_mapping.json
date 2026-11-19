@@ -1,6 +1,6 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-11-18",
+ "fetched": "2026-11-19",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
@@ -17,10 +17,10 @@
  },
  "rows": [
   {
-   "gc": "Mannat Chawla",
-   "gm": "#N/A",
-   "cl": "#N/A",
-   "role": "1-5K GL",
+   "gc": "Ravi Dotaniya",
+   "gm": "Sagar Sharma",
+   "cl": "",
+   "role": "Core GC",
    "active": true
   },
   {
@@ -52,6 +52,13 @@
    "active": true
   },
   {
+   "gc": "MEHUL BHAGAT",
+   "gm": "Gaurav Mittal",
+   "cl": "Jivraj K",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
    "gc": "Prerna Kedia",
    "gm": "Maloo Pratibha",
    "cl": "Jivraj K",
@@ -70,6 +77,13 @@
    "gm": "Maloo Pratibha",
    "cl": "Jivraj K",
    "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Anshika Bansal",
+   "gm": "Maloo Pratibha",
+   "cl": "Jivraj K",
+   "role": "1-5K GL",
    "active": true
   },
   {
@@ -108,6 +122,13 @@
    "active": true
   },
   {
+   "gc": "sahithi vijayalakshmi",
+   "gm": "Mayank Nagar",
+   "cl": "Jivraj K",
+   "role": "google_gc",
+   "active": true
+  },
+  {
    "gc": "Aditya Bargotra",
    "gm": "mohammed moin",
    "cl": "Jivraj K",
@@ -133,6 +154,13 @@
    "gm": "mohammed moin",
    "cl": "Jivraj K",
    "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "tanushi dubey",
+   "gm": "mohammed moin",
+   "cl": "Jivraj K",
+   "role": "1-5K GL",
    "active": true
   },
   {
@@ -171,6 +199,13 @@
    "active": true
   },
   {
+   "gc": "komal kumari",
+   "gm": "Priyanshu Nandan",
+   "cl": "Jivraj K",
+   "role": "google_gc",
+   "active": true
+  },
+  {
    "gc": "AADITYA KUMAR SINGH",
    "gm": "Rebecca Raechel Anil",
    "cl": "Jivraj K",
@@ -200,6 +235,13 @@
   },
   {
    "gc": "Aarushi Kumar",
+   "gm": "Rebecca Raechel Anil",
+   "cl": "Jivraj K",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "sushil kumartiwari",
    "gm": "Rebecca Raechel Anil",
    "cl": "Jivraj K",
    "role": "1-5K GL",
@@ -266,6 +308,13 @@
    "gm": "Vipin gautam",
    "cl": "Jivraj K",
    "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "sandip kumartripathy",
+   "gm": "Vipin gautam",
+   "cl": "Jivraj K",
+   "role": "1-5K GL",
    "active": true
   },
   {
@@ -353,6 +402,41 @@
    "active": true
   },
   {
+   "gc": "Devesh Tripathi",
+   "gm": "Aastha Jha",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "harsh pratapsingh",
+   "gm": "Aastha Jha",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "himank dhamaniya",
+   "gm": "Aastha Jha",
+   "cl": "Pratiksha Y",
+   "role": "google_gc",
+   "active": true
+  },
+  {
+   "gc": "Jitu Raj",
+   "gm": "Aastha Jha",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "Raj Anil Nistane",
+   "gm": "Aastha Jha",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
    "gc": "Jatin Kuchhal",
    "gm": "Aitesam Khan",
    "cl": "Pratiksha Y",
@@ -423,6 +507,20 @@
    "active": true
   },
   {
+   "gc": "Mannat Chawla",
+   "gm": "Aniket Bhujang",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "shumail rehman",
+   "gm": "Aniket Bhujang",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
    "gc": "Sachin Srivastava",
    "gm": "Anshika Satpathy",
    "cl": "Pratiksha Y",
@@ -448,6 +546,13 @@
    "gm": "Anshika Satpathy",
    "cl": "Pratiksha Y",
    "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "Abhisehk Verma",
+   "gm": "Anshika Satpathy",
+   "cl": "Pratiksha Y",
+   "role": "google_gc",
    "active": true
   },
   {
@@ -528,6 +633,13 @@
    "active": true
   },
   {
+   "gc": "mohd ayan",
+   "gm": "SWASTIKA MAITY",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
    "gc": "ANSH THAKRAL",
    "gm": "Vatsal Sharma",
    "cl": "Pratiksha Y",
@@ -556,10 +668,10 @@
    "active": true
   },
   {
-   "gc": "Ravi Dotaniya",
-   "gm": "Sagar Sharma",
-   "cl": "Roopesh B",
-   "role": "Core GC",
+   "gc": "Snehanjali Banoth",
+   "gm": "Vatsal Sharma",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
    "active": true
   },
   {
@@ -668,6 +780,20 @@
    "active": true
   },
   {
+   "gc": "Akshay Gupta",
+   "gm": "Apeksha Tangade",
+   "cl": "Roopesh B",
+   "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "Aryan Shrivastava",
+   "gm": "Apeksha Tangade",
+   "cl": "Roopesh B",
+   "role": "Core GC",
+   "active": true
+  },
+  {
    "gc": "Aditi Gupta",
    "gm": "Bhavana Ahirwar",
    "cl": "Roopesh B",
@@ -707,6 +833,13 @@
    "gm": "Bhavana Ahirwar",
    "cl": "Roopesh B",
    "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "disha basu",
+   "gm": "Bhavana Ahirwar",
+   "cl": "Roopesh B",
+   "role": "1-5K GL",
    "active": true
   },
   {
@@ -787,6 +920,20 @@
    "active": true
   },
   {
+   "gc": "ishu kumar",
+   "gm": "Shubham Goyal",
+   "cl": "Roopesh B",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "rutika gavit",
+   "gm": "Shubham Goyal",
+   "cl": "Roopesh B",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
    "gc": "Priyal Gupta",
    "gm": "Umesh Sahu",
    "cl": "Roopesh B",
@@ -826,6 +973,20 @@
    "gm": "Umesh Sahu",
    "cl": "Roopesh B",
    "role": "Core GC",
+   "active": true
+  },
+  {
+   "gc": "aayus kumar",
+   "gm": "Umesh Sahu",
+   "cl": "Roopesh B",
+   "role": "google_gc",
+   "active": true
+  },
+  {
+   "gc": "Devanshi Romeshbhai Thaker",
+   "gm": "Umesh Sahu",
+   "cl": "Roopesh B",
+   "role": "1-5K GL",
    "active": true
   },
   {
@@ -951,13 +1112,6 @@
    "gc": "Sakshi Kumari",
    "gm": "Bhavana Ahirwar",
    "cl": "Roopesh B",
-   "role": "",
-   "active": false
-  },
-  {
-   "gc": "Jitu Raj",
-   "gm": "Fatir Khan",
-   "cl": "Pratiksha Y",
    "role": "",
    "active": false
   },
