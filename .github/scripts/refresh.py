@@ -1998,7 +1998,6 @@ WITH t AS (
   FROM nushop.workboard_tasks t
   JOIN nushop.users u ON u._id = t.assignee AND REPLACE(LOWER(u.role),' ','') IN __KAE_ROLES__
     AND NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), r'\bbot\b|dummy|tech team|\btest')
-    AND u._id NOT IN __GC_IDS__
   JOIN nushop.sellers s ON s._id = t.seller_id AND s.seller_account_status='hit' AND s.user_type='seller'
   -- UTC bounds prune the DATE(created_at) partitions; the IST pair defines the window
   WHERE DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY)
@@ -2008,6 +2007,8 @@ WITH t AS (
     AND t.type != 'ts_sop_communication'
     AND IFNULL(t.sub_type,'') != 'seller_callback_overdue_sub_task'
     AND t.sla_in_min > 0
+    -- a GC (card 12101 / GC role) is never a KAE; BigQuery rejects IN-subqueries in a JOIN ON
+    AND t.assignee NOT IN __GC_IDS__
 ),
 c AS (
   SELECT *, CASE
