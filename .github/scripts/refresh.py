@@ -364,9 +364,10 @@ mygl AS (SELECT seller_id, MIN(start_date) gd FROM nushop.gc_view_3 WHERE market
   HAVING DATE_TRUNC(MIN(start_date),ISOWEEK) >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(),INTERVAL 3 MONTH),ISOWEEK)),
 tasks AS (
   SELECT DISTINCT t.id, t.seller_id, t.type, t.sub_type, t.status, DATE(t.created_at,'Asia/Kolkata') cdate,
-    CASE WHEN LOWER(u.role) LIKE '%growth-consultant%' THEN 'GC'
-         WHEN LOWER(u.role) LIKE '%key-account-manager%' THEN 'KAM'
-         WHEN LOWER(u.role) LIKE '%growth-manager%' THEN 'GM'
+    -- GC / GM / KAE membership: see GC_IDS and the role constants above main() (owner, 2026-11-19)
+    CASE WHEN t.assignee IN __GC_IDS__ THEN 'GC'
+         WHEN LOWER(u.role) LIKE '%key-account-manager%' AND NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), r'\bbot\b|dummy|tech team|\btest') THEN 'KAM'
+         WHEN REPLACE(LOWER(u.role),' ','') IN __GM_ROLES__ THEN 'GM'
          WHEN LOWER(u.role) LIKE '%account-manager%' THEN 'AM'
          WHEN LOWER(u.role) LIKE '%category-lead%' THEN 'CL'
          WHEN LOWER(u.role) LIKE '%finance-manager%' THEN 'FM'
@@ -421,7 +422,8 @@ cbysel AS (
 gc_phones AS (
   SELECT DISTINCT ABS(SAFE_CAST(up.contact_number AS FLOAT64)) ph
   FROM nushop.userprofiles up JOIN nushop.users u ON u._id = up.user_id
-  WHERE LOWER(u.role) LIKE '%growth-consultant%' AND SAFE_CAST(up.contact_number AS FLOAT64) IS NOT NULL),
+  WHERE (u._id IN __GC_IDS__)
+    AND SAFE_CAST(up.contact_number AS FLOAT64) IS NOT NULL),
 -- Last spend date: the last day with Rs 100+ marketing spend (same floor as go_live above, so a
 -- few rupees of trailing spend cannot move it). Owner, 2026-10-21: calls are now judged AFTER this
 -- date -- did we chase the seller once they stopped -- plus the last 7 full days.
@@ -711,8 +713,8 @@ WITH base AS (
     DATE(t.created_at,'Asia/Kolkata') AS cd,
     REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
     LOWER(TRIM(u.email)) AS em,
-    CASE WHEN LOWER(u.role) LIKE '%growth-consultant%'   THEN 'GC'
-         WHEN LOWER(u.role) LIKE '%key-account-manager%' THEN 'KAM' END AS role
+    CASE WHEN u._id IN __GC_IDS__   THEN 'GC'
+         WHEN LOWER(u.role) LIKE '%key-account-manager%' AND NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), r'\bbot\b|dummy|tech team|\btest') THEN 'KAM' END AS role
   FROM nushop.workboard_tasks t
   JOIN nushop.sellers s ON t.seller_id = s._id AND s.seller_account_status='hit' AND s.user_type='seller'
   LEFT JOIN nushop.users u ON t.assignee = u._id
@@ -739,6 +741,16 @@ labelled AS (
     WHEN role='GC' AND type='troubleshoot_action' AND sub_type='troubleshoot_sop'    THEN 'TS SOP Call'
     WHEN role='GC' AND type='seller_poc_handover'                                    THEN 'POC Handover'
     WHEN role='GC' AND type='other_request' AND title LIKE '[Post-call]%'            THEN 'Commitment Task'
+    -- 1-5K alert tasks (owner, 2026-11-19): system-raised, 180-min SLA; reported for 1-5K GL only
+    WHEN role='GC' AND type='notification' AND sub_type='notify_growth_consultant_gc'
+         AND title = 'Low stock Alert'                                                  THEN 'Low Stock Alert'
+    WHEN role='GC' AND type='seller_marketing_restart' AND sub_type='funds_issue_restart' THEN 'Low Funds (Google)'
+    WHEN role='GC' AND type='seller_marketing_restart' AND sub_type='funds_diagnosis_restart'
+         AND title LIKE 'Meta Restart Trigger%'                                         THEN 'Low Spend (Meta)'
+    WHEN role='GC' AND type='seller_marketing_restart' AND sub_type='funds_diagnosis_restart'
+         AND title LIKE 'Google Restart Trigger%'                                       THEN 'Low Spend (Google)'
+    WHEN role='GC' AND type='troubleshoot_action' AND sub_type='troubleshoot_manual_action'
+         AND title LIKE 'Hygiene%Fix out-of-stock SKUs%'                              THEN 'OOS'
     WHEN role='KAM' AND type='notification' AND sub_type='notify_key_account_manager_kam' THEN 'KAM Notification'
     WHEN role='KAM' AND type='seller_poc_handover'                                   THEN 'Rapport Building Call'
     WHEN role='KAM' AND type='hit_seller_shipping_issues' AND sub_type='o2s_breach_kam' THEN 'O2S Breach (KAM)'
@@ -1039,6 +1051,13 @@ def write_team_map(active):
     print(f"  team_mapping.json: {len(active)} active GCs from card {MAP_CARD}, {len(past)} past GCs kept")
 
 
+# Alert tasks the owner wants reported for the 1-5K team only (2026-11-19). Other teams' GCs get
+# a few of them too (Core GC ~10%), but counting those would move Core GC SLA for tasks that
+# team is not measured on, so they are dropped from the GC rows and the stuck list.
+ONLY_15K_TASKS = {"Low Stock Alert", "OOS", "Low Funds (Google)", "Low Spend (Meta)", "Low Spend (Google)"}
+TEAM_15K = "1-5K GL"
+
+
 def parse_tasksla(csv_text, gc_map=None):
     """Index days/tasks/people per role and emit compact integer rows.
 
@@ -1105,6 +1124,9 @@ def parse_tasksla(csv_text, gc_map=None):
                 R["cats"].append(UNMAPPED); R["gmsrc"].append("none")
         R.pop("_t"); R.pop("_p")
     if "GC" in roles:
+        G = roles["GC"]
+        G["rows"] = [x for x in G["rows"]
+                     if not (G["tasks"][x[1]] in ONLY_15K_TASKS and G["cats"][x[2]] != TEAM_15K)]
         src = roles["GC"]["gmsrc"]
         print(f"  card {MAP_CARD} maps {src.count('card')} of {len(src)} GCs carrying tasks; "
               f"{src.count('none')} Unmapped")
@@ -1140,7 +1162,7 @@ WITH base AS (
     COALESCE(NULLIF(TRIM(s.display_name),''),
              REGEXP_REPLACE(TRIM(CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,''))),r'\s+',' ')) AS sname,
     REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') AS nm,
-    CASE WHEN LOWER(u.role) LIKE '%growth-consultant%' THEN 'GC' END AS role
+    CASE WHEN u._id IN __GC_IDS__ THEN 'GC' END AS role
   FROM nushop.workboard_tasks t
   JOIN nushop.sellers s ON t.seller_id = s._id AND s.seller_account_status='hit' AND s.user_type='seller'
   LEFT JOIN nushop.users u ON t.assignee = u._id
@@ -1157,6 +1179,14 @@ lab AS (
     WHEN type='troubleshoot_action' AND sub_type='troubleshoot_sop' THEN 'TS SOP Call'
     WHEN type='seller_poc_handover'                                 THEN 'POC Handover'
     WHEN type='other_request' AND title LIKE '[Post-call]%'         THEN 'Commitment Task'
+    WHEN type='notification' AND sub_type='notify_growth_consultant_gc' AND title = 'Low stock Alert' THEN 'Low Stock Alert'
+    WHEN type='seller_marketing_restart' AND sub_type='funds_issue_restart' THEN 'Low Funds (Google)'
+    WHEN type='seller_marketing_restart' AND sub_type='funds_diagnosis_restart'
+         AND title LIKE 'Meta Restart Trigger%'                     THEN 'Low Spend (Meta)'
+    WHEN type='seller_marketing_restart' AND sub_type='funds_diagnosis_restart'
+         AND title LIKE 'Google Restart Trigger%'                   THEN 'Low Spend (Google)'
+    WHEN type='troubleshoot_action' AND sub_type='troubleshoot_manual_action'
+         AND title LIKE 'Hygiene%Fix out-of-stock SKUs%'          THEN 'OOS'
   END AS task FROM base WHERE role='GC' AND nm != ''
 ),
 sc0 AS (
@@ -1586,8 +1616,8 @@ base AS (
     IF(s.s1>=3000,1,0) r1, IF(s.s2>=3000,1,0) r2, IF(s.s3>=3000,1,0) r3, s.rto03, s.ord03
   FROM gl0 g JOIN gcat a USING(seller_id) JOIN core c ON c.uid=a.gc_id LEFT JOIN spw s USING(seller_id)),
 roles AS (
-  SELECT _id uid, CASE WHEN LOWER(role) LIKE '%growth-consultant%' THEN 'GC' ELSE 'KAM' END role FROM nushop.users
-  WHERE LOWER(role) LIKE '%growth-consultant%' OR LOWER(role) LIKE '%key-account-manager%'
+  SELECT _id uid, CASE WHEN _id IN __GC_IDS__ THEN 'GC' ELSE 'KAM' END role FROM nushop.users
+  WHERE (LOWER(role) LIKE '%key-account-manager%' AND NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))), r'\bbot\b|dummy|tech team|\btest')) OR _id IN __GC_IDS__
      OR LOWER(role) LIKE '%key-account-operations-manager%' OR LOWER(role) LIKE '%seller-management-expert%'),
 tk AS (
   SELECT b.seller_id, t.id, t.type, t.sub_type, t.title, t.created_at, t.completed_at, t.completion_date, t.sla_in_min,
@@ -1748,7 +1778,7 @@ ec AS (
     NULLIF(SAFE_CAST(JSON_VALUE(e.call_quality_score,'$.seller_satisfaction') AS FLOAT64),-1) sat
   FROM nushop.exotel_call_details e
   WHERE e.created_at >= TIMESTAMP(DATE_SUB(CURRENT_DATE(), INTERVAL 140 DAY)) AND e.seller_id IN (SELECT seller_id FROM base)
-    AND e.user_id IN (SELECT _id FROM nushop.users WHERE LOWER(role) LIKE '%growth-consultant%')),
+    AND (e.user_id IN __GC_IDS__)),
 calls AS (
   SELECT b.seller_id,
     COUNTIF(DATE_DIFF(e.d,b.gd,DAY) BETWEEN 0 AND 20) att02,
@@ -1966,7 +1996,9 @@ WITH t AS (
     REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') kae,
     TIMESTAMP_ADD(t.created_at, INTERVAL COALESCE(t.sla_in_min,0) MINUTE) due_ts
   FROM nushop.workboard_tasks t
-  JOIN nushop.users u ON u._id = t.assignee AND LOWER(u.role) LIKE '%key-account-executive%'
+  JOIN nushop.users u ON u._id = t.assignee AND REPLACE(LOWER(u.role),' ','') IN __KAE_ROLES__
+    AND NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))), r'\bbot\b|dummy|tech team|\btest')
+    AND u._id NOT IN __GC_IDS__
   JOIN nushop.sellers s ON s._id = t.seller_id AND s.seller_account_status='hit' AND s.user_type='seller'
   -- UTC bounds prune the DATE(created_at) partitions; the IST pair defines the window
   WHERE DATE(t.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 91 DAY)
@@ -2044,6 +2076,92 @@ def parse_kae(csv_text, stuck_text):
                       (r.get("sub_type") or "")[:60], r.get("seller_id") or "", (r.get("sname") or "")[:60],
                       r.get("status") or "", r.get("d") or "", r.get("due_d") or "", gi(r, "over_min")])
     return {"days": days, "kaes": kaes, "cats": KAE_CATS, "rows": rows, "stuck": stuck}
+# ---- Who counts as a GC / GM / KAE (owner, 2026-11-19) -------------------------------------
+# GC  = everyone on card 12101 (by user_id OR email: a card user_id can be a stale second account,
+#       e.g. Kavita Rai, Shubham Kumar) PLUS any nushop.users account whose role is exactly
+#       "admin,growth-consultant". Card wins over role (Aitesam Khan is admin,growth-manager but a
+#       1-5K GC on the card; Ravi Dotaniya is a KAE by role but a core GC on the card). Role-only
+#       GCs have no card row, so their team / GM / CL read "Unmapped" until the card adds them.
+# GM  = role exactly "admin,growth-manager" (google-growth-manager etc. are not GMs here).
+# KAE = role exactly "admin,key-account-executive"; google- and revenue- KAEs are excluded, and so
+#       is anyone counted as a GC.
+# Bot / dummy / test / "Tech Team" accounts never count as GC, KAM or KAE.
+_NOT_JUNK = r"NOT REGEXP_CONTAINS(LOWER(CONCAT(COALESCE({a}first_name,''),' ',COALESCE({a}last_name,''))), r'\bbot\b|dummy|tech team|\btest')"
+GC_ROLES = "('admin,growth-consultant','growth-consultant,admin')"
+GM_ROLES = "('admin,growth-manager','growth-manager,admin')"
+KAE_ROLES = "('admin,key-account-executive','key-account-executive,admin')"
+GC_IDS = f"""(SELECT user_id FROM `blitzscale-prod-project.csv_upload.core_gc_mapping` WHERE user_id IS NOT NULL
+     UNION DISTINCT SELECT cu._id FROM nushop.users cu JOIN `blitzscale-prod-project.csv_upload.core_gc_mapping` cm
+       ON LOWER(TRIM(cu.email)) = LOWER(TRIM(cm.core_gc_email_id))
+     UNION DISTINCT SELECT ru._id FROM nushop.users ru WHERE REPLACE(LOWER(ru.role),' ','') IN {GC_ROLES}
+       AND {_NOT_JUNK.format(a='ru.')})"""
+for _k, _v in list(globals().items()):
+    if isinstance(_v, str) and "__" in _v and _k.isupper():
+        globals()[_k] = (_v.replace("__GC_IDS__", GC_IDS).replace("__GM_ROLES__", GM_ROLES)
+                           .replace("__KAE_ROLES__", KAE_ROLES))
+
+
+# Coverage audit, every refresh: who has HIT tasks in the last 7 days but is either a GC with no
+# card 12101 row (shows as "Unmapped") or carries a GC / GM / KAE / KAM-type role yet is counted
+# in no tab (e.g. admin,super-admin,growth-consultant). Written to mapping_audit.json and raised
+# as a workflow warning so nobody drops out silently.
+AUDIT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mapping_audit.json")
+
+
+def audit_sql(today):
+    d0 = today - timedelta(days=8)
+    return f"""
+WITH card AS (
+  SELECT user_id uid FROM `blitzscale-prod-project.csv_upload.core_gc_mapping` WHERE user_id IS NOT NULL
+  UNION DISTINCT SELECT cu._id FROM nushop.users cu JOIN `blitzscale-prod-project.csv_upload.core_gc_mapping` cm
+    ON LOWER(TRIM(cu.email)) = LOWER(TRIM(cm.core_gc_email_id))),
+t AS (
+  SELECT t.assignee, COUNT(*) tasks, COUNT(DISTINCT t.seller_id) sellers,
+    MAX(DATE(t.created_at,'Asia/Kolkata')) last_task
+  FROM nushop.workboard_tasks t
+  JOIN nushop.sellers s ON s._id=t.seller_id AND s.seller_account_status='hit' AND s.user_type='seller'
+  WHERE DATE(t.created_at) BETWEEN DATE '{d0}' AND DATE '{today}'
+    AND DATE(t.created_at,'Asia/Kolkata') >= DATE '{today - timedelta(days=7)}'
+    AND t.assignee IS NOT NULL
+  GROUP BY 1)
+SELECT REGEXP_REPLACE(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),r'\s+',' ') name,
+  u.email, u.role, t.tasks, t.sellers, CAST(t.last_task AS STRING) last_task,
+  CASE WHEN t.assignee IN {GC_IDS} THEN 'GC not on card 12101 (team/GM/CL show Unmapped)'
+       ELSE 'Not counted in any tab' END issue
+FROM t JOIN nushop.users u ON u._id=t.assignee
+WHERE t.assignee NOT IN (SELECT uid FROM card)
+  AND {_NOT_JUNK.format(a='u.')}
+  AND (t.assignee IN {GC_IDS}
+       OR ((LOWER(u.role) LIKE '%growth-consultant%' OR LOWER(u.role) LIKE '%growth-manager%'
+            OR LOWER(u.role) LIKE '%key-account-executive%' OR LOWER(u.role) LIKE '%key-account-manager%')
+           AND REPLACE(LOWER(u.role),' ','') NOT IN {GM_ROLES}
+           AND REPLACE(LOWER(u.role),' ','') NOT IN {KAE_ROLES}
+           AND LOWER(u.role) NOT LIKE '%google-%' AND LOWER(u.role) NOT LIKE '%revenue-%'
+           AND NOT (LOWER(u.role) LIKE '%key-account-manager%' AND {_NOT_JUNK.format(a='u.')})))
+ORDER BY issue, tasks DESC"""
+
+
+def write_audit(session):
+    """Optional: never costs the snapshot."""
+    try:
+        today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+        rows = list(csvmod.DictReader(io.StringIO(run_csv(session, audit_sql(today)))))
+        for r in rows:
+            for k in ("tasks", "sellers"):
+                r[k] = int(float(r[k] or 0))
+        with open(AUDIT_FILE, "w") as f:
+            json.dump({"generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"), "window_days": 7,
+                       "people": rows}, f, indent=1)
+        miss = [r for r in rows if r["issue"].startswith("Not counted")]
+        unm = [r for r in rows if not r["issue"].startswith("Not counted")]
+        print(f"  mapping audit: {len(unm)} GCs not on card 12101, {len(miss)} task owners counted nowhere")
+        if rows:
+            names = ", ".join(f"{r['name']} ({r['tasks']})" for r in rows[:25])
+            print(f"::warning title=Mapping audit::{len(unm)} GC(s) missing from card 12101, "
+                  f"{len(miss)} task owner(s) counted in no tab - see mapping_audit.json: {names}")
+    except Exception as e:                                       # noqa: BLE001
+        print(f"  ! mapping audit failed ({e})", file=sys.stderr)
+
 
 def main():
     session = login()
@@ -2060,6 +2178,10 @@ def main():
     stuck = parse_stuck(run_csv(session, STUCK_SQL))
     prelive = prelive_by_golive(parse_prelive(run_csv(session, PRELIVE_SQL)), gcgms)
     tasksla = parse_tasksla(run_csv(session, TASKSLA_SQL), load_gc_map(session))
+    _G = tasksla["roles"].get("GC") or {}
+    _team = dict(zip(_G.get("people", []), _G.get("cats", [])))
+    stuck["rows"] = [x for x in stuck["rows"] if not (stuck["tasks"][x[1]] in ONLY_15K_TASKS
+                                                      and _team.get(stuck["people"][x[2]]) != TEAM_15K)]
     _gc = tasksla["roles"].get("GC", {})
     _left = [n for n in _gc.get("people", []) if _norm_name(n) in EXCLUDE_GCS]
     if _left:
@@ -2137,6 +2259,7 @@ def main():
           f"{len(stuck['rows'])} stuck tasks, "
           f"{len(prelive['rows'])} pre-live day/GC rows, "
           f"{len((summary or {}).get('rows', {}))} summary metrics.")
+    write_audit(session)
 
 
 if __name__ == "__main__":

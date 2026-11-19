@@ -4338,10 +4338,16 @@ function gcTeamChips(R){
     const t=x.dataset.t; gcSt.team=(!t||gcSt.team===t)?null:t; gcSt.sel=null; gcSt.gcIn=null; renderGc();
   }));
 }
+// 1-5K alert tasks only carry 1-5K GL rows (refresh.py ONLY_15K_TASKS); hide their chips when
+// the selected team has none, so Core GC is not shown three empty task types
+const GC_ONLY15K=new Set(['Low Stock Alert','OOS','Low Funds (Google)','Low Spend (Meta)','Low Spend (Google)']);
 function gcTaskChips(R){
   const el=document.getElementById('gcTaskChips');
+  const has=new Set();
+  for(const r of R.rows){ if(!gcSt.team||(R.cats&&R.cats[r[2]])===gcSt.team) has.add(r[1]); }
+  const shown=R.tasks.filter((t,i)=>!GC_ONLY15K.has(t)||has.has(i));
   el.innerHTML='<span class="item" data-all="1" style="font-weight:650">All / none</span>'+
-    R.tasks.map(t=>`<span class="item${gcSt.off[t]?' off':''}" data-t="${esc(t)}">${esc(t)}</span>`).join('');
+    shown.map(t=>`<span class="item${gcSt.off[t]?' off':''}" data-t="${esc(t)}">${esc(t)}</span>`).join('');
   el.querySelectorAll('.item').forEach(c=>c.addEventListener('click',()=>{
     if(c.dataset.all){ const anyOn=R.tasks.some(t=>!gcSt.off[t]); R.tasks.forEach(t=>gcSt.off[t]=anyOn); }
     else gcSt.off[c.dataset.t]=!gcSt.off[c.dataset.t];
@@ -4399,14 +4405,17 @@ function gcRoster(){
 // nothing due on stays blank rather than reading 0%.
 function gcRosterWide(){
   const R=gcR(), a=gcList(), pt=gcAgg('pt');
-  const tasks=R.tasks.map((t,i)=>({t,i})).filter(x=>!gcSt.off[x.t]);
+  const tasks=R.tasks.map((t,i)=>({t,i})).filter(x=>!gcSt.off[x.t]
+    && (!GC_ONLY15K.has(x.t)||!gcSt.team||gcSt.team==='1-5K GL'));
   const who=gcNoun();
   document.getElementById('gcRosterTitle').textContent=('All '+gcNoun(1))+' · '+a.length;
 
   // Task headers are the widest thing in the table and they set the floor on how narrow a
   // panel can get, so they get abbreviated before any data column is dropped.
   const ABBR={'Callback':'CB','Seller Callback':'SCB','Commitment Task':'CMT',
-    'POC Handover':'POC','TS SOP Call':'TSS','Retention Call':'RTN'};
+    'POC Handover':'POC','TS SOP Call':'TSS','Retention Call':'RTN',
+    'Low Stock Alert':'LSA','OOS':'OOS','Low Funds (Google)':'LFG',
+    'Low Spend (Meta)':'LSM','Low Spend (Google)':'LSG'};
   const shortT=t=>ABBR[t]||t.split(/\s+/).map(w=>w[0]).join('').slice(0,3).toUpperCase();
   const head=o=>'<thead><tr><th>#</th><th>'+who+'</th>'+
     (o.gm?(gcGrp()?'<th>GCs</th>':'<th>GM</th>'):'')+
