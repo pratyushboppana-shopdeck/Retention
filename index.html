@@ -3599,8 +3599,8 @@ function kaeCsv(){
 // "due" = on_time + late + stuck; a task still open past its SLA is a breach, not a gap.
 let TSLA=null, slaChart=null, slaInit=false;
 const slaSt={role:'GC', mode:'7', from:null, to:null, person:null, off:{}, team:null, sort:'adh', asc:true};
-const SLA_TEAMS=['Core GC','Revival GC','Hypercare GC','1-5K GL','Unmapped'];
-const SLA_TEAM_COLOR={'Core GC':'#2f6d4f','Revival GC':'#185FA5','Hypercare GC':'#BA7517','1-5K GL':'#7A4E9E','Unmapped':'#C0392B'};
+const SLA_TEAMS=['Core GC','Revival GC','Hypercare GC','1-5K GL','Google GC','Unmapped'];
+const SLA_TEAM_COLOR={'Core GC':'#2f6d4f','Revival GC':'#185FA5','Hypercare GC':'#BA7517','1-5K GL':'#7A4E9E','Google GC':'#0E7C86','Unmapped':'#C0392B'};
 function slaAdhColor(p){return p<0.35?'#C0392B':(p<0.55?'#BA7517':(p<0.75?'#8a8f33':'#2f6d4f'));}
 function slaHrs(m){ if(m==null) return ''; const h=m/60; return h>=48?(h/24).toFixed(1)+'d':h.toFixed(1)+'h'; }
 
@@ -4327,8 +4327,8 @@ function gcTeamChips(R){
   if(gcSt.view==='gm'||!R.cats){ el.innerHTML=''; el.style.display='none'; return; }
   el.style.display='flex';
   const c={}; R.cats.forEach(x=>{c[x]=(c[x]||0)+1;});
-  const order=['Core GC','Revival GC','Hypercare GC','1-5K GL','Unmapped'].filter(t=>c[t])
-    .concat(Object.keys(c).filter(t=>!['Core GC','Revival GC','Hypercare GC','1-5K GL','Unmapped'].includes(t)));
+  const order=['Core GC','Revival GC','Hypercare GC','1-5K GL','Google GC','Unmapped'].filter(t=>c[t])
+    .concat(Object.keys(c).filter(t=>!['Core GC','Revival GC','Hypercare GC','1-5K GL','Google GC','Unmapped'].includes(t)));
   el.innerHTML='<span class="item'+(gcSt.team?'':' on')+'" data-t="">All teams ('+R.cats.length+')</span>'+
     order.map(t=>{const col=SLA_TEAM_COLOR[t]||'#8a8d80';
       return `<span class="item${gcSt.team===t?'':' off'}" data-t="${esc(t)}" style="border-color:${col}">`+

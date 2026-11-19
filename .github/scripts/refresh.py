@@ -958,6 +958,7 @@ ORDER BY cls.role, d, cls.task, cls.nm
 # inferred GM, no sheet fallback -- so a missing row is visible rather than papered over.
 MAP_CARD = 12101
 MAP_TEAM = {"core_gc": "Core GC", "revival_gc": "Revival GC", "hypercare_gc": "Hypercare GC",
+            "google_gc": "Google GC",
             "1-5k": "1-5K GL"}
 UNMAPPED = "Unmapped"
 TEAM_MAP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "team_mapping.json")

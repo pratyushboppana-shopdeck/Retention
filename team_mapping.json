@@ -6,7 +6,8 @@
   "Core GC": "Core GC",
   "Revival GC": "Revival GC",
   "Hypercare GC": "Hypercare GC",
-  "1-5K GL": "1-5K GL"
+  "1-5K GL": "1-5K GL",
+  "Google GC": "Google GC"
  },
  "aliases": {
   "dhiraj kumar dhiraj kumar khandelwal": "dhiraj kumar khandelwal",
@@ -125,7 +126,7 @@
    "gc": "sahithi vijayalakshmi",
    "gm": "Mayank Nagar",
    "cl": "Jivraj K",
-   "role": "google_gc",
+   "role": "Google GC",
    "active": true
   },
   {
@@ -202,7 +203,7 @@
    "gc": "komal kumari",
    "gm": "Priyanshu Nandan",
    "cl": "Jivraj K",
-   "role": "google_gc",
+   "role": "Google GC",
    "active": true
   },
   {
@@ -419,7 +420,7 @@
    "gc": "himank dhamaniya",
    "gm": "Aastha Jha",
    "cl": "Pratiksha Y",
-   "role": "google_gc",
+   "role": "Google GC",
    "active": true
   },
   {
@@ -552,7 +553,7 @@
    "gc": "Abhisehk Verma",
    "gm": "Anshika Satpathy",
    "cl": "Pratiksha Y",
-   "role": "google_gc",
+   "role": "Google GC",
    "active": true
   },
   {
@@ -979,7 +980,7 @@
    "gc": "aayus kumar",
    "gm": "Umesh Sahu",
    "cl": "Roopesh B",
-   "role": "google_gc",
+   "role": "Google GC",
    "active": true
   },
   {
