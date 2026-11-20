@@ -835,16 +835,18 @@
       <label style="font-size:12px;color:var(--muted)">Go-live cohorts
         <select id="rampCoh" style="margin-left:6px;padding:3px 6px;border-radius:7px;border:1px solid var(--line)"></select></label>
     </div>
-    <div class="chart-box" style="height:360px"><canvas id="rampChart" role="img" aria-label="Share of go-live sellers whose cumulative marketing spend has reached 10, 20, 30 and 50 thousand rupees, by the number of months or weeks since go-live."></canvas></div>
-    <div class="gbdef" id="rampFoot"></div>
-    <div class="drill-h3" style="margin-top:18px">Each period's own step up
+    <div class="drill-h3">All go-live sellers &mdash; every level side by side
       <button type="button" id="rampCsv" class="mbtn" style="margin-left:8px">Download CSV</button></div>
-    <div class="tablewrap" style="max-height:300px;overflow:auto"><table class="mixtab" id="rampTable"></table></div>
+    <div class="tablewrap" style="max-height:340px;overflow:auto"><table class="mixtab" id="rampTable"></table></div>
+    <div class="gbdef" id="rampFoot"></div>
 
     <div class="drill-h3" style="margin-top:22px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">Is the ramp getting faster? &mdash; cohort &times; period
       <label style="font-size:12px;color:var(--muted);font-weight:400">level
-        <select id="rampHeatT" style="margin-left:6px;padding:3px 6px;border-radius:7px;border:1px solid var(--line)"></select></label></div>
-    <div class="tablewrap" style="max-height:430px;overflow:auto"><table class="mixtab" id="rampHeat"></table></div>
+        <select id="rampHeatT" style="margin-left:6px;padding:3px 6px;border-radius:7px;border:1px solid var(--line)"></select></label>
+      <label style="font-size:12px;color:var(--muted);font-weight:400">cohorts by
+        <select id="rampHeatG" style="margin-left:6px;padding:3px 6px;border-radius:7px;border:1px solid var(--line)"><option value="m">Calendar month</option><option value="w">ISO year-week</option></select></label>
+      <button type="button" id="rampHeatCsv" class="mbtn">Download CSV</button></div>
+    <div class="tablewrap" style="max-height:520px;overflow:auto"><table class="mixtab" id="rampHeat"></table></div>
     <div class="gbdef" id="rampHeatFoot"></div>
 
     <div class="drill-h3" style="margin-top:22px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">Why the rest did not get there
@@ -2672,9 +2674,11 @@ const RAMP_TL=['₹10K','₹20K','₹30K','₹50K'];
 // the five validated earlier (lightness monotone, single hue, light end 2.23:1 on the white card);
 // dropping a middle step keeps monotonicity and only widens the adjacent gaps.
 const RAMP_COL=['#86b99a','#5a9f7d','#36835f','#104a32'];
-const RAMP_WMAX=15, RAMP_MMAX=3;          // W0..W15, and M_k = relative weeks 0..4k+3
-const rampSt={grain:'m',coh:'all',heatT:2,whyT:2,whyP:1};
-let rampC=null, rampWhyC=null;
+const RAMP_WMAX=8, RAMP_MMAX=6;           // W0..W8, and M_k = relative weeks 0..4k+3 (M6 = W0..W27)
+// heatG is the COHORT grain (rows); grain is the PERIOD grain (columns). They are independent --
+// weekly cohorts read against monthly periods is the most useful combination of the four.
+const rampSt={grain:'m',coh:'all',heatT:2,heatG:'m',whyT:2,whyP:1};
+let rampWhyC=null;
 const rampPeriods=()=>rampSt.grain==='m'
   ? Array.from({length:RAMP_MMAX+1},(_,i)=>({lab:'M'+i,end:4*i+3}))
   : Array.from({length:RAMP_WMAX+1},(_,i)=>({lab:'W'+i,end:i}));
@@ -2710,78 +2714,79 @@ function rampWhyOf(d){
   return 'stop';
 }
 function rampCurve(rows,now){
-  return rampPeriods().map(p=>{
+  const per=rampPeriods();
+  return per.map((p,pi)=>{
     const elig=rows.filter(d=>mixWeeksElapsed(d.w,now)>p.end);
+    // The step up must be measured INSIDE this period's own eligible set. Differencing two
+    // periods' headline rates subtracts different populations, which produced impossible
+    // negatives (-0.4pp "new at 10K" at M5 -- nobody un-reaches a level).
+    const pe=pi?per[pi-1].end:null;
     return {lab:p.lab,end:p.end,n:elig.length,
-      hit:RAMP_T.map((t,i)=>elig.reduce((a,d)=>a+(rampHit(d,i,p.end)?1:0),0))};
+      hit:RAMP_T.map((t,i)=>elig.reduce((a,d)=>a+(rampHit(d,i,p.end)?1:0),0)),
+      prev:pe==null?null:RAMP_T.map((t,i)=>elig.reduce((a,d)=>a+(rampHit(d,i,pe)?1:0),0))};
   });
 }
 function rampPaint(){
   const now=mixNowMon(), rows=rampRows(), cur=rampCurve(rows,now);
   const pct=(a,b)=>b>=MIX_MIN_N?+(100*a/b).toFixed(1):null;
-  const labels=cur.map(c=>c.lab);
-  const ds=RAMP_T.map((t,i)=>({label:RAMP_TL[i],data:cur.map(c=>pct(c.hit[i],c.n)),
-    borderColor:RAMP_COL[i],backgroundColor:RAMP_COL[i],borderWidth:2,fill:false,tension:.25,
-    spanGaps:true,pointRadius:3,pointHoverRadius:5}));
-  if(rampC) rampC.destroy();
-  rampC=new Chart(document.getElementById('rampChart'),{type:'line',data:{labels,datasets:ds},
-    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{boxWidth:14,font:{size:11}}},
-        tooltip:{callbacks:{
-          label:c=>{const o=cur[c.dataIndex];
-            return c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'% ('+o.hit[c.datasetIndex].toLocaleString()+' of '+o.n.toLocaleString()+')');},
-          afterBody:it=>{const o=cur[it[0].dataIndex];
-            return o.n?'through relative week '+o.end+' · '+o.n.toLocaleString()+' sellers have been live that long':'';}}}},
-      scales:{y:{min:0,max:100,ticks:{color:'#3d4036',callback:v=>v+'%'},grid:{color:'rgba(18,19,15,0.075)'}},
-              x:{ticks:{color:'#3d4036'},grid:{display:false},
-                 title:{display:true,text:rampSt.grain==='m'?'months since go-live (M0 = first 4 weeks)':'weeks since go-live',color:'#54574e',font:{size:11}}}}}});
-  const gl=rampSt.grain==='m'?'M':'W';
   document.getElementById('rampSub').textContent=
     'Cumulative marketing spend since the go-live week. '+(rampSt.grain==='m'
-      ? 'M0 is the first 4 weeks (W0–W3), M1 the first 8, M2 the first 12, M3 the first 16 — each point is "had reached by then", so the lines only rise.'
-      : 'W0 is the go-live week itself — each point is "had reached by the end of that week", so the lines only rise.')+
-    ' A seller counts at a period only once their own cohort has been live that long, so each point has its own denominator.';
+      ? 'M0 is the first 4 weeks (W0–W3), M1 the first 8, M2 the first 12, and so on to M6 (W0–W27) — each cell is "had reached by the end of that period", so a row only rises.'
+      : 'W0 is the go-live week itself — each cell is "had reached by the end of that week", so a row only rises.')+
+    ' A seller counts in a period only once their own cohort has been live that long, so every column has its own denominator and a young cohort never flatters or drags a figure.';
+  // overall table: all four levels across the periods, with each period's own step up
+  const head='<tr><th>Period</th><th>Sellers live that long</th>'+
+    RAMP_TL.map(l=>'<th>'+l+'</th>').join('')+RAMP_TL.map(l=>'<th>+ new at '+l+'</th>').join('')+'</tr>';
+  const body=cur.map(c=>{
+    const cells=RAMP_T.map((t,i)=>{const v=pct(c.hit[i],c.n); return '<td>'+(v==null?'–':v.toFixed(1)+'%')+'</td>';}).join('');
+    const step=RAMP_T.map((t,i)=>{const v=pct(c.hit[i],c.n), pv=c.prev?pct(c.prev[i],c.n):null;
+      return '<td>'+(v==null||pv==null?'–':'+'+(v-pv).toFixed(1)+'pp')+'</td>';}).join('');
+    return '<tr><td><b>'+c.lab+'</b></td><td>'+c.n.toLocaleString()+'</td>'+cells+step+'</tr>';}).join('');
+  document.getElementById('rampTable').innerHTML=head+body;
   const last=cur.filter(c=>c.n>=MIX_MIN_N).slice(-1)[0];
   document.getElementById('rampFoot').innerHTML=last
-    ? '<b>At '+last.lab+'</b> ('+last.n.toLocaleString()+' sellers live that long): '+
+    ? '<b>By '+last.lab+'</b> ('+last.n.toLocaleString()+' sellers live that long): '+
       RAMP_T.map((t,i)=>RAMP_TL[i]+' <b>'+(100*last.hit[i]/last.n).toFixed(1)+'%</b>').join(' · ')+
-      '. The gap between the ₹10K line and the ₹30K line is the drop-off that matters — most sellers start, far fewer scale.'
+      '. The denominator shrinks as the periods lengthen because only older cohorts reach them. '+
+      '<b>+ new at</b> is measured inside each period&rsquo;s own population &mdash; the share that crossed the level during that period alone &mdash; so it is never negative.'
     : ((window.DIAG||[]).length && !(window.DIAG||[]).some(d=>d.wk)
         ? 'This snapshot was built before the spend-level fields were added — the view fills in on the next refresh.'
         : 'No cohort has been live long enough for this selection.');
-  // step-up table: what each period adds on its own
-  const head='<tr><th>Period</th><th>Sellers live that long</th>'+
-    RAMP_TL.map(l=>'<th>'+l+'</th>').join('')+RAMP_TL.map(l=>'<th>+ new at '+l+'</th>').join('')+'</tr>';
-  let prev=null;
-  const body=cur.map(c=>{
-    const cells=RAMP_T.map((t,i)=>{const v=pct(c.hit[i],c.n); return '<td>'+(v==null?'–':v.toFixed(1)+'%')+'</td>';}).join('');
-    const step=RAMP_T.map((t,i)=>{const v=pct(c.hit[i],c.n), pv=prev?pct(prev.hit[i],prev.n):null;
-      return '<td>'+(v==null||pv==null?'–':(v-pv>=0?'+':'')+(v-pv).toFixed(1)+'pp')+'</td>';}).join('');
-    prev=c;
-    return '<tr><td><b>'+c.lab+'</b></td><td>'+c.n.toLocaleString()+'</td>'+cells+step+'</tr>';}).join('');
-  document.getElementById('rampTable').innerHTML=head+body;
   rampHeatPaint(); rampWhyPaint();
 }
 // ---- cohort x period: is the ramp speeding up? ----
+function rampHeatGroups(){
+  // rows are go-live cohorts at the chosen grain: calendar month (d.mo) or ISO year-week (d.w)
+  const byWeek=rampSt.heatG==='w';
+  const by={}; (window.DIAG||[]).forEach(d=>{ if(!d.wk) return;
+    const k=byWeek?d.w:d.mo; if(!k) return; (by[k]=by[k]||[]).push(d); });
+  return {by, keys:Object.keys(by).sort(), byWeek};
+}
+function rampHeatRow(rows,i,per,now){
+  return per.map(p=>{
+    const elig=rows.filter(d=>mixWeeksElapsed(d.w,now)>p.end);
+    return elig.length<MIX_MIN_N?null:100*elig.reduce((a,d)=>a+(rampHit(d,i,p.end)?1:0),0)/elig.length;
+  });
+}
 function rampHeatPaint(){
   const now=mixNowMon(), i=rampSt.heatT, per=rampPeriods();
-  const by={}; (window.DIAG||[]).forEach(d=>{ if(!d.wk||!d.mo) return; (by[d.mo]=by[d.mo]||[]).push(d); });
-  const months=Object.keys(by).sort();
+  const {by,keys,byWeek}=rampHeatGroups();
   const cell=v=>{ if(v==null) return '<td style="color:#c7c8c0">–</td>';
     const a=Math.max(0,Math.min(1,v/70));            // 70% caps the tint so the scale stays readable
     return '<td style="background:rgba(16,74,50,'+(0.06+0.55*a).toFixed(3)+');color:'+(a>0.55?'#fff':'#12130f')+'">'+v.toFixed(1)+'%</td>';};
-  const head='<tr><th>Go-live month</th><th>Sellers</th>'+per.map(p=>'<th>'+p.lab+'</th>').join('')+'</tr>';
-  const body=months.slice().reverse().map(m=>{
-    const rows=by[m];
-    const tds=per.map(p=>{const elig=rows.filter(d=>mixWeeksElapsed(d.w,now)>p.end);
-      if(elig.length<MIX_MIN_N) return cell(null);
-      return cell(100*elig.reduce((a,d)=>a+(rampHit(d,i,p.end)?1:0),0)/elig.length);}).join('');
-    return '<tr><td><b>'+esc(mixLabel(m,'month'))+'</b></td><td>'+rows.length.toLocaleString()+'</td>'+tds+'</tr>';}).join('');
-  document.getElementById('rampHeat').innerHTML=head+body;
+  const head='<tr><th>Go-live '+(byWeek?'week':'month')+'</th><th>Sellers</th>'+per.map(p=>'<th>'+p.lab+'</th>').join('')+'</tr>';
+  const all=(window.DIAG||[]).filter(d=>d.wk);
+  const totals='<tr style="border-top:2px solid var(--line)"><td><b>All cohorts</b></td><td>'+all.length.toLocaleString()+'</td>'+
+    rampHeatRow(all,i,per,now).map(cell).join('')+'</tr>';
+  const body=keys.slice().reverse().map(k=>
+    '<tr><td><b>'+esc(byWeek?k:mixLabel(k,'month'))+'</b></td><td>'+by[k].length.toLocaleString()+'</td>'+
+    rampHeatRow(by[k],i,per,now).map(cell).join('')+'</tr>').join('');
+  document.getElementById('rampHeat').innerHTML=head+totals+body;
   document.getElementById('rampHeatFoot').innerHTML=
-    'Share of each go-live month that had reached <b>'+RAMP_TL[i]+'</b> by the end of each period. Read down a column to see whether newer '+
-    'cohorts get there faster at the same age; blank means fewer than '+MIX_MIN_N+' of that month have been live that long yet. '+
-    'Later columns are necessarily thinner — only older cohorts appear in them.';
+    'Share of each go-live '+(byWeek?'ISO week':'month')+' that had reached <b>'+RAMP_TL[i]+'</b> by the end of each period. '+
+    'Read <b>down a column</b> to see whether newer cohorts get there faster at the same age — that is the only fair comparison, '+
+    'because a row\u2019s later columns cover sellers who have simply had more time. Blank means fewer than '+MIX_MIN_N+
+    ' of that cohort have been live that long yet, which is why the newest rows thin out to the right.';
 }
 // ---- why the rest did not get there ----
 function rampWhyPaint(){
@@ -2846,6 +2851,16 @@ function buildRamp(){
       rampPaint();}));
     cohSel.addEventListener('change',e=>{rampSt.coh=e.target.value; rampPaint();});
     document.getElementById('rampHeatT').addEventListener('change',e=>{rampSt.heatT=+e.target.value; rampHeatPaint();});
+    document.getElementById('rampHeatG').addEventListener('change',e=>{rampSt.heatG=e.target.value; rampHeatPaint();});
+    document.getElementById('rampHeatCsv').addEventListener('click',()=>{
+      const now=mixNowMon(), per=rampPeriods(), i=rampSt.heatT, q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
+      const {by,keys,byWeek}=rampHeatGroups();
+      const out=[['cohort','sellers'].concat(per.map(p=>'pct_reached_by_'+p.lab)).map(q).join(',')];
+      const row=(lab,rows)=>out.push([lab,rows.length].concat(
+        rampHeatRow(rows,i,per,now).map(v=>v==null?'':v.toFixed(1))).map(q).join(','));
+      row('All cohorts',(window.DIAG||[]).filter(d=>d.wk));
+      keys.slice().reverse().forEach(k=>row(byWeek?k:mixLabel(k,'month'),by[k]));
+      saveCsv('spend_ramp_'+RAMP_T[i]+'_by_'+(byWeek?'week':'month')+'_'+(rampSt.grain==='m'?'M':'W')+'.csv',out.join('\n'));});
     document.getElementById('rampWhyT').addEventListener('change',e=>{rampSt.whyT=+e.target.value; rampWhyPaint();});
     document.getElementById('rampWhyP').addEventListener('change',e=>{rampSt.whyP=+e.target.value; rampWhyPaint();});
     document.getElementById('rampCsv').addEventListener('click',()=>{
