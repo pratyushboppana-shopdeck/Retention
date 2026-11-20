@@ -83,7 +83,15 @@ sw AS (
 -- Cumulative marketing spend since go-live, to date, and the relative week it first reached
 -- Rs 30,000 (the "eventually reaches 30K" chart; owner chose ever-to-date, 2026-10-16).
 c30 AS (
-  SELECT seller_id, CAST(ROUND(MAX(cum)) AS INT64) cum_spend, MIN(IF(cum>=30000, rw, NULL)) wk_to_30k
+  -- First relative week in which cumulative spend since go-live crosses each level, plus how far
+  -- the seller's own spend history actually runs (max_rw) so "had the chance to reach by week w"
+  -- can be answered per seller rather than assumed from the cohort clock alone.
+  SELECT seller_id, CAST(ROUND(MAX(cum)) AS INT64) cum_spend,
+    MIN(IF(cum>=10000, rw, NULL)) wk_to_10k,
+    MIN(IF(cum>=20000, rw, NULL)) wk_to_20k,
+    MIN(IF(cum>=50000, rw, NULL)) wk_to_50k,
+    MAX(rw) max_rw,
+    MIN(IF(cum>=30000, rw, NULL)) wk_to_30k
   FROM (SELECT seller_id, rw, SUM(sp) OVER (PARTITION BY seller_id ORDER BY rw) cum FROM (
     SELECT g.seller_id, DATE_DIFF(v.start_date,g.golive_date,ISOWEEK) rw, SUM(COALESCE(v.marketing_spend,0)) sp
     FROM golive g JOIN nushop.gc_view_3 v ON v.seller_id=g.seller_id
@@ -181,6 +189,7 @@ base AS (
   SELECT g.seller_id, g.gw, FORMAT_DATE('%Y-%m', g.golive_date) gmo,
     COALESCE(ld.offer,'No offer recorded') offer, COALESCE(ld.source,'No lead') source,
     COALESCE(c30.cum_spend,0) cum_spend, c30.wk_to_30k, COALESCE(tsa.ts_arm,'none') ts_arm,
+    c30.wk_to_10k, c30.wk_to_20k, c30.wk_to_50k, c30.max_rw,
     ROUND(sw.sp0) sp0,ROUND(sw.sp1) sp1,ROUND(sw.sp2) sp2,ROUND(sw.sp3) sp3,ROUND(sw.sp4) sp4,ROUND(sw.sp5) sp5,ROUND(sw.sp6) sp6,ROUND(sw.sp7) sp7,
     IF(g.golive_date<=DATE_SUB(CURRENT_DATE(),INTERVAL 28 DAY),1,0) w3_mature,
     IF(sw.sp3>=3000,1,0) retained_w3,
@@ -194,6 +203,10 @@ base AS (
 ),
 med AS (SELECT APPROX_QUANTILES(sgmv,2)[OFFSET(1)] m_sgmv, APPROX_QUANTILES(rto_rate,2)[OFFSET(1)] m_rto FROM base WHERE w3_mature=1 AND retained_w3=0)
 SELECT b.seller_id, b.gw AS golive_iso_week, b.gmo AS golive_month, b.offer, b.source, b.cum_spend, b.wk_to_30k, b.ts_arm, b.sp0,b.sp1,b.sp2,b.sp3,b.sp4,b.sp5,b.sp6,b.sp7,
+  b.wk_to_10k, b.wk_to_20k, b.wk_to_50k, b.max_rw,
+  -- the measured values themselves, so the Spend ramp tab can bucket on fixed economic cuts
+  -- instead of "above the median dropper", and show the real number next to each bucket
+  ROUND(b.sgmv,4) sgmv_v, ROUND(b.rto_rate,4) rto_v, b.orders02 ord02_v, CAST(ROUND(b.gmv02) AS INT64) gmv02_v,
   CASE
     WHEN b.ad_impact=1 THEN 'Ad-account / platform block'
     WHEN b.pay_impact=1 THEN 'Payment / funding block'
@@ -252,6 +265,16 @@ def parse_diag(csv_text):
                 return int(round(float(r.get(k) or 0)))
             except ValueError:
                 return 0
+
+        def gf(k):
+            # None, not 0 -- a null S/GMV (no GMV at all) is a different statement from 0.0
+            v = (r.get(k) or "").strip()
+            if not v:
+                return None
+            try:
+                return round(float(v), 4)
+            except ValueError:
+                return None
         out.append({
             "s": r["seller_id"], "w": r["golive_iso_week"],
             "sp": [gi("sp1"), gi("sp2"), gi("sp3"), gi("sp4"), gi("sp5"), gi("sp6"), gi("sp7")],
@@ -263,6 +286,15 @@ def parse_diag(csv_text):
             "so": ix((r.get("source") or "No lead").strip(), SOURCES),
             "cs": gi("cum_spend"),
             "w30": gi("wk_to_30k") if (r.get("wk_to_30k") or "").strip() else -1,
+            # wk: first relative week each spend level was crossed, -1 = never (so far).
+            # mrw: last relative week this seller has any gc_view_3 row for.
+            "wk": [gi("wk_to_10k") if (r.get("wk_to_10k") or "").strip() else -1,
+                   gi("wk_to_20k") if (r.get("wk_to_20k") or "").strip() else -1,
+                   gi("wk_to_30k") if (r.get("wk_to_30k") or "").strip() else -1,
+                   gi("wk_to_50k") if (r.get("wk_to_50k") or "").strip() else -1],
+            "mrw": gi("max_rw"),
+            "sg": gf("sgmv_v"), "rto": gf("rto_v"),
+            "o02": gi("ord02_v"), "g02": gi("gmv02_v"),
             "ta": {"auto": 0, "manual": 1}.get((r.get("ts_arm") or "").strip(), 2),
         })
     return out
