@@ -3,7 +3,7 @@
 
 Produces two datasets on the canonical go-live >1000 base:
   * curve  -> per weekly-cohort W1..W7 3K-retention (feeds the chart)
-  * diag   -> per-seller diagnosis for all charted cohorts (Nov-2025 onward; feeds the drill-down):
+  * diag   -> per-seller diagnosis for all charted cohorts (Oct-2025 W41 onward; feeds the drill-down):
               weekly spend sp0..sp7, reason bucket, and current GC/GM/KAM (card 7753)
 Reason buckets follow the agreed framework (cards 11435/11610/12049/12206), precedence
 1->7, median cutoffs for performance & RTO. Only rewrites data.json when the data changes.
@@ -21,12 +21,17 @@ BUCKETS = ["Ad-account / platform block", "Payment / funding block", "No activat
            "Poor ad performance", "Fulfilment / RTO", "Elective pause / no refill", "Other / unclassified"]
 BIDX = {b: i for i, b in enumerate(BUCKETS)}
 
+# The series starts at ISO 2025-W41 (Mon 2025-10-06), the first COMPLETE week of
+# October. Cutting on a calendar date instead of a week boundary creates a stub
+# cohort: the old '2025-11-01' cut put just 2 sellers in W44 (only its Nov 1-2 days
+# qualified), which is why the dashboard had to omit October entirely. Every month
+# label groups the ISO weeks whose Monday falls in it, so Oct 25 = W41..W44.
 CURVE_SQL = r"""
 WITH golive AS (
   SELECT seller_id, MIN(start_date) AS golive_date, FORMAT_DATE('%G-W%V', MIN(start_date)) AS golive_iso_week
   FROM nushop.gc_view_3 WHERE marketing_spend > 1000 AND team_mapping = 'HIT'
   GROUP BY seller_id
-  HAVING MIN(start_date) >= DATE '2025-11-01'
+  HAVING MIN(start_date) >= DATE '2025-10-06'
      AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)
 ),
 weekly_spend AS (
@@ -63,7 +68,7 @@ WITH golive AS (
   SELECT seller_id, MIN(start_date) AS golive_date, FORMAT_DATE('%G-W%V', MIN(start_date)) AS gw
   FROM nushop.gc_view_3 WHERE marketing_spend > 1000 AND team_mapping='HIT'
   GROUP BY seller_id
-  HAVING MIN(start_date) >= DATE '2025-11-01'
+  HAVING MIN(start_date) >= DATE '2025-10-06'
      AND DATE_TRUNC(MIN(start_date),ISOWEEK) < DATE_TRUNC(CURRENT_DATE(),ISOWEEK)
 ),
 sw AS (
@@ -635,7 +640,7 @@ WEEKACT_SQL = r"""
 WITH golive AS (
   SELECT seller_id, MIN(start_date) gd, FORMAT_DATE('%G-W%V', MIN(start_date)) gw
   FROM nushop.gc_view_3 WHERE marketing_spend>1000 AND team_mapping='HIT' GROUP BY 1
-  HAVING MIN(start_date) >= DATE '2025-11-01'),
+  HAVING MIN(start_date) >= DATE '2025-10-06'),
 gdate AS (SELECT gw, MIN(gd) gd FROM golive GROUP BY 1),
 sw AS (
   SELECT g.seller_id, g.gw,
