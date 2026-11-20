@@ -1,13 +1,13 @@
 {
  "source": "Metabase card 12101 (HITS Team Mapping Validation - Rolling), written by refresh.py",
- "fetched": "2026-11-19",
+ "fetched": "2026-11-20",
  "note": "active=true rows are card 12101 today; the rest are past GCs carried forward so historical go-lives still find a CL.",
  "roles": {
   "Core GC": "Core GC",
   "Revival GC": "Revival GC",
   "Hypercare GC": "Hypercare GC",
-  "1-5K GL": "1-5K GL",
-  "Google GC": "Google GC"
+  "Google GC": "Google GC",
+  "1-5K GL": "1-5K GL"
  },
  "aliases": {
   "dhiraj kumar dhiraj kumar khandelwal": "dhiraj kumar khandelwal",

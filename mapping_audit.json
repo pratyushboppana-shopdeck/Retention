@@ -1,12 +1,12 @@
 {
- "generatedAt": "2026-11-19T08:35:30+00:00",
+ "generatedAt": "2026-11-20T03:22:35+00:00",
  "window_days": 7,
  "people": [
   {
    "name": "MEHUL BHAGAT",
    "email": "mehul.b@blitzscale.co",
    "role": "admin,growth-consultant",
-   "tasks": 49,
+   "tasks": 47,
    "sellers": 5,
    "last_task": "2026-11-19",
    "issue": "GC not on card 12101 (team/GM/CL show Unmapped)"
@@ -15,9 +15,9 @@
    "name": "Aditya S",
    "email": "aditya.s@blitzscale.co",
    "role": "admin,growth-consultant",
-   "tasks": 6,
+   "tasks": 7,
    "sellers": 2,
-   "last_task": "2026-11-18",
+   "last_task": "2026-11-19",
    "issue": "GC not on card 12101 (team/GM/CL show Unmapped)"
   },
   {
@@ -42,9 +42,9 @@
    "name": "Abhishek Hazarika",
    "email": "abhishek.hazarika@blitzscale.co",
    "role": "admin,super-admin,growth-consultant",
-   "tasks": 1,
+   "tasks": 2,
    "sellers": 1,
-   "last_task": "2026-11-18",
+   "last_task": "2026-11-19",
    "issue": "Not counted in any tab"
   }
  ]
