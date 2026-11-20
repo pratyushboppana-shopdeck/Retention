@@ -1,14 +1,14 @@
 {
- "generatedAt": "2026-11-20T03:22:35+00:00",
+ "generatedAt": "2026-11-20T07:16:45+00:00",
  "window_days": 7,
  "people": [
   {
    "name": "MEHUL BHAGAT",
    "email": "mehul.b@blitzscale.co",
    "role": "admin,growth-consultant",
-   "tasks": 47,
+   "tasks": 55,
    "sellers": 5,
-   "last_task": "2026-11-19",
+   "last_task": "2026-11-20",
    "issue": "GC not on card 12101 (team/GM/CL show Unmapped)"
   },
   {
