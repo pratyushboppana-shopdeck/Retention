@@ -845,7 +845,10 @@
         <select id="rampHeatT" style="margin-left:6px;padding:3px 6px;border-radius:7px;border:1px solid var(--line)"></select></label>
       <label style="font-size:12px;color:var(--muted);font-weight:400">cohorts by
         <select id="rampHeatG" style="margin-left:6px;padding:3px 6px;border-radius:7px;border:1px solid var(--line)"><option value="m">Calendar month</option><option value="w">ISO year-week</option></select></label>
+      <span class="slaseg" id="rampOrient" style="font-weight:400"><button type="button" data-v="coh" class="on">x = cohort</button><button type="button" data-v="age">x = age</button></span>
       <button type="button" id="rampHeatCsv" class="mbtn">Download CSV</button></div>
+    <div class="chart-box" style="height:380px"><canvas id="rampCohChart" role="img" aria-label="One line per go-live cohort: the share that had reached the selected cumulative spend level by each period since go-live."></canvas></div>
+    <div class="gbdef" id="rampCohFoot" style="margin-bottom:10px"></div>
     <div class="tablewrap" style="max-height:520px;overflow:auto"><table class="mixtab" id="rampHeat"></table></div>
     <div class="gbdef" id="rampHeatFoot"></div>
 
@@ -2677,8 +2680,16 @@ const RAMP_COL=['#86b99a','#5a9f7d','#36835f','#104a32'];
 const RAMP_WMAX=8, RAMP_MMAX=6;           // W0..W8, and M_k = relative weeks 0..4k+3 (M6 = W0..W27)
 // heatG is the COHORT grain (rows); grain is the PERIOD grain (columns). They are independent --
 // weekly cohorts read against monthly periods is the most useful combination of the four.
-const rampSt={grain:'m',coh:'all',heatT:2,heatG:'m',whyT:2,whyP:1};
-let rampWhyC=null;
+const rampSt={grain:'m',coh:'all',heatT:2,heatG:'m',orient:'coh',whyT:2,whyP:1};
+let rampWhyC=null, rampCohC=null;
+// Periods are ordered, so they get a single-hue sequential ramp interpolated between the light
+// and dark ends already validated for RAMP_COL (light end 2.23:1 on the white card). Linear
+// interpolation between two monotone endpoints keeps the lightness monotone at any step count.
+function rampSeq(j,n){
+  const A=[0x86,0xb9,0x9a], B=[0x10,0x4a,0x32], f=n<=1?1:j/(n-1);
+  return 'rgb('+A.map((a,k)=>Math.round(a+(B[k]-a)*f)).join(',')+')';
+}
+const RAMP_CHART_WCAP=26;   // weekly cohorts: chart the most recent 26, the table still lists them all
 const rampPeriods=()=>rampSt.grain==='m'
   ? Array.from({length:RAMP_MMAX+1},(_,i)=>({lab:'M'+i,end:4*i+3}))
   : Array.from({length:RAMP_WMAX+1},(_,i)=>({lab:'W'+i,end:i}));
@@ -2768,6 +2779,64 @@ function rampHeatRow(rows,i,per,now){
     return elig.length<MIX_MIN_N?null:100*elig.reduce((a,d)=>a+(rampHit(d,i,p.end)?1:0),0)/elig.length;
   });
 }
+// The cohort x period matrix, drawn. Two orientations of the same numbers:
+//  x = cohort : calendar time across, one line per age (M0..M6 / W0..W8). The decline over
+//               cohorts is a slope you read directly, and the gap between the first and last
+//               line is how much sellers still add after the early weeks.
+//  x = age    : the classic ramp, one line per cohort. Every cohort traces much the same
+//               S-curve, so this answers "how fast" but makes the trend hard to see.
+function rampCohChart(by,keys,byWeek,i,per,now){
+  const el=document.getElementById('rampCohChart'); if(!el||!window.Chart) return;
+  const byAge=rampSt.orient==='age';
+  let ks=keys.slice(), thinned=false;
+  // Only the x=age orientation needs thinning -- it spends one LINE per cohort. With cohorts on
+  // the x-axis they are points, so every week fits.
+  if(byAge && byWeek && ks.length>RAMP_CHART_WCAP){
+    // Spread the sample evenly across the whole range, keeping both ends. Taking the most
+    // recent N instead would drop the oldest cohorts -- precisely the comparison this exists for.
+    const src=ks, step=(src.length-1)/(RAMP_CHART_WCAP-1);
+    ks=Array.from({length:RAMP_CHART_WCAP},(_,j)=>src[Math.round(j*step)]).filter((v,j,arr)=>arr.indexOf(v)===j);
+    thinned=true;
+  }
+  const M=ks.map(k=>({k,lab:byWeek?k:mixLabel(k,'month'),v:rampHeatRow(by[k],i,per,now)}));
+  let labels,ds;
+  if(byAge){
+    const rows=M.filter(x=>x.v.some(v=>v!=null)), N=rows.length;
+    labels=per.map(p=>p.lab);
+    ds=rows.map((x,j)=>{const c=rampColor(j,N), newest=j===N-1;
+      return {label:x.lab,data:x.v.map(v=>v==null?null:+v.toFixed(1)),
+        borderColor:c,backgroundColor:c,borderWidth:newest?2.8:1.8,tension:.3,fill:false,
+        spanGaps:false,pointRadius:newest?2.6:1.8,pointHoverRadius:5,
+        pointBackgroundColor:'#fff',pointBorderColor:c,order:N-j};});
+  }else{
+    labels=M.map(x=>x.lab);
+    ds=per.map((p,pi)=>{const c=rampSeq(pi,per.length);
+      return {label:'by '+p.lab,data:M.map(x=>x.v[pi]==null?null:+x.v[pi].toFixed(1)),
+        borderColor:c,backgroundColor:c,borderWidth:2,tension:.25,fill:false,
+        spanGaps:false,pointRadius:2.2,pointHoverRadius:5,
+        pointBackgroundColor:'#fff',pointBorderColor:c,order:per.length-pi};});
+  }
+  if(rampCohC) rampCohC.destroy();
+  rampCohC=new Chart(el,{type:'line',data:{labels,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'bottom',labels:{boxWidth:9,boxHeight:9,usePointStyle:true,pointStyle:'circle',font:{size:10},padding:7,sort:(x,y)=>x.datasetIndex-y.datasetIndex}},
+        tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y+'%')}}},
+      scales:{y:{min:0,ticks:{color:'#3d4036',callback:v=>v+'%'},grid:{color:'rgba(18,19,15,0.075)'},
+                 title:{display:true,text:'reached '+RAMP_TL[i],color:'#54574e',font:{size:11}}},
+              x:{ticks:{color:'#3d4036',maxRotation:byAge?0:60,autoSkip:true,maxTicksLimit:byAge?12:18},grid:{display:false},
+                 title:{display:true,text:byAge
+                   ? (rampSt.grain==='m'?'months since go-live (M0 = first 4 weeks)':'weeks since go-live')
+                   : ('go-live '+(byWeek?'ISO week':'month')),color:'#54574e',font:{size:11}}}}}});
+  document.getElementById('rampCohFoot').innerHTML= byAge
+    ? 'One line per go-live '+(byWeek?'ISO week':'month')+', lightest oldest to darkest newest. A line stops where that cohort '+
+      'runs out of elapsed time &mdash; it is not a fall to zero. '+
+      (thinned?'Charting '+ks.length+' weeks sampled evenly across all '+keys.length+' so both ends of the range are shown; the table below lists every one. ':'')+
+      'Every cohort traces much the same curve, so read this for <b>how fast</b> sellers ramp, and switch to <b>x = cohort</b> to see whether the outcome is moving.'
+    : 'Calendar time runs along the bottom, one line per age. The <b>slope of any line</b> is whether newer cohorts reach '+RAMP_TL[i]+
+      ' more or less often than older ones at the same age &mdash; a like-for-like comparison, unlike reading across a row of the table. '+
+      'The <b>gap between the top and bottom lines</b> is how much sellers still add after their early weeks. Lines end early on the right '+
+      'because the newest cohorts have not lived through the longer periods yet.';
+}
 function rampHeatPaint(){
   const now=mixNowMon(), i=rampSt.heatT, per=rampPeriods();
   const {by,keys,byWeek}=rampHeatGroups();
@@ -2782,6 +2851,7 @@ function rampHeatPaint(){
     '<tr><td><b>'+esc(byWeek?k:mixLabel(k,'month'))+'</b></td><td>'+by[k].length.toLocaleString()+'</td>'+
     rampHeatRow(by[k],i,per,now).map(cell).join('')+'</tr>').join('');
   document.getElementById('rampHeat').innerHTML=head+totals+body;
+  rampCohChart(by,keys,byWeek,i,per,now);
   document.getElementById('rampHeatFoot').innerHTML=
     'Share of each go-live '+(byWeek?'ISO week':'month')+' that had reached <b>'+RAMP_TL[i]+'</b> by the end of each period. '+
     'Read <b>down a column</b> to see whether newer cohorts get there faster at the same age — that is the only fair comparison, '+
@@ -2852,6 +2922,10 @@ function buildRamp(){
     cohSel.addEventListener('change',e=>{rampSt.coh=e.target.value; rampPaint();});
     document.getElementById('rampHeatT').addEventListener('change',e=>{rampSt.heatT=+e.target.value; rampHeatPaint();});
     document.getElementById('rampHeatG').addEventListener('change',e=>{rampSt.heatG=e.target.value; rampHeatPaint();});
+    document.querySelectorAll('#rampOrient button').forEach(b=>b.addEventListener('click',()=>{
+      rampSt.orient=b.dataset.v;
+      document.querySelectorAll('#rampOrient button').forEach(x=>x.classList.toggle('on',x===b));
+      rampHeatPaint();}));
     document.getElementById('rampHeatCsv').addEventListener('click',()=>{
       const now=mixNowMon(), per=rampPeriods(), i=rampSt.heatT, q=v=>'"'+(''+(v==null?'':v)).replace(/"/g,'""')+'"';
       const {by,keys,byWeek}=rampHeatGroups();
