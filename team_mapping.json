@@ -508,13 +508,6 @@
    "active": true
   },
   {
-   "gc": "Piyush Dubey",
-   "gm": "Aniket Bhujang",
-   "cl": "Pratiksha Y",
-   "role": "1-5K GL",
-   "active": true
-  },
-  {
    "gc": "Mannat Chawla",
    "gm": "Aniket Bhujang",
    "cl": "Pratiksha Y",
@@ -537,6 +530,13 @@
   },
   {
    "gc": "Rayala Bhanu Sriraj",
+   "gm": "Anshika Satpathy",
+   "cl": "Pratiksha Y",
+   "role": "1-5K GL",
+   "active": true
+  },
+  {
+   "gc": "Piyush Dubey",
    "gm": "Anshika Satpathy",
    "cl": "Pratiksha Y",
    "role": "1-5K GL",

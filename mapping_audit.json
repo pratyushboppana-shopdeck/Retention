@@ -1,12 +1,12 @@
 {
- "generatedAt": "2026-11-27T03:23:32+00:00",
+ "generatedAt": "2026-11-27T13:49:58+00:00",
  "window_days": 7,
  "people": [
   {
    "name": "MEHUL BHAGAT",
    "email": "mehul.b@blitzscale.co",
    "role": "admin,growth-consultant",
-   "tasks": 84,
+   "tasks": 88,
    "sellers": 6,
    "last_task": "2026-11-27",
    "issue": "GC not on card 12101 (team/GM/CL show Unmapped)"
@@ -24,16 +24,16 @@
    "name": "Amrit Raj",
    "email": "amrit.raj@blitzscale.co",
    "role": "admin,growth-consultant",
-   "tasks": 6,
+   "tasks": 9,
    "sellers": 3,
-   "last_task": "2026-11-26",
+   "last_task": "2026-11-27",
    "issue": "GC not on card 12101 (team/GM/CL show Unmapped)"
   },
   {
    "name": "Sarah Taliyath",
    "email": "sarah.taliyath@blitzscale.co",
    "role": "admin,growth-consultant",
-   "tasks": 5,
+   "tasks": 8,
    "sellers": 1,
    "last_task": "2026-11-27",
    "issue": "GC not on card 12101 (team/GM/CL show Unmapped)"
